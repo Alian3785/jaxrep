@@ -1,0 +1,4 @@
+# CSV output is generated with CRLF by Python's csv module.
+*.csv text eol=lf
+# Preserve context-line spaces in archived patches.
+*.patch -whitespace

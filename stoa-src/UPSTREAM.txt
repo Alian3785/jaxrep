@@ -1,0 +1,4 @@
+Source: https://github.com/EdanToledo/Stoa
+Commit: b3a084ed05893c301e079a8f527de90513896d7e
+License: MIT (LICENSE)
+Local compatibility changes: jax.tree.map and Craftax Box/Discrete adapter.

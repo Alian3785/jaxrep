@@ -1,0 +1,3 @@
+-r benchmark-runtime.txt
+craftax==1.6.1
+gymnax @ git+https://github.com/RobertTLange/gymnax.git@31be41d6df3456af37816755406e71a1cbc727c3

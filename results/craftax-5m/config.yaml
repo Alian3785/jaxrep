@@ -1,0 +1,116 @@
+logger:
+  base_exp_path: results/
+  loggers:
+    console:
+      _target_: stoix.utils.logger.ConsoleLogger
+      enabled: true
+    wandb:
+      _target_: stoix.utils.logger.WandBLogger
+      enabled: false
+      run_id: null
+      project: null
+      tag:
+      - delete
+      group_tag:
+      - delete
+      detailed_logging: false
+      architecture_name: anakin
+      upload_json_data: false
+    neptune:
+      _target_: stoix.utils.logger.NeptuneLogger
+      enabled: false
+      run_id: null
+      project: null
+      tag:
+      - delete
+      group_tag:
+      - delete
+      detailed_logging: false
+      architecture_name: anakin
+      upload_json_data: false
+    json:
+      _target_: stoix.utils.logger.JsonLogger
+      enabled: false
+      path: null
+      task_name: symbolic
+      env_name: craftax
+      seed: 42
+    tensorboard:
+      _target_: stoix.utils.logger.TensorboardLogger
+      enabled: false
+  checkpointing:
+    save_model: false
+    save_args:
+      save_interval_steps: 1
+      max_to_keep: 1
+      keep_period: null
+      checkpoint_uid: null
+      rel_dir: checkpoints
+    load_model: false
+    load_args:
+      checkpoint_uid: ''
+      rel_dir: checkpoints
+arch:
+  architecture_name: anakin
+  seed: 42
+  update_batch_size: 1
+  total_num_envs: 1000
+  total_timesteps: 5000000
+  num_updates: 100
+  evaluation_greedy: false
+  num_eval_episodes: 64
+  num_evaluation: 10
+  absolute_metric: false
+  num_envs: 1000
+  num_updates_per_eval: 10
+system:
+  system_name: ff_ppo
+  actor_lr: 0.0003
+  critic_lr: 0.0003
+  rollout_length: 50
+  epochs: 4
+  num_minibatches: 16
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_eps: 0.2
+  ent_coef: 0.01
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  decay_learning_rates: true
+  reward_scale: 1.0
+  standardize_advantages: true
+  kl_penalty_coef: 3.0
+  normalize_observations: false
+  obs_norm_warmup_steps: 128
+  action_dim: 43
+network:
+  actor_network:
+    pre_torso:
+      _target_: stoix.networks.torso.MLPTorso
+      layer_sizes:
+      - 256
+      - 256
+      use_layer_norm: false
+      activation: relu
+    action_head:
+      _target_: stoix.networks.heads.CategoricalHead
+  critic_network:
+    pre_torso:
+      _target_: stoix.networks.torso.MLPTorso
+      layer_sizes:
+      - 256
+      - 256
+      use_layer_norm: false
+      activation: relu
+    critic_head:
+      _target_: stoix.networks.heads.ScalarCriticHead
+env:
+  env_name: craftax
+  scenario:
+    name: Craftax-Symbolic-v1
+    task_name: symbolic
+  kwargs: {}
+  eval_metric: episode_return
+  use_optimistic_reset: true
+  reset_ratio: 20
+num_devices: 1

@@ -36,8 +36,9 @@ RTX 5090, JAX 0.11.2, CUDA runtime 13.2.86, seed 42. Каждый запуск �
 положительная награда Craftax не означает прохождение игры.
 
 Полные конфигурации, метрики, checkpoint и версии находятся в `results/`.
-Протоколы: [NumberGrid](NUMBER_GRID.md), [Navix](BENCHMARK.md),
-[Craftax](CRAFTAX_BENCHMARK.md).
+Модель Craftax хранится как `model.msgpack.gz` со сжатием без потерь;
+установщик автоматически восстанавливает `model.msgpack`.
+Правила среды и детали запуска: [NUMBER_GRID.md](NUMBER_GRID.md).
 
 ## Установка
 
@@ -82,7 +83,7 @@ node verify_number_grid_viewer.cjs
 20 тестов среды пройдены на GPU. Сверены все 153 перехода девяти записей.
 Браузер проверен на экранах 1200×1080 и 390×844: воспроизведение победы,
 клавиатура, ручное прохождение, отсутствие ошибок JavaScript и горизонтального
-переполнения. Отчёт сохранён вместе с результатами NumberGrid.
+переполнения.
 
 ## Источники и лицензия
 
@@ -94,4 +95,5 @@ node verify_number_grid_viewer.cjs
   Полные исходники с исправлениями совместимости включены в `stoa-src/`.
 - PPO не изменён. Дополнены регистрация среды и совместимость logger/Stoa.
 
-Лицензии upstream Apache-2.0 сохранены в `LICENSE` и `stoa-src/LICENSE`.
+Лицензия Stoix Apache-2.0 сохранена в `LICENSE`, лицензия Stoa MIT —
+в `stoa-src/LICENSE`.

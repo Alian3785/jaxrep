@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Number Grid — игра обученного агента</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1220;--panel:#111d30;--muted:#99abc5;--line:#26354c;--blue:#60a5fa;--green:#34d399;--red:#fb7185}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#e5edf8;font:15px system-ui,-apple-system,sans-serif}
+main{max-width:1150px;margin:auto;padding:34px 24px}header{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:24px}
+h1{font-size:30px;letter-spacing:-1px;margin:0 0 8px}p{line-height:1.55;margin:7px 0;color:var(--muted)}.tag{color:var(--green);background:#12332d;border:1px solid #235447;border-radius:20px;padding:8px 14px;white-space:nowrap}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:22px}.board{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:14px}
+canvas{display:block;width:100%;height:auto;aspect-ratio:1}aside{display:flex;flex-direction:column;gap:16px}.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px}
+.label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:1px}.big{font-size:34px;font-weight:700;margin:5px 0}.stats{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+button,select{font:inherit;color:#e5edf8;background:#1b2b44;border:1px solid #354760;border-radius:9px;padding:10px 12px;cursor:pointer}button:hover{background:#263c5c}button.active{background:#254b80;border-color:var(--blue)}
+button:disabled{opacity:.4;cursor:default}.switch{display:flex;gap:8px}.switch button{flex:1}.controls{display:flex;align-items:center;gap:10px;margin-top:12px}select{width:100%;margin-top:12px;font-size:13px}
+input[type=range]{width:100%;accent-color:var(--blue)}.timeline{margin-top:16px}.timeline-labels{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;margin-bottom:5px}
+.toggles{display:flex;flex-wrap:wrap;gap:15px;margin-top:12px;font-size:13px;color:var(--muted)}input[type=checkbox]{accent-color:var(--blue)}.status{min-height:45px;display:flex;align-items:center;gap:10px;font-size:15px;font-weight:600}.dot{width:9px;height:9px;border-radius:100%;background:var(--blue)}
+.legend{display:flex;flex-direction:column;gap:10px;font-size:13px}.legend span{display:flex;align-items:center;gap:10px}.token{display:inline-flex!important;width:26px;height:26px;border-radius:7px;justify-content:center;font-weight:800;color:#0b1220}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:13px}.pad button{font-size:24px;padding:6px}.pad .center{display:flex;align-items:center;justify-content:center;color:var(--muted)}.hidden{display:none!important}
+.rule{font-size:13px}.rule strong{color:#e5edf8}.quality{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:22px}.quality .card{display:flex;gap:14px;align-items:center}.quality .big{font-size:26px;white-space:nowrap}footer{font-size:12px;color:var(--muted);margin-top:22px;line-height:1.6}
+@media(max-width:800px){main{padding:20px 12px}.layout{grid-template-columns:1fr}aside{display:grid;grid-template-columns:1fr 1fr}header{align-items:start;flex-direction:column}.quality{grid-template-columns:1fr}.card{padding:14px}h1{font-size:26px}}
+@media(max-width:450px){aside{grid-template-columns:1fr}.board{padding:5px}}
+</style>
+</head>
+<body><main>
+<header><div><h1>Number Grid</h1><p>Найди оппонента слабее себя. Побеждай и увеличивай своё число.</p></div><span class="tag">16 × 16 · 8 направлений</span></header>
+<div class="layout"><section class="board">
+<canvas id="board" width="800" height="800" aria-label="Карта игры 16 на 16"></canvas>
+<div class="status"><i class="dot" id="status-dot"></i><span id="status">Игра идёт</span></div>
+<div class="timeline" id="timeline"><div class="timeline-labels"><span>Начало</span><span id="frame-label"></span></div><input id="frame" type="range" min="0" max="1" value="0" aria-label="Шаг записи"></div>
+<div class="toggles"><label><input id="danger" type="checkbox" checked> Зоны контакта</label><label><input id="trail" type="checkbox" checked> След агента</label></div>
+</section><aside>
+<section class="card"><div class="stats"><div><div class="label">Число агента</div><div class="big" id="strength">1</div></div><div><div class="label">Награда</div><div class="big" id="return">0</div></div><div><div class="label">Шаг</div><div id="step">0 / 2000</div></div><div><div class="label">Оппоненты</div><div id="remaining">3</div></div></div></section>
+<section class="card"><div class="switch"><button id="replay-mode" class="active">Агент PPO</button><button id="manual-mode">Играть</button></div>
+<div id="replay-controls"><select id="episode" aria-label="Запись игры"></select><div class="controls"><button id="play">▶ Старт</button><button id="next">Шаг →</button><button id="restart">↺</button></div><p class="rule"><label>Скорость: <span id="speed-label">8</span> шагов/с<input id="speed" type="range" min="1" max="30" value="8"></label></p></div>
+<div id="manual-controls" class="hidden"><div class="pad"><button data-action="7">↖</button><button data-action="0">↑</button><button data-action="1">↗</button><button data-action="6">←</button><div class="center">1</div><button data-action="2">→</button><button data-action="5">↙</button><button data-action="4">↓</button><button data-action="3">↘</button></div><p class="rule">W A S D — по сторонам, Q E Z C — диагонали. Можно использовать стрелки.</p><button id="new-game">Новая игра</button></div>
+</section>
+<section class="card legend"><span><i class="token" style="background:#60a5fa">1</i> Агент — его число растёт</span><span><i class="token" style="background:#34d399">0</i> Слабее агента: можно победить</span><span><i class="token" style="background:#fb7185">2</i> Равен или сильнее: поражение</span><span><i class="token" style="background:#40516b">▧</i> Стена: движение заблокировано</span></section>
+<section class="card rule"><strong>Правила</strong><p>Контакт по сторонам и диагоналям. За каждого побеждённого оппонента: +1 к награде и числу агента. За победу над всеми: ещё +3.</p><p>Равный или более сильный сосед завершает игру: −1. Поражение имеет приоритет. Таймаут: 2000 шагов.</p></section>
+</aside></div>
+<div class="quality"><section class="card"><div class="big" id="win-rate"></div><div><div class="label">Победы PPO</div><p class="rule" id="evaluation-detail"></p></div></section><section class="card"><div class="big" id="throughput"></div><div><div class="label">Скорость обучения</div><p class="rule">Сбор данных и обновления PPO, после компиляции.</p></div></section></div>
+<footer>Режим «Агент PPO» воспроизводит реальные записи после обучения на 5 млн шагов. «Играть» позволяет пройти ту же карту самостоятельно. Записи доступны без подключения к интернету.</footer>
+</main>
+<script>const GAME_DATA = __DATA__; const RUN_SUMMARY = __SUMMARY__;</script>
+<script>__SCRIPT__</script>
+</body></html>

@@ -1,0 +1,11 @@
+env_name: number_grid
+scenario:
+  name: NumberGrid-16x16-v0
+  task_name: number_grid_16x16
+kwargs:
+  size: 16
+  max_steps: 2000
+  adjacent_diagonals: true
+  additive_victory_reward: true
+eval_metric: episode_return
+solved_return_threshold: 6.0

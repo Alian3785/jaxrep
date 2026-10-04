@@ -1,0 +1,8 @@
+env_name: navix
+scenario:
+  name: Navix-DoorKey-16x16-v0
+  task_name: navix-door_key-16x16-v0
+kwargs: {}
+eval_metric: episode_return
+wrapper:
+  _target_: stoa.FlattenObservationWrapper

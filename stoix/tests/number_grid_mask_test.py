@@ -5,7 +5,7 @@ import numpy as np
 from stoa import AddActionMaskWrapper
 
 from numbergrid_config import make_config
-from stoix.envs.number_grid import MAP, DIRECTIONS, NumberGrid, wrap_wall_action_mask
+from stoix.envs.number_grid_legacy import MAP, DIRECTIONS, NumberGrid, wrap_wall_action_mask
 from stoix.networks.base import FeedForwardActor, FeedForwardCritic
 from stoix.networks.heads import CategoricalHead, ScalarCriticHead
 from stoix.networks.torso import MLPTorso
@@ -44,7 +44,7 @@ def test_requested_wrapper_and_observation_space():
 
 
 def test_autoreset_keeps_reset_mask_and_final_mask_separate():
-    config = make_config()
+    config = make_config(map_config=MAP)
     config.env.kwargs.max_steps = 1
     env, eval_env = make(config)
     assert isinstance(eval_env, AddActionMaskWrapper)

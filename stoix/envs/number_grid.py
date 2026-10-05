@@ -1,175 +1,310 @@
-"""Deterministic NumberGrid with simultaneous, loss-first adjacent contacts."""
+"""Incremental archer battles. Every simulation operation runs on JAX/GPU.
 
+A step is a map move or ONE unit action. Enemy turns and completing a retreat
+use the sole legal CONTINUE action. Saved maps can still use numeric rules.
+"""
+import dataclasses
 import json
-import math
 from pathlib import Path
-
 import jax
 import jax.numpy as jnp
 from flax import struct
-from stoa import AddActionMaskWrapper, ArraySpace, DictSpace, DiscreteSpace, Environment, StepType, TimeStep
-from numbergrid_progression import validate_progression
+from stoa import AddActionMaskWrapper, ArraySpace, DictSpace, DiscreteSpace
+from stoix.envs.number_grid_legacy import (
+    DIRECTIONS, NumberGrid as NumericNumberGrid, NumberGridState,
+)
 
 MAP = json.loads((Path(__file__).resolve().parents[2] / 'number_grid_map.json').read_text())
-# Row, column; clockwise from north. Walls/occupied destinations consume a step.
-DIRECTIONS = ((-1, 0), (-1, 1), (0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1))
-ACTION_NAMES = ('N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW')
+SHOOT, DEFEND, WAIT, RETREAT, CONTINUE, ACTIONS = 8, 14, 15, 16, 17, 18
+ACTION_NAMES = ('N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW') + tuple(
+    f'shoot_{i}' for i in range(6)) + ('defend', 'wait', 'retreat', 'continue')
+MOVE, ENGAGE, HIT, MISS, GUARD, DELAY, FLEE, ESCAPE, VICTORY, DEFEAT, WITHDRAW, LIMIT = range(12)
 
 
 @struct.dataclass
-class NumberGridState:
-    position: jax.Array
-    number: jax.Array
-    alive: jax.Array
-    step_count: jax.Array
-    done: jax.Array
-    won: jax.Array
-    lost: jax.Array
-    visited: jax.Array
+class BattleState(NumberGridState):
+    battle_key: jax.Array
+    in_battle: jax.Array
+    enemy: jax.Array
+    origin: jax.Array
+    hp: jax.Array
+    priority: jax.Array
+    turn_phase: jax.Array  # 0: normal turn, 1: waiting, 2: finished
+    defended: jax.Array
+    retreating: jax.Array
+    escaped: jax.Array
+    actor: jax.Array
+    round: jax.Array
+    last_event: jax.Array
+    last_actor: jax.Array
+    last_target: jax.Array
+    last_damage: jax.Array
+    battle_steps: jax.Array
+    player_turns: jax.Array
+    enemy_turns: jax.Array
 
 
-class NumberGrid(Environment):
+class NumberGrid(NumericNumberGrid):
     def __init__(self, max_steps=None, map_config=None):
-        self.map_config = MAP if map_config is None else map_config
-        if 'minimum_reachable_number' in self.map_config:
-            validate_progression(self.map_config['opponent_numbers'],
-                                 self.map_config['agent_number'],
-                                 self.map_config['minimum_reachable_number'])
-        max_steps = self.map_config['max_steps'] if max_steps is None else max_steps
-        if max_steps <= 0:
-            raise ValueError('max_steps must be positive')
-        self.size = int(self.map_config['size'])
-        self.mask_walls = bool(self.map_config.get('mask_walls', False))
-        self.max_steps = int(max_steps)
-        self.step_cost = float(self.map_config.get('step_cost', 0.0))
-        if not math.isfinite(self.step_cost) or self.step_cost < 0:
-            raise ValueError('step_cost must be finite and nonnegative')
-        self.exploration_bonus = float(self.map_config.get('exploration_bonus', 0.0))
-        if not math.isfinite(self.exploration_bonus) or self.exploration_bonus < 0:
-            raise ValueError('exploration_bonus must be finite and nonnegative')
-        # One bit per cell: 72 bytes for 24x24, retained entirely on the device.
-        self.visited_words = (self.size * self.size + 31) // 32 if self.exploration_bonus else 0
-        self.initial_number = int(self.map_config['agent_number'])
-        self.num_opponents = len(self.map_config['opponent_numbers'])
-        self.number_scale = max(self.initial_number + self.num_opponents,
-                                max(self.map_config['opponent_numbers']))
-        self.observation_size = 4 + 4 * self.num_opponents
-        self.max_return = self.num_opponents + 3 + self.exploration_bonus * ((self.size - 2)**2 - 1)
-        self.opponent_positions = jnp.asarray(self.map_config['opponent_positions'], jnp.int32)
-        self.opponent_numbers = jnp.asarray(self.map_config['opponent_numbers'], jnp.int32)
-        self.directions = jnp.asarray(DIRECTIONS, jnp.int32)
+        game_map = MAP if map_config is None else map_config
+        super().__init__(max_steps=max_steps, map_config=game_map)
+        self.battle_mode = bool(game_map.get('battle_mode', False))
+        if not self.battle_mode:
+            return
+        self.mask_walls = True
+        self.hero_count = int(game_map.get('hero_units', 6))
+        self.hero_hp = int(game_map.get('hero_hp', 45))
+        self.damage = int(game_map.get('archer_damage', 25))
+        self.accuracy = float(game_map.get('archer_accuracy', .8))
+        self.max_rounds = int(game_map.get('battle_max_rounds', 75))
+        counts, health = game_map['enemy_units'], game_map['enemy_hp']
+        if not (1 <= self.hero_count <= 6 and self.hero_hp > 0 and self.damage > 0
+                and 0 <= self.accuracy <= 1 and self.max_rounds > 0):
+            raise ValueError('Invalid archer battle configuration')
+        if len(counts) != self.num_opponents or len(health) != self.num_opponents:
+            raise ValueError('Every enemy needs troop count and hit points')
+        for count, hp in zip(counts, health):
+            if not (isinstance(count, int) and isinstance(hp, int)
+                    and 1 <= count <= self.hero_count and 0 < hp <= self.hero_hp
+                    and (count < self.hero_count or hp < self.hero_hp)):
+                raise ValueError('Every enemy must be strictly weaker in count or HP')
+        self.enemy_counts = jnp.asarray(counts, jnp.int32)
+        self.enemy_health = jnp.asarray(health, jnp.int32)
+        self.slots = jnp.arange(12)
+        self.hero_full = jnp.where(jnp.arange(6) < self.hero_count, self.hero_hp, 0)
+        self.restored_hp = jnp.concatenate((self.hero_full, jnp.zeros(6, jnp.int32)))
+        self.observation_version = int(game_map.get('battle_observation_version', 1))
+        self.observation_size = (4 + 5 * self.num_opponents + 48 + 6 if self.observation_version == 2
+                                 else self.observation_size + 2 * self.num_opponents + 12 * 8 + 6)
 
     def reset(self, rng_key, env_params=None):
-        del rng_key, env_params
+        if not self.battle_mode:
+            return super().reset(rng_key, env_params)
         visited = jnp.zeros(self.visited_words, jnp.uint32)
         if self.exploration_bonus:
-            row, col = self.map_config['agent_position']
-            cell = row * self.size + col
+            r, c = self.map_config['agent_position']
+            cell = r * self.size + c
             visited = visited.at[cell // 32].set(jnp.uint32(1 << (cell % 32)))
-        state = NumberGridState(
+        zero = jnp.int32(0)
+        state = BattleState(
             position=jnp.asarray(self.map_config['agent_position'], jnp.int32),
-            number=jnp.int32(self.initial_number), alive=jnp.ones(self.num_opponents, dtype=bool),
-            step_count=jnp.int32(0), done=jnp.bool_(False),
-            won=jnp.bool_(False), lost=jnp.bool_(False),
-            visited=visited,
+            number=jnp.int32(self.initial_number), alive=jnp.ones(self.num_opponents, bool),
+            step_count=zero, done=jnp.bool_(False), won=jnp.bool_(False), lost=jnp.bool_(False),
+            visited=visited, battle_key=rng_key, in_battle=jnp.bool_(False), enemy=jnp.int32(-1),
+            origin=jnp.asarray(self.map_config['agent_position'], jnp.int32),
+            hp=self.restored_hp, priority=jnp.zeros(12), turn_phase=jnp.zeros(12, jnp.int32),
+            defended=jnp.zeros(12, bool), retreating=jnp.zeros(12, bool), escaped=jnp.zeros(12, bool),
+            actor=zero, round=zero, last_event=jnp.int32(MOVE), last_actor=jnp.int32(-1),
+            last_target=jnp.int32(-1), last_damage=zero, battle_steps=zero,
+            player_turns=zero, enemy_turns=zero,
         )
         return state, self._timestep(state, jnp.float32(0), first=True)
 
+    def max_hp(self, state):
+        enemy = jnp.maximum(state.enemy, 0)
+        opponents = jnp.where(jnp.arange(6) < self.enemy_counts[enemy], self.enemy_health[enemy], 0)
+        return jnp.concatenate((self.hero_full, jnp.where(state.in_battle, opponents, 0)))
+
     def observation(self, state):
-        # Physical state: agent and opponents, elapsed fraction. The episodic
-        # exploration memory is used only for reward, not appended to policy input.
-        opponents = jnp.concatenate([
-            self.opponent_positions.astype(jnp.float32) / (self.size - 1),
-            self.opponent_numbers[:, None].astype(jnp.float32) / self.number_scale,
-            state.alive[:, None].astype(jnp.float32),
-        ], axis=1).reshape(-1)
-        return jnp.concatenate([
-            state.position.astype(jnp.float32) / (self.size - 1),
-            jnp.asarray([state.number / self.number_scale], jnp.float32), opponents,
-            jnp.asarray([state.step_count / self.max_steps], jnp.float32),
-        ])
+        if not self.battle_mode:
+            return super().observation(state)
+        context = jnp.asarray([
+            state.in_battle, (state.enemy + 1) / self.num_opponents,
+            state.round / self.max_rounds, state.actor / 11,
+            state.origin[0] / (self.size - 1), state.origin[1] / (self.size - 1)
+        ], jnp.float32)
+        if self.observation_version == 2:
+            # No duplicate max-HP arrays or obsolete numeric battle strengths.
+            # Signed queue priority contains both order and waiting/acted status.
+            world = jnp.stack((self.opponent_positions[:,0] / (self.size-1),
+                               self.opponent_positions[:,1] / (self.size-1), state.alive,
+                               self.enemy_counts / 6, self.enemy_health / self.hero_hp),axis=1)
+            active = (state.hp > 0) & ~state.escaped
+            queue = jnp.where(active & (state.turn_phase == 0), state.priority,
+                             jnp.where(active & (state.turn_phase == 1), -state.priority, 0.))
+            units = jnp.stack((state.hp / self.hero_hp, queue, state.defended,
+                               jnp.where(state.escaped, 1., state.retreating * .5)),axis=1)
+            return jnp.concatenate((state.position / (self.size-1),
+                                    jnp.asarray([state.number / self.number_scale,
+                                                 state.step_count / self.max_steps],jnp.float32),
+                                    world.reshape(-1), units.reshape(-1), context))
+        base = super().observation(state)
+        units = jnp.stack((state.hp / self.hero_hp, self.max_hp(state) / self.hero_hp,
+                           state.priority, state.turn_phase / 2, state.defended,
+                           state.retreating, state.escaped,
+                           (self.slots == state.actor) & state.in_battle), axis=1)
+        return jnp.concatenate((base, self.enemy_counts / 6, self.enemy_health / self.hero_hp,
+                                units.reshape(-1), context))
 
     def action_mask(self, state):
-        """Only perimeter walls are excluded; occupied and dangerous cells stay legal."""
-        # Four boundary checks, shared across the eight directions; avoid a
-        # broadcasted (8,2) destination array and per-direction reductions.
-        row, col = state.position[0], state.position[1]
-        north, south = row > 1, row < self.size - 2
-        west, east = col > 1, col < self.size - 2
-        return jnp.stack((north, north & east, east, south & east,
-                          south, south & west, west, north & west))
+        if not self.battle_mode:
+            return super().action_mask(state)
+        destination = state.position[None] + self.directions
+        occupied = jnp.any(state.alive[None, :] & jnp.all(
+            destination[:, None, :] == self.opponent_positions[None, :, :], axis=-1), axis=1)
+        movement = super().action_mask(state) & ~occupied & ~state.in_battle
+        controlled = state.in_battle & (state.actor < 6) & ~state.retreating[state.actor]
+        targets = (state.hp[6:] > 0) & ~state.escaped[6:] & controlled
+        mask = jnp.concatenate((movement, targets, jnp.asarray([
+            controlled, controlled & (state.turn_phase[state.actor] == 0),
+            controlled, state.in_battle & ~controlled])))
+        return jnp.where(state.done, jnp.arange(ACTIONS) == CONTINUE, mask)
 
     def _timestep(self, state, reward, first=False):
-        terminated = state.won | state.lost
-        step_type = jnp.where(terminated, StepType.TERMINATED,
-                             jnp.where(state.done, StepType.TRUNCATED, StepType.MID))
-        if first:
-            step_type = StepType.FIRST
-        extras = {'solved_episode': state.won}
-        if self.mask_walls:
-            extras['action_mask'] = self.action_mask(state)
-        return TimeStep(
-            step_type=step_type, reward=reward,
-            discount=jnp.where(terminated, 0.0, 1.0).astype(jnp.float32),
-            observation=self.observation(state),
-            extras=extras,
+        ts = super()._timestep(state, reward, first)
+        if self.battle_mode:
+            ts = ts.replace(extras={**ts.extras, 'battle_transition': jnp.bool_(False),
+                                    'player_battle_transition': jnp.bool_(False),
+                                    'enemy_battle_transition': jnp.bool_(False),
+                                    'battle_victory': jnp.bool_(False)})
+        return ts
+
+    def _begin_battle(self, state, key=None, random_values=None):
+        if key is None:
+            key, random_key = jax.random.split(state.battle_key)
+            random_values = jax.random.uniform(random_key, (13,))
+        priority = random_values[1:] + 1
+        enemy_hp = jnp.where(jnp.arange(6) < self.enemy_counts[state.enemy],
+                             self.enemy_health[state.enemy], 0)
+        hp = jnp.concatenate((self.hero_full, enemy_hp))
+        actor = jnp.argmax(jnp.where(hp > 0, priority, -100)).astype(jnp.int32)
+        return state.replace(
+            battle_key=key, in_battle=jnp.bool_(True), hp=hp, priority=priority,
+            turn_phase=jnp.zeros(12, jnp.int32), defended=jnp.zeros(12, bool),
+            retreating=jnp.zeros(12, bool), escaped=jnp.zeros(12, bool),
+            actor=actor, round=jnp.int32(1), last_event=jnp.int32(ENGAGE),
+            last_actor=jnp.int32(-1), last_target=jnp.int32(-1), last_damage=jnp.int32(0),
         )
 
-    def step(self, state, action, env_params=None):
-        del env_params
-        # JAX gathers clamp out of range; explicitly treat invalid actions as no-op.
-        valid_action = (action >= 0) & (action < 8)
+    def _world_step(self, state, action, key, random_values):
         destination = state.position + self.directions[jnp.clip(action, 0, 7)]
-        inside = jnp.all((destination >= 1) & (destination < self.size - 1))
-        occupied = jnp.any(state.alive & jnp.all(self.opponent_positions == destination, axis=1))
-        position = jnp.where(valid_action & inside & ~occupied, destination, state.position)
-        distance = jnp.max(jnp.abs(self.opponent_positions - position), axis=1)
-        adjacent = state.alive & (distance == 1)
-        lost = jnp.any(adjacent & (self.opponent_numbers >= state.number))
-        captured = adjacent & (self.opponent_numbers < state.number) & ~lost
-        count = jnp.sum(captured, dtype=jnp.int32)
-        alive = state.alive & ~captured
-        won = ~jnp.any(alive) & ~lost
-        steps = state.step_count + 1
-        visited = state.visited
+        moved = action < 8  # step() checks the complete legality mask.
+        position = jnp.where(moved, destination, state.position)
+        nearby = state.alive & (jnp.max(jnp.abs(self.opponent_positions - position), axis=1) == 1)
+        engage = moved & jnp.any(nearby)
+        enemy = jnp.argmax(nearby).astype(jnp.int32)
+        next_state = state.replace(position=position, origin=state.position,
+                                   enemy=jnp.where(engage, enemy, state.enemy),
+                                   last_event=jnp.int32(MOVE), last_actor=jnp.int32(-1),
+                                   last_target=jnp.int32(-1), last_damage=jnp.int32(0))
         bonus = jnp.float32(0)
         if self.exploration_bonus:
             cell = position[0] * self.size + position[1]
             word, bit = cell // 32, jnp.left_shift(jnp.uint32(1), (cell % 32).astype(jnp.uint32))
-            first_visit = (visited[word] & bit) == 0
-            moved = jnp.any(position != state.position)
-            bonus = jnp.where(first_visit & moved & ~lost, jnp.float32(self.exploration_bonus), 0.0)
-            visited = visited.at[word].set(visited[word] | bit)
-        next_state = state.replace(
-            position=position, number=state.number + count, alive=alive,
-            step_count=steps, done=lost | won | (steps >= self.max_steps),
-            won=won, lost=lost, visited=visited,
-        )
-        reward = jnp.where(lost, -1.0, count.astype(jnp.float32) + 3.0 * won)
-        reward = (reward + bonus) - jnp.float32(self.step_cost)
-        # Raw environments are absorbing; training adds Stoa's auto-reset wrapper.
-        next_state = jax.tree.map(lambda old, new: jnp.where(state.done, old, new), state, next_state)
-        reward = jnp.where(state.done, 0.0, reward).astype(jnp.float32)
-        return next_state, self._timestep(next_state, reward)
+            first = (state.visited[word] & bit) == 0
+            bonus = jnp.where(first & moved, jnp.float32(self.exploration_bonus), 0.)
+            next_state = next_state.replace(visited=state.visited.at[word].set(state.visited[word] | bit))
+        next_state = jax.lax.cond(engage, lambda s: self._begin_battle(s, key, random_values), lambda s: s, next_state)
+        return next_state, bonus
 
-    def observation_space(self, env_params=None):
-        return ArraySpace(shape=(self.observation_size,), dtype=jnp.float32, name='full_state')
+    def _enemy_action(self, state, random_values):
+        valid = (state.hp[:6] > 0) & ~state.escaped[:6]
+        damage = jnp.where(state.defended[:6], (self.damage + 1) // 2, self.damage)
+        kill = valid & (state.hp[:6] <= damage)
+        candidates = valid & jnp.where(jnp.any(kill), kill, True)
+        # HP dominates the random tie breaker, including among killable targets.
+        score = jnp.where(candidates, state.hp[:6] + random_values[:6] * .5, 1e9)
+        return SHOOT + jnp.argmin(score).astype(jnp.int32)
+
+    def _battle_step(self, state, action, key, random_values):
+        actor = state.actor
+        escaping = state.retreating[actor]
+        action = jnp.where(actor >= 6, self._enemy_action(state, random_values[1:]), action)
+        action = jnp.where(escaping, CONTINUE, action)
+        attack = (action >= SHOOT) & (action < DEFEND)
+        target = jnp.clip(action - SHOOT, 0, 5) + jnp.where(actor < 6, 6, 0)
+        hit = attack & (random_values[0] < self.accuracy)
+        damage = jnp.where(state.defended[target], (self.damage + 1) // 2, self.damage)
+        applied = jnp.where(hit, jnp.minimum(damage, state.hp[target]), 0)
+        hp = state.hp.at[target].add(-applied)
+        phases = state.turn_phase.at[actor].set(jnp.where(action == WAIT, 1, 2))
+        defended = state.defended.at[actor].set(action == DEFEND)
+        retreating = state.retreating.at[actor].set(action == RETREAT)
+        escaped = state.escaped.at[actor].set(escaping)
+        active = (hp > 0) & ~escaped
+        normal, waiting = active & (phases == 0), active & (phases == 1)
+        new_round = ~jnp.any(normal | waiting)
+        phases = jnp.where(new_round, jnp.zeros(12, jnp.int32), phases)
+        priority = jnp.where(new_round, random_values[1:] + 1, state.priority)
+        round_number = state.round + new_round.astype(jnp.int32)
+        scores = jnp.where(active & (phases == 0), priority,
+                            jnp.where(active & (phases == 1), -priority, -100))
+        next_actor = jnp.argmax(scores).astype(jnp.int32)
+        defended = defended.at[next_actor].set(False)
+        lost, victory = ~jnp.any(hp[:6] > 0), ~jnp.any(hp[6:] > 0)
+        withdrawal = ~jnp.any(active[:6]) & ~lost
+        timeout = new_round & (round_number > self.max_rounds) & ~victory & ~lost & ~withdrawal
+        alive = state.alive.at[state.enemy].set(~victory)
+        won = ~jnp.any(alive) & ~lost
+        back = victory | withdrawal
+        event = jnp.where(attack, jnp.where(hit, HIT, MISS),
+                            jnp.where(action == DEFEND, GUARD,
+                            jnp.where(action == WAIT, DELAY,
+                            jnp.where(action == RETREAT, FLEE, ESCAPE))))
+        event = jnp.where(victory, VICTORY, jnp.where(lost, DEFEAT,
+                            jnp.where(withdrawal, WITHDRAW, jnp.where(timeout, LIMIT, event))))
+        next_state = state.replace(
+            battle_key=key, hp=jnp.where(back, self.restored_hp, hp),
+            in_battle=~back, position=jnp.where(withdrawal, state.origin, state.position),
+            alive=alive, number=state.number + victory.astype(jnp.int32), won=won, lost=lost,
+            done=won | lost | timeout, priority=jnp.where(back, 0., priority),
+            turn_phase=jnp.where(back, 0, phases), defended=defended & ~back,
+            retreating=retreating & ~back, escaped=escaped & ~back,
+            actor=jnp.where(back, 0, next_actor), round=jnp.where(back, 0, round_number),
+            last_event=event.astype(jnp.int32), last_actor=actor,
+            last_target=jnp.where(attack, target, -1), last_damage=applied,
+            battle_steps=state.battle_steps + 1,
+            player_turns=state.player_turns + ((actor < 6) & ~escaping).astype(jnp.int32),
+            enemy_turns=state.enemy_turns + ((actor >= 6) & ~escaping).astype(jnp.int32),
+        )
+        reward = victory.astype(jnp.float32) + 3 * won - lost.astype(jnp.float32)
+        return next_state, reward
+
+    def step(self, state, action, env_params=None):
+        if not self.battle_mode:
+            return super().step(state, action, env_params)
+        # Validate only the selected move/target here. The full action mask is
+        # generated once for the next observation, not twice per transition.
+        destination = state.position + self.directions[jnp.clip(action, 0, 7)]
+        world_valid = ((action >= 0) & (action < 8)
+                       & jnp.all((destination > 0) & (destination < self.size - 1))
+                       & ~jnp.any(state.alive & jnp.all(self.opponent_positions == destination, axis=1)))
+        controlled = (state.actor < 6) & ~state.retreating[state.actor]
+        target = jnp.clip(action - SHOOT, 0, 5) + 6
+        attack_valid = ((action >= SHOOT) & (action < DEFEND)
+                        & (state.hp[target] > 0) & ~state.escaped[target])
+        unit_valid = attack_valid | (action == DEFEND) | (action == RETREAT) | ((action == WAIT) & (state.turn_phase[state.actor] == 0))
+        battle_valid = jnp.where(controlled, unit_valid, action == CONTINUE)
+        valid = jnp.where(state.in_battle, battle_valid, world_valid) & ~state.done
+        # Share one random draw between the vmapped map/battle branches.
+        key, random_key = jax.random.split(state.battle_key)
+        random_values = jax.random.uniform(random_key, (13,))
+        next_state, reward = jax.lax.cond(state.in_battle, self._battle_step, self._world_step,
+                                         state, action, key, random_values)
+        steps = state.step_count + 1
+        next_state = next_state.replace(step_count=steps, done=next_state.done | (steps >= self.max_steps))
+        fallback = state.replace(step_count=jnp.where(state.done, state.step_count, steps),
+                                 done=state.done | (steps >= self.max_steps))
+        next_state = jax.tree.map(lambda new, old: jnp.where(valid, new, old), next_state, fallback)
+        reward = jnp.where(valid, reward, 0.) - jnp.float32(self.step_cost)
+        ts = self._timestep(next_state, jnp.where(state.done, 0., reward))
+        combat = state.in_battle & valid & ~state.done
+        ts = ts.replace(extras={**ts.extras, 'battle_transition': combat,
+                                'player_battle_transition': combat & (state.actor < 6) & ~state.retreating[state.actor],
+                                'enemy_battle_transition': combat & (state.actor >= 6),
+                                'battle_victory': combat & (next_state.last_event == VICTORY)})
+        return next_state, ts
 
     def action_space(self, env_params=None):
-        return DiscreteSpace(num_values=8, dtype=jnp.int32)
+        return DiscreteSpace(ACTIONS if self.battle_mode else 8, dtype=jnp.int32)
 
     def state_space(self, env_params=None):
-        return DictSpace({
-            'position': ArraySpace((2,), jnp.int32),
-            'number': ArraySpace((), jnp.int32),
-            'alive': ArraySpace((self.num_opponents,), bool),
-            'step_count': ArraySpace((), jnp.int32),
-            'done': ArraySpace((), bool), 'won': ArraySpace((), bool),
-            'lost': ArraySpace((), bool),
-            'visited': ArraySpace((self.visited_words,), jnp.uint32),
-        })
+        if not self.battle_mode:
+            return super().state_space(env_params)
+        state, _ = self.reset(jax.random.PRNGKey(0))
+        return DictSpace({f.name: ArraySpace(getattr(state, f.name).shape, getattr(state, f.name).dtype)
+                          for f in dataclasses.fields(state)})
 
 
 def wrap_wall_action_mask(env):
-    """Apply before auto-reset so reset and terminal observations keep their own mask."""
     return AddActionMaskWrapper(env) if env.mask_walls else env

@@ -28,6 +28,9 @@ def plain(state):
 def build(output):
     result = json.loads((output / 'results.json').read_text())
     game_map = json.loads((output / 'map.json').read_text())
+    if game_map.get('battle_mode'):
+        from export_battle_viewer import build as build_battle
+        return build_battle(output)
     config = OmegaConf.load(output / 'config.json')
     checkpoint = (output / 'params.msgpack').read_bytes()
     assert hashlib.sha256(checkpoint).hexdigest() == result['checkpoint_sha256']

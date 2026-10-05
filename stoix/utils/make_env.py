@@ -58,7 +58,11 @@ def apply_core_wrappers(env: Environment, config: DictConfig) -> Environment:
         )
     else:
         if config.env.get("use_cached_auto_reset", False):
-            env = CachedAutoResetWrapper(env, next_obs_in_extras=True)
+            if config.env.env_name == 'number_grid' and getattr(env, 'battle_mode', False):
+                from stoix.wrappers.number_grid_reset import NumberGridBattleAutoReset
+                env = NumberGridBattleAutoReset(env, next_obs_in_extras=True)
+            else:
+                env = CachedAutoResetWrapper(env, next_obs_in_extras=True)
         else:
             env = AutoResetWrapper(env, next_obs_in_extras=True)
         env = VmapWrapper(env)

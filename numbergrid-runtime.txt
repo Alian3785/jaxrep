@@ -13,4 +13,5 @@ rlax>=0.1.6
 gymnasium>=1.1.1
 rich>=13
 pytest>=8
+wandb==0.30.0
 setuptools>=75

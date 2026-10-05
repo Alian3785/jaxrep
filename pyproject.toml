@@ -11,6 +11,9 @@ readme = "README.md"
 license = "Apache-2.0"
 dynamic = ["dependencies"]
 
+[project.optional-dependencies]
+dev = ["ruff==0.16.10"]
+
 [tool.setuptools.dynamic]
 dependencies = {file = ["numbergrid-runtime.txt"]}
 
@@ -18,8 +21,11 @@ dependencies = {file = ["numbergrid-runtime.txt"]}
 include = ["stoix*"]
 
 [tool.pytest.ini_options]
-testpaths = ["stoix/tests/number_grid_test.py", "stoix/tests/number_grid_mask_test.py"]
+testpaths = ["stoix/tests/number_grid_test.py", "stoix/tests/number_grid_mask_test.py", "stoix/tests/number_grid_battle_test.py", "stoix/tests/number_grid_tracking_test.py"]
 addopts = "-p no:cacheprovider"
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+select = ["F821", "F823", "F601", "B006", "B023"]

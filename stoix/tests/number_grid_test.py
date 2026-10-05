@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 import numbergrid_reference as reference
-from stoix.envs.number_grid import DIRECTIONS, MAP, NumberGrid as CurrentNumberGrid
+from stoix.envs.number_grid_legacy import DIRECTIONS, MAP, NumberGrid as CurrentNumberGrid
 from stoix.utils.make_env import make
 from numbergrid_config import make_config
 from numbergrid_progression import generate_opponent_numbers, validate_progression

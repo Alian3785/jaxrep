@@ -1,2 +1,2 @@
 @echo off
-start "" "%~dp0viewer.html"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\open_numbergrid.ps1"

@@ -8,6 +8,32 @@ const match = html.match(/<script id="run-data" type="application\/json">([\s\S]
 assert.ok(match, 'Viewer must contain embedded run data');
 assert.ok(!/<(?:script|link)[^>]+(?:src|href)=["']https?:/i.test(html), 'Viewer must work offline');
 const data = JSON.parse(match[1]);
+if (data.map.battle_mode) {
+  let transitions = 0, combatTransitions = 0;
+  for (const record of data.records) {
+    assert.equal(record.frames[0].state.step_count, 0);
+    let totalReward = 0;
+    for (let i = 1; i < record.frames.length; i++) {
+      const before = record.frames[i-1], after = record.frames[i];
+      assert.ok(before.action_mask[after.action], 'Recorded action must be legal');
+      assert.equal(after.state.step_count, before.state.step_count+1);
+      assert.equal(after.state.hp.length, 12);
+      assert.ok(after.state.hp.every(h=>h>=0));
+      assert.equal(after.action_mask.length, 18);
+      totalReward += after.reward;
+      assert.equal(after.total_reward, totalReward);
+      transitions++; combatTransitions += Number(before.state.in_battle);
+    }
+    assert.equal(record.frames.at(-1).state.done, true);
+  }
+  assert.ok(html.includes('/api/step'), 'Human mode must call the JAX service');
+  assert.ok(!html.includes('NumberGridEngine.step'), 'Browser must not simulate the archer battle');
+  const report = {passed:true, mode:'JAX archer battle replays', records:data.records.length,
+    transitions, combatTransitions, validation:'Replay structure and masks; rules tested in JAX pytest'};
+  console.log(JSON.stringify(report,null,2));
+  if (process.argv[2]) fs.writeFileSync(process.argv[2],JSON.stringify(report,null,2));
+  return;
+}
 let transitions = 0;
 for (const record of data.records) {
   assert.deepEqual(record.frames[0].state, engine.initial(data.map));

@@ -72,13 +72,10 @@ jobs:
         with:
           script: |
             const {execFileSync} = require('node:child_process');
-            const fs = require('node:fs');
-            const path = require('node:path');
             const base = ['-d', 'Ubuntu-24.04', '-u', 'minigrid', '--'];
-            const directory = fs.mkdtempSync(path.join(process.env.RUNNER_TEMP, 'numbergrid-ci-'));
-            const match = directory.match(/^([a-z]):[\\/](.*)$/i);
-            if (!match) throw Error('Expected local Windows runner path');
-            const root = '/mnt/' + match[1].toLowerCase() + '/' + match[2].replace(/\\/g, '/') + '/repo';
+            const directory = execFileSync('wsl.exe', [...base, 'mktemp', '-d', '/tmp/jaxrep-ci.XXXXXX'], {encoding:'utf8', windowsHide:true}).trim();
+            if (!/^\/tmp\/jaxrep-ci\.[a-zA-Z0-9]+$/.test(directory)) throw Error('Unexpected WSL temporary directory');
+            const root = directory + '/repo';
             function wsl(args) {
               return execFileSync('wsl.exe', [...base, ...args], {stdio:'inherit', windowsHide:true});
             }

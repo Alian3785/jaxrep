@@ -24,14 +24,9 @@ function protectedPath(p) {
   return /^(\.github\/|\.codex\/|\.git\/|AGENTS\.md$|\.coderabbit\.yaml$|docs\/CODE_REVIEW\.md$)/i.test(p) ||
     /(^|\/)(\.env(?:\..*)?|auth\.json|credentials|\.netrc)$/i.test(p);
 }
-function linuxPath(p) {
-  const match = path.resolve(p).match(/^([a-z]):[\\/](.*)$/i);
-  if (!match) throw Error('Expected an absolute local Windows path');
-  return `/mnt/${match[1].toLowerCase()}/${match[2].replace(/\\/g, '/')}`;
-}
 function git(args, cwd) {
-  return command('wsl.exe', ['-d', 'Ubuntu-24.04', '-u', 'minigrid', '--',
-    'git', '-C', linuxPath(cwd), ...args], cwd);
+  // Pure Git operations; no MSYS submodule shell or credential helper is used.
+  return command('git', ['-c', 'http.version=HTTP/1.1', ...args], cwd);
 }
 function fileChanges(checkout, files) {
   if (files.length > 20) throw Error('Repair exceeds 20 files; needs manual review');
@@ -76,9 +71,9 @@ async function run() {
   fs.mkdirSync(workRoot, {recursive: true});
   const directory = fs.mkdtempSync(path.join(workRoot, `pr-${task.number}-`));
   const checkout = path.join(directory, 'repo');
-  git(['clone', '--no-checkout', '--filter=blob:none', `https://github.com/${REPO}.git`, linuxPath(checkout)], directory);
+  git(['clone', '--no-checkout', '--filter=blob:none', `https://github.com/${REPO}.git`, checkout], directory);
   git(['config', 'core.filemode', 'false'], checkout);
-  git(['-c', 'core.hooksPath=/dev/null', 'checkout', '--detach', task.head], checkout);
+  git(['-c', 'core.hooksPath=NUL', 'checkout', '--detach', task.head], checkout);
   const codex = command('where.exe', ['codex'], directory).split(/\r?\n/).find(p => p.endsWith('.exe'));
   if (!codex) throw Error('Codex CLI is unavailable in the runner PATH');
   const output = path.join(directory, 'result.md');

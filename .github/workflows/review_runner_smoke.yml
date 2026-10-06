@@ -1,7 +1,6 @@
 name: Review runner smoke
 on:
   pull_request:
-    paths: ['.github/review-loop/**', '.github/workflows/*review*', 'docs/CODE_REVIEW.md']
   workflow_dispatch:
 permissions:
   contents: read

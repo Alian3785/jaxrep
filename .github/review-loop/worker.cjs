@@ -76,7 +76,8 @@ async function run() {
   command('git', ['-c', 'core.hooksPath=NUL', '-c', 'user.name=disciplesjax',
     '-c', 'user.email=Alian3785@gmail.com', 'commit', '-m', `Fix verified CodeRabbit findings for #${task.number}`], checkout);
   // Ordinary push rejects a concurrent update. Never force-push the user's branch.
-  command('git', ['-c', 'http.version=HTTP/1.1', 'push', 'origin', `HEAD:refs/heads/${task.branch}`], checkout);
+  command('git', ['-c', 'http.version=HTTP/1.1', '-c', 'credential.helper=',
+    '-c', 'credential.helper=!gh auth git-credential', 'push', 'origin', `HEAD:refs/heads/${task.branch}`], checkout);
   const head = command('git', ['rev-parse', 'HEAD'], checkout);
   request(`repos/${REPO}/issues/${task.number}/comments`, 'POST', {
     body: `Codex отправил исправления: ${head}. Ожидается повторное ревью CodeRabbit и CI.\n\n${summary}`,

@@ -1,0 +1,30 @@
+name: Review runner smoke
+on:
+  pull_request:
+    paths: ['.github/review-loop/**', '.github/workflows/*review*', 'docs/CODE_REVIEW.md']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  runner-smoke:
+    if: >-
+      github.repository == 'Alian3785/jaxrep' &&
+      (github.event_name == 'workflow_dispatch' && github.actor == 'Alian3785' ||
+       github.event.pull_request.user.login == 'Alian3785' &&
+       github.event.pull_request.head.repo.full_name == 'Alian3785/jaxrep')
+    runs-on: [self-hosted, Windows, X64, jaxrep-codex]
+    timeout-minutes: 10
+    steps:
+      # Deliberately no PR checkout or PR-controlled script on the authenticated host.
+      - name: Verify local identities and noninteractive Codex
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $identity = gh api user --jq .login
+          if ($LASTEXITCODE -ne 0 -or $identity -ne 'Alian3785') { throw 'GitHub login is unavailable' }
+          codex login status
+          if ($LASTEXITCODE -ne 0) { throw 'Codex login is unavailable' }
+          $resultPath = Join-Path $env:RUNNER_TEMP 'codex-runner-smoke.txt'
+          codex -a never exec --sandbox read-only --skip-git-repo-check --ephemeral --output-last-message $resultPath 'Reply exactly READY. Do not use tools or edit files.'
+          if ($LASTEXITCODE -ne 0) { throw 'Noninteractive Codex failed' }
+          if ((Get-Content -LiteralPath $resultPath -Raw).Trim() -ne 'READY') { throw 'Unexpected Codex response' }

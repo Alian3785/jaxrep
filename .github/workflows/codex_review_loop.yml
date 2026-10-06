@@ -10,7 +10,7 @@ on:
     types: [created, edited]
   status:
   workflow_run:
-    workflows: ['Tests and Linters 🧪', 'Check Algorithms 🧪', 'Review loop tests']
+    workflows: ['Tests and Linters 🧪', 'Check Algorithms 🧪', 'Review loop tests', 'Review runner smoke']
     types: [completed]
   workflow_dispatch:
 

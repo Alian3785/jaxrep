@@ -67,17 +67,26 @@ jobs:
     runs-on: [self-hosted, Windows, X64, jaxrep-codex]
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          persist-credentials: false
       - name: Run NumberGrid tests on the existing WSL GPU runtime
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const {execFileSync} = require('node:child_process');
+            const fs = require('node:fs');
+            const path = require('node:path');
             const base = ['-d', 'Ubuntu-24.04', '-u', 'minigrid', '--'];
-            const root = execFileSync('wsl.exe', [...base, 'wslpath', '-a', process.env.GITHUB_WORKSPACE], {encoding:'utf8'}).trim();
-            execFileSync('wsl.exe', [...base, 'bash', root + '/scripts/run_gpu.sh', '-m', 'pytest'], {stdio:'inherit', windowsHide:true});
+            const directory = fs.mkdtempSync(path.join(process.env.RUNNER_TEMP, 'numbergrid-ci-'));
+            const match = directory.match(/^([a-z]):[\\/](.*)$/i);
+            if (!match) throw Error('Expected local Windows runner path');
+            const root = '/mnt/' + match[1].toLowerCase() + '/' + match[2].replace(/\\/g, '/') + '/repo';
+            function wsl(args) {
+              return execFileSync('wsl.exe', [...base, ...args], {stdio:'inherit', windowsHide:true});
+            }
+            // Linux Git avoids intermittent MSYS fork failures in Windows Git.
+            wsl(['git', '-c', 'core.autocrlf=false', 'clone', '--depth=1', '--no-checkout', 'https://github.com/Alian3785/jaxrep.git', root]);
+            wsl(['git', '-C', root, 'fetch', '--depth=1', 'origin', context.sha]);
+            wsl(['git', '-C', root, '-c', 'core.hooksPath=/dev/null', 'checkout', '--detach', 'FETCH_HEAD']);
+            wsl(['bash', root + '/scripts/run_gpu.sh', '-m', 'pytest']);
   result:
     name: Algorithm checks
     needs: [scope, upstream, numbergrid]

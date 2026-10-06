@@ -24,6 +24,35 @@ function protectedPath(p) {
   return /^(\.github\/|\.codex\/|\.git\/|AGENTS\.md$|\.coderabbit\.yaml$|docs\/CODE_REVIEW\.md$)/i.test(p) ||
     /(^|\/)(\.env(?:\..*)?|auth\.json|credentials|\.netrc)$/i.test(p);
 }
+function linuxPath(p) {
+  const match = path.resolve(p).match(/^([a-z]):[\\/](.*)$/i);
+  if (!match) throw Error('Expected an absolute local Windows path');
+  return `/mnt/${match[1].toLowerCase()}/${match[2].replace(/\\/g, '/')}`;
+}
+function git(args, cwd) {
+  return command('wsl.exe', ['-d', 'Ubuntu-24.04', '-u', 'minigrid', '--',
+    'git', '-C', linuxPath(cwd), ...args], cwd);
+}
+function fileChanges(checkout, files) {
+  if (files.length > 20) throw Error('Repair exceeds 20 files; needs manual review');
+  const changes = {additions: [], deletions: []};
+  const root = fs.realpathSync(checkout);
+  let bytes = 0;
+  for (const file of files) {
+    if (protectedPath(file)) throw Error('Protected file');
+    const filename = path.join(checkout, file);
+    if (!fs.existsSync(filename)) {changes.deletions.push({path: file}); continue;}
+    const relative = path.relative(root, fs.realpathSync(filename));
+    if (relative.startsWith('..') || path.isAbsolute(relative) || !fs.lstatSync(filename).isFile()) {
+      throw Error('Repair contains a symlink or path outside its checkout');
+    }
+    const content = fs.readFileSync(filename);
+    bytes += content.length;
+    if (bytes > 2 * 1024 * 1024) throw Error('Repair exceeds 2 MiB; needs manual review');
+    changes.additions.push({path: file, contents: content.toString('base64')});
+  }
+  return changes;
+}
 
 async function run() {
   // Use this computer's existing gh login, never the runner's read-only job token.
@@ -47,8 +76,9 @@ async function run() {
   fs.mkdirSync(workRoot, {recursive: true});
   const directory = fs.mkdtempSync(path.join(workRoot, `pr-${task.number}-`));
   const checkout = path.join(directory, 'repo');
-  command('git', ['clone', '--no-checkout', '--filter=blob:none', `https://github.com/${REPO}.git`, checkout], directory);
-  command('git', ['-c', 'core.hooksPath=NUL', 'checkout', '--detach', task.head], checkout);
+  git(['clone', '--no-checkout', '--filter=blob:none', `https://github.com/${REPO}.git`, linuxPath(checkout)], directory);
+  git(['config', 'core.filemode', 'false'], checkout);
+  git(['-c', 'core.hooksPath=/dev/null', 'checkout', '--detach', task.head], checkout);
   const codex = command('where.exe', ['codex'], directory).split(/\r?\n/).find(p => p.endsWith('.exe'));
   if (!codex) throw Error('Codex CLI is unavailable in the runner PATH');
   const output = path.join(directory, 'result.md');
@@ -63,10 +93,10 @@ async function run() {
   } finally {fs.closeSync(log);}
   if (result.status !== 0) throw Error(`Codex failed (${result.status}); local log: ${directory}`);
   const summary = fs.readFileSync(output, 'utf8').slice(0, 12000);
-  if (command('git', ['rev-parse', 'HEAD'], checkout) !== task.head) throw Error('Codex changed commit history');
+  if (git(['rev-parse', 'HEAD'], checkout) !== task.head) throw Error('Codex changed commit history');
   const files = [...new Set([
-    ...command('git', ['diff', '--name-only', '-z', 'HEAD'], checkout).split('\0'),
-    ...command('git', ['ls-files', '-z', '--others', '--exclude-standard'], checkout).split('\0'),
+    ...git(['diff', '--no-renames', '--name-only', '-z', 'HEAD'], checkout).split('\0'),
+    ...git(['ls-files', '-z', '--others', '--exclude-standard'], checkout).split('\0'),
   ].filter(Boolean))];
   if (files.some(protectedPath)) throw Error('Repair touched protected control/auth files; manual review required');
   s = await snapshot(github, repo, task.number);
@@ -77,14 +107,18 @@ async function run() {
     });
     return;
   }
-  command('git', ['diff', '--check'], checkout);
-  command('git', ['add', '--', ...files], checkout);
-  command('git', ['-c', 'core.hooksPath=NUL', '-c', 'user.name=disciplesjax',
-    '-c', 'user.email=Alian3785@gmail.com', 'commit', '-m', `Fix verified CodeRabbit findings for #${task.number}`], checkout);
-  // Ordinary push rejects a concurrent update. Never force-push the user's branch.
-  command('git', ['-c', 'http.version=HTTP/1.1', '-c', 'credential.helper=',
-    '-c', 'credential.helper=!gh auth git-credential', 'push', 'origin', `HEAD:refs/heads/${task.branch}`], checkout);
-  const head = command('git', ['rev-parse', 'HEAD'], checkout);
+  git(['diff', '--check', 'HEAD'], checkout);
+  // Server-side compare-and-swap prevents overwriting a concurrent push.
+  // The local gh user creates the commit, so normal PR/review events are emitted.
+  const committed = await github.graphql(`mutation($input:CreateCommitOnBranchInput!) {
+    createCommitOnBranch(input:$input) {commit {oid}}
+  }`, {input: {
+    branch: {repositoryNameWithOwner: REPO, branchName: task.branch},
+    expectedHeadOid: task.head,
+    message: {headline: `Fix verified CodeRabbit findings for #${task.number}`},
+    fileChanges: fileChanges(checkout, files),
+  }});
+  const head = committed.createCommitOnBranch.commit.oid;
   request(`repos/${REPO}/issues/${task.number}/comments`, 'POST', {
     body: `Codex отправил исправления: ${head}. Ожидается повторное ревью CodeRabbit и CI.\n\n${summary}`,
   });
@@ -92,4 +126,4 @@ async function run() {
 }
 
 if (require.main === module) run().catch(error => {console.error(error.message); process.exitCode = 1;});
-module.exports = {sameTask, protectedPath, run};
+module.exports = {sameTask, protectedPath, fileChanges, run};

@@ -1,0 +1,76 @@
+name: CodeRabbit to Codex
+
+# No schedule. Every pass is caused by a PR, review or CI event.
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review, edited, labeled, unlabeled]
+  pull_request_review:
+    types: [submitted, dismissed]
+  issue_comment:
+    types: [created, edited]
+  status:
+  workflow_run:
+    workflows: ['Tests and Linters 🧪', 'Check Algorithms 🧪', 'Review loop tests', 'Review runner smoke']
+    types: [completed]
+  workflow_dispatch:
+
+concurrency:
+  group: coderabbit-codex-controller
+  cancel-in-progress: false
+permissions:
+  contents: read
+
+jobs:
+  controller:
+    if: >-
+      github.repository == 'Alian3785/jaxrep' &&
+      (github.event_name != 'issue_comment' ||
+       github.event.comment.user.login == 'coderabbitai[bot]' ||
+       github.event.comment.user.login == 'Alian3785')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has_repairs: ${{ steps.plan.outputs.has_repairs }}
+    steps:
+      # Only trusted default-branch controller code runs with write credentials.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        id: plan
+        env:
+          CODEX_LOOP_READY: ${{ vars.CODEX_LOOP_READY }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            await require('./.github/review-loop/controller.cjs').run({github, context, core});
+
+  repair:
+    needs: controller
+    if: needs.controller.outputs.has_repairs == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.controller.outputs.matrix) }}
+    runs-on: [self-hosted, Windows, X64, jaxrep-codex]
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          path: trusted-controller
+      - name: Repair or merge the verified PR
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          LOOP_TASK: ${{ toJSON(matrix) }}
+        with:
+          script: |
+            await require('./trusted-controller/.github/review-loop/worker.cjs').run();

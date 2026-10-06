@@ -1,0 +1,38 @@
+name: Review runner smoke
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  runner-smoke:
+    if: >-
+      github.repository == 'Alian3785/jaxrep' &&
+      (github.event_name == 'workflow_dispatch' && github.actor == 'Alian3785' ||
+       github.event.pull_request.user.login == 'Alian3785' &&
+       github.event.pull_request.head.repo.full_name == 'Alian3785/jaxrep')
+    runs-on: [self-hosted, Windows, X64, jaxrep-codex]
+    timeout-minutes: 10
+    steps:
+      # Deliberately no PR checkout or PR-controlled script on the authenticated host.
+      - name: Verify local identities and noninteractive Codex
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const {execFileSync} = require('node:child_process');
+            const fs = require('node:fs');
+            const path = require('node:path');
+            function run(exe, args) {
+              for (let attempt = 0; ; attempt++) {
+                try { return execFileSync(exe, args, {encoding: 'utf8', windowsHide: true, timeout: 180000}); }
+                catch (e) { if (attempt >= 2 || ![3221225477, -1073741819].includes(e.status)) throw e; }
+              }
+            }
+            if (run('gh', ['api', 'user', '--jq', '.login']).trim() !== 'Alian3785') throw Error('Wrong GitHub identity');
+            const codex = run('where.exe', ['codex']).trim().split(/\r?\n/).find(p => p.endsWith('.exe'));
+            run(codex, ['login', 'status']);
+            const result = path.join(fs.mkdtempSync(path.join(process.env.RUNNER_TEMP, 'codex-smoke-')), 'result.txt');
+            run(codex, ['-a', 'never', 'exec', '--sandbox', 'read-only', '--skip-git-repo-check', '--ephemeral',
+              '--output-last-message', result, 'Reply exactly READY. Do not use tools or edit files.']);
+            if (fs.readFileSync(result, 'utf8').trim() !== 'READY') throw Error('Unexpected Codex response');
+            core.info('Local GitHub identity and noninteractive Codex verified.');

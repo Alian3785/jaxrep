@@ -1,72 +1,99 @@
 name: Check Algorithms 🧪
-
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
   workflow_dispatch:
-
-env:
-  UV_SYSTEM_PYTHON: 1
-
 permissions:
   contents: read
   pull-requests: read
-
 concurrency:
   group: algorithms-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
-
 jobs:
-  test-algorithms:
-    name: "Python ${{ matrix.python-version }} on ${{ matrix.os }}"
-    runs-on: "${{ matrix.os }}"
-    timeout-minutes: 360
-
-    strategy:
-      matrix:
-        python-version: ["3.10"]
-        os: [ubuntu-latest]
-
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      runtime: ${{ steps.scope.outputs.runtime }}
+      numbergrid: ${{ steps.scope.outputs.numbergrid }}
     steps:
-      - name: Check whether runtime code changed
-        id: scope
+      - id: scope
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
-            if (!context.payload.pull_request) {
-              core.setOutput('runtime', 'true');
-              return;
+            const pr = context.payload.pull_request;
+            const ref = pr ? pr.head.sha : context.sha;
+            let numbergrid = false;
+            try {
+              await github.rest.repos.getContent({...context.repo, path: 'numbergrid-runtime.txt', ref});
+              numbergrid = true;
+            } catch (error) { if (error.status !== 404) throw error; }
+            let runtime = true;
+            if (pr) {
+              const files = await github.paginate(github.rest.pulls.listFiles, {
+                ...context.repo, pull_number: pr.number, per_page: 100
+              });
+              const isolated = p => p.startsWith('.github/') || p.startsWith('docs/') ||
+                p.endsWith('.md') || p === '.coderabbit.yaml';
+              runtime = files.some(f => !isolated(f.filename) || (f.previous_filename && !isolated(f.previous_filename)));
             }
-            const files = await github.paginate(github.rest.pulls.listFiles, {
-              ...context.repo, pull_number: context.payload.pull_request.number, per_page: 100
-            });
-            const isolated = p => p.startsWith('.github/') || p.startsWith('docs/') ||
-              p.endsWith('.md') || p === '.coderabbit.yaml';
-            const runtime = files.some(f => !isolated(f.filename) ||
-              (f.previous_filename && !isolated(f.previous_filename)));
+            core.setOutput('numbergrid', String(numbergrid));
             core.setOutput('runtime', String(runtime));
-            if (!runtime) core.info('Only documentation/review infrastructure changed; review-loop tests validate these files.');
-
-      - name: Checkout stoix
-        if: steps.scope.outputs.runtime == 'true'
-        uses: actions/checkout@v4
-
-      - name: Install uv and set the python version
-        if: steps.scope.outputs.runtime == 'true'
-        uses: astral-sh/setup-uv@v5
+            if (!runtime) core.info('Only documentation/review infrastructure changed; its own tests apply.');
+  upstream:
+    needs: scope
+    if: needs.scope.outputs.runtime == 'true' && needs.scope.outputs.numbergrid != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      UV_SYSTEM_PYTHON: 1
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install the project
-        if: steps.scope.outputs.runtime == 'true'
-        run: uv sync --dev
-
-      - name: Make Bash Script Executable
-        if: steps.scope.outputs.runtime == 'true'
-        run: chmod +x bash_scripts/run-algorithms.sh
-
-      - name: Run Bash Script
-        if: steps.scope.outputs.runtime == 'true'
-        run: ./bash_scripts/run-algorithms.sh
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.10'
+      - run: uv sync --dev
+      - run: bash bash_scripts/run-algorithms.sh
+  numbergrid:
+    needs: scope
+    if: >-
+      needs.scope.outputs.runtime == 'true' && needs.scope.outputs.numbergrid == 'true' &&
+      github.repository == 'Alian3785/jaxrep' &&
+      (github.event_name != 'pull_request' && github.actor == 'Alian3785' ||
+       github.event.pull_request.user.login == 'Alian3785' &&
+       github.event.pull_request.head.repo.full_name == 'Alian3785/jaxrep')
+    runs-on: [self-hosted, Windows, X64, jaxrep-codex]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Run NumberGrid tests on the existing WSL GPU runtime
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const {execFileSync} = require('node:child_process');
+            const base = ['-d', 'Ubuntu-24.04', '-u', 'minigrid', '--'];
+            const root = execFileSync('wsl.exe', [...base, 'wslpath', '-a', process.env.GITHUB_WORKSPACE], {encoding:'utf8'}).trim();
+            execFileSync('wsl.exe', [...base, 'bash', root + '/scripts/run_gpu.sh', '-m', 'pytest'], {stdio:'inherit', windowsHide:true});
+  result:
+    name: Algorithm checks
+    needs: [scope, upstream, numbergrid]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          SCOPE: ${{ needs.scope.result }}
+          RUNTIME: ${{ needs.scope.outputs.runtime }}
+          NUMBERGRID: ${{ needs.scope.outputs.numbergrid }}
+          UPSTREAM_RESULT: ${{ needs.upstream.result }}
+          NUMBERGRID_RESULT: ${{ needs.numbergrid.result }}
+        with:
+          script: |
+            if (process.env.SCOPE !== 'success') return core.setFailed('Scope detection failed');
+            if (process.env.RUNTIME === 'false') return core.info('Runtime unchanged; review-loop tests cover this PR.');
+            const result = process.env.NUMBERGRID === 'true' ? process.env.NUMBERGRID_RESULT : process.env.UPSTREAM_RESULT;
+            if (result !== 'success') core.setFailed('Runtime tests did not pass: ' + result);

@@ -64,10 +64,13 @@ Codex-сеансом. CodeRabbit Autofix/Autopilot отключены.
 
 ## Исполнитель и включение
 
-Check Algorithms сохраняет полный набор алгоритмов для изменений рабочего кода.
+Check Algorithms запускает тесты актуального NumberGrid на вашей GPU в существующем
+WSL-окружении. Для сохранённого старого дерева Stoix без numbergrid-runtime.txt
+сохраняется полный набор алгоритмов на GitHub-hosted runner.
 Для PR только с документацией или инфраструктурой ревью его тяжёлые этапы не нужны:
 работоспособность контроллера проверяет отдельный Review loop tests, а локального
-Codex — Review runner smoke. На push в main и ручном запуске набор алгоритмов полный.
+Codex — Review runner smoke. На push в main и ручном запуске тесты рабочего кода
+выполняются независимо от списка изменённых файлов.
 
 Настройки: .github/workflows/codex_review_loop.yml, код в .github/review-loop/,
 правила ревью в .coderabbit.yaml. Контроллер должен находиться в default branch main.

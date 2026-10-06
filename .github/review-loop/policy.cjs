@@ -25,6 +25,17 @@ function needsGpu(files) {
       ['.coderabbit.yaml', '.gitignore', '.gitattributes', 'LICENSE'].includes(f))));
 }
 
+function findingsFor(s) {
+  const findings = s.threads.filter(t => !t.isResolved &&
+    [BOT, 'coderabbitai'].includes(t.comments.nodes[0]?.author?.login));
+  const latest = s.reviews.filter(r => r.user.login === BOT && r.commit_id === s.pr.head.sha).at(-1);
+  if (latest && (latest.state === 'CHANGES_REQUESTED' ||
+      /(?:Outside diff range|Out.of.diff)[^\n]*\([1-9]\d*\)/i.test(latest.body || ''))) {
+    findings.push({review: latest.html_url, body: latest.body});
+  }
+  return findings;
+}
+
 function decide(s) {
   const {pr, statuses, threads, reviews, runs, files, attempts, gpuApproved} = s;
   if (!eligible(pr)) return {action: 'skip', reason: 'PR is not opted in or is paused/draft'};
@@ -34,7 +45,7 @@ function decide(s) {
     return {action: 'wait', reason: 'CodeRabbit has not completed this head'};
   }
   const open = threads.filter(t => !t.isResolved);
-  const findings = open.filter(t => [BOT, 'coderabbitai'].includes(t.comments.nodes[0]?.author?.login));
+  const findings = findingsFor(s);
   if (findings.length) {
     if (attempts.some(a => a.head === pr.head.sha)) {
       return {action: 'wait', reason: 'This head already has a repair attempt'};
@@ -44,7 +55,7 @@ function decide(s) {
   }
   if (open.length) return {action: 'wait', reason: 'Unresolved review threads remain'};
   const latestReviews = new Map();
-  for (const r of reviews) if (r.state !== 'COMMENTED') latestReviews.set(r.user.login, r);
+  for (const r of reviews) if (['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'].includes(r.state)) latestReviews.set(r.user.login, r);
   if ([...latestReviews.values()].some(r => r.state === 'CHANGES_REQUESTED')) {
     return {action: 'wait', reason: 'A reviewer still requests changes'};
   }
@@ -75,4 +86,4 @@ function decide(s) {
   return {action: 'merge', reason: 'Current review and required CI passed'};
 }
 
-module.exports = {REPO, OWNER, BOT, REQUIRED_WORKFLOWS, eligible, needsGpu, decide};
+module.exports = {REPO, OWNER, BOT, REQUIRED_WORKFLOWS, eligible, needsGpu, findingsFor, decide};

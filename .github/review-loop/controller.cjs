@@ -1,6 +1,6 @@
 'use strict';
 const fs = require('node:fs');
-const {OWNER, BOT, eligible, decide} = require('./policy.cjs');
+const {OWNER, eligible, decide, findingsFor} = require('./policy.cjs');
 const MARKER = '<!-- codex-review-attempt:';
 
 async function snapshot(github, repo, number) {
@@ -93,7 +93,7 @@ async function prepare({github, context, core}) {
   if (!eligible(s.pr) || s.pr.head.sha !== process.env.PR_HEAD || s.pr.base.sha !== process.env.PR_BASE) {
     throw new Error('PR changed before repair; wait for the next GitHub event');
   }
-  const findings = s.threads.filter(t => !t.isResolved && [BOT, 'coderabbitai'].includes(t.comments.nodes[0]?.author?.login));
+  const findings = findingsFor(s);
   if (!findings.length) throw new Error('No remaining CodeRabbit findings');
   fs.writeFileSync(process.env.PROMPT_PATH, buildPrompt(s, findings));
   core.info(`Prepared ${findings.length} findings for #${s.pr.number}`);

@@ -63,3 +63,18 @@ test('hot path and renamed hot path need GPU evidence; UI/docs do not', () => {
   assert.equal(decide(s).action, 'blocked'); s.gpuApproved = true;
   assert.equal(decide(s).action, 'merge');
 });
+test('out-of-diff findings and review-only change requests are not ignored', () => {
+  for (const review of [{state: 'CHANGES_REQUESTED', body: 'Fix this'},
+    {state: 'COMMENTED', body: '<summary>Outside diff range comments (1)</summary>'}]) {
+    const s = snapshot(); s.reviews = [{...review, commit_id: 'head', user: {login: 'coderabbitai[bot]'}}];
+    assert.equal(decide(s).action, 'repair');
+  }
+});
+test('a successful rerun supersedes a failed run of the same workflow', () => {
+  const s = snapshot(); s.runs.push({...s.runs[0], id: -1, conclusion: 'failure'});
+  assert.equal(decide(s).action, 'merge');
+});
+test('a pending review cannot clear an earlier request for changes', () => {
+  const s = snapshot(); s.reviews = ['CHANGES_REQUESTED', 'PENDING'].map(state => ({state, user: {login: 'reviewer'}}));
+  assert.equal(decide(s).action, 'wait');
+});

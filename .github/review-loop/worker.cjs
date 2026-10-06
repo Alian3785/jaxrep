@@ -4,7 +4,7 @@ const path = require('node:path');
 const {execFileSync, spawnSync} = require('node:child_process');
 const {github, request} = require('./gh-client.cjs');
 const {snapshot, buildPrompt} = require('./controller.cjs');
-const {REPO, BOT, eligible, decide} = require('./policy.cjs');
+const {REPO, eligible, decide, findingsFor} = require('./policy.cjs');
 const repo = {owner: 'Alian3785', repo: 'jaxrep'};
 
 function command(exe, args, cwd) {
@@ -35,7 +35,7 @@ async function run() {
     console.log(`Merged #${task.number} into ${task.base_branch}: ${r.sha}`);
     return;
   }
-  const findings = s.threads.filter(t => !t.isResolved && [BOT, 'coderabbitai'].includes(t.comments.nodes[0]?.author?.login));
+  const findings = findingsFor(s);
   if (!findings.length) return;
   const workRoot = path.join(process.env.LOCALAPPDATA, 'jaxrep-review-loop');
   fs.mkdirSync(workRoot, {recursive: true});

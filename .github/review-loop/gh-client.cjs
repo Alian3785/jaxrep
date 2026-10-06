@@ -13,7 +13,8 @@ function gh(args, options = {}, retryRead = false) {
 function request(endpoint, method = 'GET', body) {
   const args = ['api', endpoint, '--method', method];
   if (body) args.push('--input', '-');
-  return JSON.parse(gh(args, {input: body ? JSON.stringify(body) : undefined}, method === 'GET' || endpoint === 'graphql'));
+  const output = gh(args, {input: body ? JSON.stringify(body) : undefined}, method === 'GET' || endpoint === 'graphql');
+  return output.trim() ? JSON.parse(output) : null;
 }
 function route(path, field) {
   return Object.assign(async p => ({data: request(path(p))}), {path, field});

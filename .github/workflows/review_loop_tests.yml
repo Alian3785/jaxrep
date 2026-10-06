@@ -1,13 +1,16 @@
-name: Tests and Linters 🧪
-on: [pull_request]
+name: Review loop tests
+on:
+  pull_request:
+  push:
+    branches: [main]
 permissions:
   contents: read
 jobs:
-  lint:
+  test:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-      - run: pipx run ruff==0.16.10 check --select F821,F823,F601,B006,B023 .
+      - run: node --test .github/review-loop/*.test.cjs

@@ -1,5 +1,5 @@
 {
-  "name": "NumberGrid-24x24-v8-mage-24-squads",
+  "name": "NumberGrid-24x24-v7-24-archer-squads",
   "size": 24,
   "agent_position": [
     2,
@@ -140,8 +140,6 @@
   "battle_mode": true,
   "hero_units": 6,
   "hero_hp": 45,
-  "hero_mage_slot": 5,
-  "mage_damage": 20,
   "archer_damage": 25,
   "archer_accuracy": 0.8,
   "battle_max_rounds": 75,

@@ -6,7 +6,8 @@
   let mode='manual', session=null, manual=null, manualMap=null, busy=false, frame=0, recordIndex=0, timer=null, messages=[];
   const records=data.records||[];
   const archerCount=n=>n+' '+(n===1?'лучник':n>=2&&n<=4?'лучника':'лучников');
-  const unitName=i=>(i<6?'Ваш лучник ':'Вражеский лучник ')+(i%6+1);
+  const isMage=i=>i>=0&&i<6&&i===currentMap().hero_mage_slot;
+  const unitName=i=>isMage(i)?'Ваш маг '+(i+1):(i<6?'Ваш лучник ':'Вражеский лучник ')+(i%6+1);
   function current(){return mode==='manual'?manual:records[recordIndex]?.frames[frame];}
   function currentMap(){return mode==='manual'?(manualMap||data.map):data.map;}
   function stop(){if(timer)clearInterval(timer);timer=null;$('play').textContent='▶ Смотреть';}
@@ -35,13 +36,13 @@
     const s=snapshot.state,a=unitName(s.last_actor),t=unitName(s.last_target);
     switch(s.last_event){
       case 1:return 'Начался бой с отрядом № '+(s.enemy+1)+'.';
-      case 2:return a+': попадание в '+t.toLowerCase()+' (−'+s.last_damage+').';
+      case 2:return isMage(s.last_actor)?a+': заклинание по всем противникам (суммарный урон '+s.last_damage+').':a+': попадание в '+t.toLowerCase()+' (−'+s.last_damage+').';
       case 3:return a+': промах.';
       case 4:return a+' встал в защиту.';
       case 5:return a+' ждёт конца раунда.';
       case 6:return a+' готовится отступить.';
       case 7:return a+' покинул бой.';
-      case 8:return 'Победа! Все шесть лучников восстановлены.';
+      case 8:return 'Победа! Весь отряд восстановлен.';
       case 9:return 'Ваш отряд погиб. Игра завершена.';
       case 10:return 'Отступление завершено. Отряд полностью восстановлен.';
       case 11:return 'Бой достиг лимита раундов. Эпизод завершён.';
@@ -56,7 +57,13 @@
     $('remaining').textContent=s.alive.filter(Boolean).length;
     $('wins').textContent=s.alive.filter(v=>!v).length;
     $('steps').textContent=fmt(s.step_count);$('reward').textContent=fmt(snap.total_reward);
-    $('party-health').textContent=archerCount(s.hp.slice(0,6).filter(h=>h>0).length)+' · '+s.hp.slice(0,6).reduce((a,b)=>a+b,0)+' здоровья';
+    const mageAlive=s.hp.slice(0,6).some((hp,i)=>hp>0&&isMage(i));
+    $('party-health').textContent=archerCount(s.hp.slice(0,6).filter((hp,i)=>hp>0&&!isMage(i)).length)+(mageAlive?' + маг':'')+' · '+s.hp.slice(0,6).reduce((a,b)=>a+b,0)+' здоровья';
+    const hasMage=Number.isInteger(map.hero_mage_slot)&&map.hero_mage_slot>=0;
+    $('party-title').textContent=hasMage?'Пять лучников и маг.':'Шесть лучников.';
+    $('mage-rule').hidden=!hasMage;
+    $('battle-hint').textContent='Лучник: '+map.archer_damage+' урона одной цели.'+(hasMage?' Маг: '+map.mage_damage+' урона всем врагам.':'')+' Попадание '+Math.round(map.archer_accuracy*100)+'%.';
+    $('attack-hint').textContent=isMage(s.actor)?'Ход мага: нажмите на любого живого врага — заклинание поразит всех противников.':'Нажмите на живого противника, чтобы выстрелить.';
     const message=s.won?'Победа! Карта очищена.':s.lost?'Ваш отряд погиб. Начните новую игру.':s.done?'Достигнут лимит. Начните новую игру.':s.in_battle?'Выбирайте цели и берегите свой отряд.':'Подойдите к любому вражескому отряду.';
     $('message').textContent=message;
     $('map-controls').hidden=s.in_battle;$('battle-controls').hidden=!s.in_battle;
@@ -66,20 +73,21 @@
     if(s.in_battle){
       $('battle-heading').textContent='Отряд № '+(s.enemy+1)+' · '+archerCount(map.enemy_units[s.enemy]);
       $('round').textContent='Раунд '+Math.min(s.round,snap.battle_max_rounds ?? map.battle_max_rounds);
-      $('turn-message').textContent=s.done?message:s.actor<6&&!s.retreating[s.actor]?'Ваш ход: лучник '+(s.actor+1):s.actor>=6?'Ход противника: лучник '+(s.actor-5):'Лучник '+(s.actor+1)+' завершает отступление';
+      $('turn-message').textContent=s.done?message:s.actor<6&&!s.retreating[s.actor]?'Ваш ход: '+(isMage(s.actor)?'маг ':'лучник ')+(s.actor+1):s.actor>=6?'Ход противника: лучник '+(s.actor-5):unitName(s.actor)+' завершает отступление';
       document.querySelectorAll('[data-slot]').forEach(b=>{
         const i=Number(b.dataset.slot),max=snap.max_hp[i],hp=s.hp[i];
-        b.className='unit'+(i>=6?' foe':'')+(i===s.actor&&!s.done?' active':'')+(!max?' empty':!hp?' dead':s.escaped[i]?' escaped':'');
-        b.querySelector('.unit-name').textContent=max?'Лучник '+(i%6+1):'Пусто';
+        b.className='unit'+(i>=6?' foe':'')+(isMage(i)?' mage':'')+(i===s.actor&&!s.done?' active':'')+(!max?' empty':!hp?' dead':s.escaped[i]?' escaped':'');
+        b.querySelector('.unit-name').textContent=max?(isMage(i)?'Маг ':'Лучник ')+(i%6+1):'Пусто';
+        b.querySelector('.archer-icon').textContent=isMage(i)?'✦':'➶';
         b.querySelector('.health').textContent=max?hp+' / '+max+' HP':'—';
         b.querySelector('.health-fill').style.width=(max?hp/max*100:0)+'%';
         b.querySelector('.status').textContent=!max?'':!hp?'Погиб':s.escaped[i]?'Отступил':s.retreating[i]?'Побег':s.defended[i]?'Защита':s.turn_phase[i]===1?'Ожидание':s.turn_phase[i]===2?'Ход завершён':'';
         b.disabled=i<6||mode!=='manual'||busy||s.done||!session||!mask[8+i-6];
-        b.setAttribute('aria-label',(i>=6?'Стрелять: противник ':'Союзник ')+(i%6+1)+', '+hp+' из '+max+' здоровья');
+        b.setAttribute('aria-label',(i>=6?(isMage(s.actor)?'Заклинание по всем врагам: противник ':'Стрелять: противник ')+(i%6+1):unitName(i))+', '+hp+' из '+max+' здоровья');
       });
       const queue=Array.from({length:12},(_,i)=>i).filter(i=>s.hp[i]>0&&!s.escaped[i]&&s.turn_phase[i]<2);
       const priority=i=>s.turn_phase[i]===0?s.priority[i]:-s.priority[i];queue.sort((a,b)=>priority(b)-priority(a)||a-b);
-      $('queue').replaceChildren(...queue.map(i=>{const e=document.createElement('span');e.className='queue-unit'+(i>=6?' foe':'')+(i===s.actor?' current':'');e.textContent=(i<6?'В':'П')+(i%6+1);e.title=unitName(i);return e;}));
+      $('queue').replaceChildren(...queue.map(i=>{const e=document.createElement('span');e.className='queue-unit'+(i>=6?' foe':'')+(i===s.actor?' current':'');e.textContent=(isMage(i)?'М':i<6?'В':'П')+(i%6+1);e.title=unitName(i);return e;}));
     }else drawMap(s);
     $('events').replaceChildren(...messages.slice(-6).reverse().map(text=>{const li=document.createElement('li');li.textContent=text;return li;}));
     if(records.length){const last=records[recordIndex].frames.length-1;$('scrubber').max=last;$('scrubber').value=frame;$('frame-count').textContent=frame+' / '+last;$('next').disabled=frame>=last;}

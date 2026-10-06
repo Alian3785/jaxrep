@@ -64,6 +64,11 @@ Codex-сеансом. CodeRabbit Autofix/Autopilot отключены.
 
 ## Исполнитель и включение
 
+Check Algorithms сохраняет полный набор алгоритмов для изменений рабочего кода.
+Для PR только с документацией или инфраструктурой ревью его тяжёлые этапы не нужны:
+работоспособность контроллера проверяет отдельный Review loop tests, а локального
+Codex — Review runner smoke. На push в main и ручном запуске набор алгоритмов полный.
+
 Настройки: .github/workflows/codex_review_loop.yml, код в .github/review-loop/,
 правила ревью в .coderabbit.yaml. Контроллер должен находиться в default branch main.
 Переменная репозитория CODEX_LOOP_READY=true включает обработку; false останавливает.

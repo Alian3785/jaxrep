@@ -10,6 +10,14 @@ on:
 env:
   UV_SYSTEM_PYTHON: 1
 
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: algorithms-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test-algorithms:
     name: "Python ${{ matrix.python-version }} on ${{ matrix.os }}"
@@ -22,19 +30,43 @@ jobs:
         os: [ubuntu-latest]
 
     steps:
+      - name: Check whether runtime code changed
+        id: scope
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            if (!context.payload.pull_request) {
+              core.setOutput('runtime', 'true');
+              return;
+            }
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              ...context.repo, pull_number: context.payload.pull_request.number, per_page: 100
+            });
+            const isolated = p => p.startsWith('.github/') || p.startsWith('docs/') ||
+              p.endsWith('.md') || p === '.coderabbit.yaml';
+            const runtime = files.some(f => !isolated(f.filename) ||
+              (f.previous_filename && !isolated(f.previous_filename)));
+            core.setOutput('runtime', String(runtime));
+            if (!runtime) core.info('Only documentation/review infrastructure changed; review-loop tests validate these files.');
+
       - name: Checkout stoix
+        if: steps.scope.outputs.runtime == 'true'
         uses: actions/checkout@v4
 
       - name: Install uv and set the python version
+        if: steps.scope.outputs.runtime == 'true'
         uses: astral-sh/setup-uv@v5
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Install the project
+        if: steps.scope.outputs.runtime == 'true'
         run: uv sync --dev
 
       - name: Make Bash Script Executable
+        if: steps.scope.outputs.runtime == 'true'
         run: chmod +x bash_scripts/run-algorithms.sh
 
       - name: Run Bash Script
+        if: steps.scope.outputs.runtime == 'true'
         run: ./bash_scripts/run-algorithms.sh

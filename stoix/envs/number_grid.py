@@ -1,4 +1,4 @@
-"""Incremental archer battles. Every simulation operation runs on JAX/GPU.
+"""Incremental archer/mage battles. Every simulation operation runs on JAX/GPU.
 
 A step is a map move or ONE unit action. Enemy turns and completing a retreat
 use the sole legal CONTINUE action. Saved maps can still use numeric rules.
@@ -37,8 +37,8 @@ class BattleState(NumberGridState):
     round: jax.Array
     last_event: jax.Array
     last_actor: jax.Array
-    last_target: jax.Array
-    last_damage: jax.Array
+    last_target: jax.Array  # -1 for area attacks or non-attacks
+    last_damage: jax.Array  # total HP removed, summed over area targets
     battle_steps: jax.Array
     player_turns: jax.Array
     enemy_turns: jax.Array
@@ -56,6 +56,13 @@ class NumberGrid(NumericNumberGrid):
         self.hero_hp = int(game_map.get('hero_hp', 45))
         self.damage = int(game_map.get('archer_damage', 25))
         self.accuracy = float(game_map.get('archer_accuracy', .8))
+        # Missing role fields preserve the rules of saved all-archer maps.
+        self.mage_slot = game_map.get('hero_mage_slot', -1)
+        self.mage_damage = game_map.get('mage_damage', 20)
+        if (type(self.mage_slot) is not int
+                or not (-1 <= self.mage_slot < self.hero_count)
+                or type(self.mage_damage) is not int or self.mage_damage <= 0):
+            raise ValueError('Invalid mage battle configuration')
         self.max_rounds = int(game_map.get('battle_max_rounds', 75))
         counts, health = game_map['enemy_units'], game_map['enemy_hp']
         if not (1 <= self.hero_count <= 6 and self.hero_hp > 0 and self.damage > 0
@@ -214,9 +221,23 @@ class NumberGrid(NumericNumberGrid):
         attack = (action >= SHOOT) & (action < DEFEND)
         target = jnp.clip(action - SHOOT, 0, 5) + jnp.where(actor < 6, 6, 0)
         hit = attack & (random_values[0] < self.accuracy)
-        damage = jnp.where(state.defended[target], (self.damage + 1) // 2, self.damage)
-        applied = jnp.where(hit, jnp.minimum(damage, state.hp[target]), 0)
-        hp = state.hp.at[target].add(-applied)
+        area_attack = jnp.bool_(False)
+        if self.mage_slot >= 0:
+            # A fixed hero role is inferable from the actor/HP slots already in
+            # observation v2. One hit roll covers the entire spell, without
+            # extra RNG, loops, or host operations in the vmapped learner.
+            area_attack = actor == self.mage_slot
+            targets = jnp.where(area_attack, self.slots >= 6, self.slots == target)
+            targets &= (state.hp > 0) & ~state.escaped
+            base_damage = jnp.where(area_attack, self.mage_damage, self.damage)
+            damage = jnp.where(state.defended, (base_damage + 1) // 2, base_damage)
+            removed = jnp.where(hit & targets, jnp.minimum(damage, state.hp), 0)
+            hp = state.hp - removed
+            applied = jnp.sum(removed)
+        else:
+            damage = jnp.where(state.defended[target], (self.damage + 1) // 2, self.damage)
+            applied = jnp.where(hit, jnp.minimum(damage, state.hp[target]), 0)
+            hp = state.hp.at[target].add(-applied)
         phases = state.turn_phase.at[actor].set(jnp.where(action == WAIT, 1, 2))
         defended = state.defended.at[actor].set(action == DEFEND)
         retreating = state.retreating.at[actor].set(action == RETREAT)
@@ -252,7 +273,7 @@ class NumberGrid(NumericNumberGrid):
             retreating=retreating & ~back, escaped=escaped & ~back,
             actor=jnp.where(back, 0, next_actor), round=jnp.where(back, 0, round_number),
             last_event=event.astype(jnp.int32), last_actor=actor,
-            last_target=jnp.where(attack, target, -1), last_damage=applied,
+            last_target=jnp.where(attack & ~area_attack, target, -1), last_damage=applied,
             battle_steps=state.battle_steps + 1,
             player_turns=state.player_turns + ((actor < 6) & ~escaping).astype(jnp.int32),
             enemy_turns=state.enemy_turns + ((actor >= 6) & ~escaping).astype(jnp.int32),

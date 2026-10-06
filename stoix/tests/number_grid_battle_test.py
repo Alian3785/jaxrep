@@ -38,6 +38,7 @@ def test_default_inventory_and_observation():
     assert env.action_space().num_values == 18
     assert ts.observation.shape == env.observation_space().shape == (178,)
     assert env.num_opponents == 24
+    assert env.mage_slot == 5 and env.mage_damage == 20
     positions = [tuple(p) for p in MAP['opponent_positions']]
     assert len(set(positions)) == 24
     assert all(0 < r < env.size-1 and 0 < c < env.size-1 for r,c in positions)
@@ -63,6 +64,7 @@ def test_compact_observation_keeps_queue_status_and_old_checkpoints_supported():
     saved_map = json.loads((Path(__file__).resolve().parents[2] / 'maps/number_grid-24x24-v6-12-squads.json').read_text())
     for version, size in [(1,178), (2,118)]:
         saved_env = NumberGrid(map_config={**saved_map,'battle_observation_version':version})
+        assert saved_env.mage_slot == -1
         _, saved_ts = saved_env.reset(jax.random.PRNGKey(0))
         assert saved_ts.observation.shape == (size,)
 
@@ -163,6 +165,96 @@ def test_rear_archer_shoots_rear_target_hit_or_miss(accuracy, event, remaining):
     result, _ = advance(state, jnp.int32(SHOOT+4))
     assert result.hp[10] == remaining and result.last_event == event
     assert result.turn_phase[4] == 2
+
+
+def test_mage_hits_all_six_enemies_independently_of_selected_target():
+    env, state, _ = fixture(archer_accuracy=1.)
+    state = state.replace(actor=jnp.int32(5), hp=state.hp.at[6:].set(35))
+    results, timesteps = jax.jit(jax.vmap(env.step, in_axes=(None, 0)))(
+        state, jnp.arange(SHOOT, DEFEND, dtype=jnp.int32))
+    np.testing.assert_array_equal(results.hp[:, :6], np.full((6,6), 45))
+    np.testing.assert_array_equal(results.hp[:, 6:], np.full((6,6), 15))
+    assert np.all(results.last_damage == 120) and np.all(results.last_target == -1)
+    assert np.all(results.last_event == HIT) and np.all(results.turn_phase[:,5] == 2)
+    assert np.all(results.battle_steps == state.battle_steps+1)
+    assert np.all(timesteps.extras['player_battle_transition'])
+    for index in range(1,6):
+        assert_equal_state(jax.tree.map(lambda x: x[0], results),
+                           jax.tree.map(lambda x, index=index: x[index], results))
+
+
+def test_mage_damage_respects_defence_dead_escaped_and_low_hp_targets():
+    env, state, advance = fixture(archer_accuracy=1.)
+    state = state.replace(actor=jnp.int32(5),
+                          hp=state.hp.at[6:].set(jnp.array([35,25,15,0,10,35])),
+                          defended=state.defended.at[7].set(True).at[11].set(True),
+                          escaped=state.escaped.at[10].set(True))
+    result, _ = advance(state, jnp.int32(SHOOT))
+    np.testing.assert_array_equal(result.hp[6:], [15,15,0,0,10,25])
+    np.testing.assert_array_equal(result.hp[:6], state.hp[:6])
+    assert result.last_damage == 55
+    assert not env.action_mask(result)[SHOOT+2] and result.actor != 8
+
+
+def test_mage_spell_misses_all_targets_and_consumes_one_turn():
+    env, state, advance = fixture(archer_accuracy=0.)
+    state = state.replace(actor=jnp.int32(5))
+    result, _ = advance(state, jnp.int32(SHOOT))
+    np.testing.assert_array_equal(result.hp, state.hp)
+    assert result.last_event == MISS and result.last_damage == 0
+    assert result.turn_phase[5] == 2 and result.player_turns == state.player_turns+1
+    assert not np.array_equal(result.battle_key, state.battle_key)
+
+
+@pytest.mark.parametrize('action', [DEFEND, WAIT, RETREAT])
+def test_mage_non_attacks_do_not_cast(action):
+    _, state, advance = fixture(archer_accuracy=1.)
+    state = state.replace(actor=jnp.int32(5))
+    result, _ = advance(state, jnp.int32(action))
+    np.testing.assert_array_equal(result.hp, state.hp)
+    assert result.last_damage == 0 and result.last_target == -1
+
+
+def test_mage_can_end_battle_with_multiple_kills_and_restore_the_party():
+    _, state, advance = fixture(archer_accuracy=1.)
+    state = state.replace(actor=jnp.int32(5), hp=state.hp.at[0].set(0).at[5].set(1)
+                          .at[6:].set(jnp.array([20,15,10,5,1,0])),
+                          alive=jnp.arange(len(state.alive))==1)
+    result, ts = advance(state, jnp.int32(SHOOT+3))
+    assert result.last_event == VICTORY and result.won and result.done
+    assert not result.in_battle and not np.any(result.alive)
+    assert result.last_damage == 51 and result.last_target == -1
+    np.testing.assert_array_equal(result.hp[:6], [45]*6)
+    assert ts.extras['battle_victory'] and float(ts.reward) == pytest.approx(3.999)
+
+
+def test_enemy_sixth_archer_still_shoots_one_hero_for_25():
+    _, state, advance = fixture(archer_accuracy=1.)
+    state = state.replace(actor=jnp.int32(11), hp=state.hp.at[11].set(35))
+    result, _ = advance(state, jnp.int32(CONTINUE))
+    assert np.sum(np.asarray(result.hp[:6]) != 45) == 1
+    assert result.last_damage == 25 and 0 <= result.last_target < 6
+    np.testing.assert_array_equal(result.hp[6:], state.hp[6:])
+
+
+def test_saved_all_archer_map_preserves_sixth_archer_single_target_attack():
+    old_map = json.loads((Path(__file__).resolve().parents[2] /
+                         'maps/number_grid-24x24-v7-24-archer-squads.json').read_text())
+    env = NumberGrid(map_config={**old_map, 'archer_accuracy':1.})
+    state, _ = env.reset(jax.random.PRNGKey(42))
+    state = env._begin_battle(state.replace(enemy=jnp.int32(1)))
+    advance = jax.jit(env.step)
+    state = state.replace(actor=jnp.int32(5), hp=state.hp.at[6:].set(35))
+    result, _ = advance(state, jnp.int32(SHOOT+4))
+    assert env.mage_slot == -1
+    np.testing.assert_array_equal(result.hp[6:], [35,35,35,35,10,35])
+    assert result.last_damage == 25 and result.last_target == 10
+
+
+@pytest.mark.parametrize('slot,damage', [(6,20), (-2,20), (True,20), (5,0), (5,1.5)])
+def test_invalid_mage_configuration_rejected(slot, damage):
+    with pytest.raises(ValueError, match='mage'):
+        NumberGrid(map_config={**MAP, 'hero_mage_slot':slot, 'mage_damage':damage})
 
 
 def test_defence_halves_damage_and_expires_at_next_turn():

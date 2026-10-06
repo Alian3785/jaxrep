@@ -8,7 +8,13 @@ const {REPO, eligible, decide, findingsFor} = require('./policy.cjs');
 const repo = {owner: 'Alian3785', repo: 'jaxrep'};
 
 function command(exe, args, cwd) {
-  return execFileSync(exe, args, {cwd, encoding: 'utf8', windowsHide: true, maxBuffer: 8 * 1024 * 1024}).trim();
+  for (let attempt = 0; ; attempt++) {
+    try {return execFileSync(exe, args, {cwd, encoding: 'utf8', windowsHide: true, maxBuffer: 8 * 1024 * 1024,
+      env: {...process.env, GIT_TERMINAL_PROMPT: '0'}}).trim();}
+    catch (e) {
+      if (attempt >= 2 || ![3221225477, -1073741819].includes(e.status) || e.stdout || e.stderr) throw e;
+    }
+  }
 }
 function sameTask(pr, task) {
   return eligible(pr) && pr.number === task.number && pr.head.sha === task.head &&
@@ -86,4 +92,4 @@ async function run() {
 }
 
 if (require.main === module) run().catch(error => {console.error(error.message); process.exitCode = 1;});
-module.exports = {sameTask, protectedPath};
+module.exports = {sameTask, protectedPath, run};

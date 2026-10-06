@@ -68,7 +68,9 @@ jobs:
           persist-credentials: false
           path: trusted-controller
       - name: Repair or merge the verified PR
-        shell: powershell
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           LOOP_TASK: ${{ toJSON(matrix) }}
-        run: node trusted-controller/.github/review-loop/worker.cjs
+        with:
+          script: |
+            await require('./trusted-controller/.github/review-loop/worker.cjs').run();

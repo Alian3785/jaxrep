@@ -67,7 +67,9 @@
     $('party-title').textContent=hasWarrior?(hasMage?'Четыре лучника, воин и маг.':'Пять лучников и воин.'):(hasMage?'Пять лучников и маг.':'Шесть лучников.');
     $('mage-rule').hidden=!hasMage;
     $('warrior-rule').hidden=!hasWarrior;
-    $('battle-hint').textContent='Лучник: '+map.archer_damage+' урона одной цели.'+(hasWarrior?' Воин: '+map.warrior_damage+' урона в ближнем бою, инициатива '+map.warrior_initiative+'.':'')+(hasMage?' Маг: '+map.mage_damage+' урона всем врагам.':'')+' Попадание '+Math.round(map.archer_accuracy*100)+'%.';
+    const warriorAccuracy=Math.round((map.warrior_accuracy??.8)*100);
+    $('warrior-accuracy').textContent=warriorAccuracy+'%';
+    $('battle-hint').textContent='Лучник: '+map.archer_damage+' урона одной цели, попадание '+Math.round(map.archer_accuracy*100)+'%.'+(hasWarrior?' Воин: '+map.warrior_damage+' урона в ближнем бою, попадание '+warriorAccuracy+'%, инициатива '+map.warrior_initiative+'.':'')+(hasMage?' Маг: '+map.mage_damage+' урона всем врагам, попадание '+Math.round(map.archer_accuracy*100)+'%.':'');
     $('attack-hint').textContent=isMage(s.actor)?'Ход мага: нажмите на любого живого врага — заклинание поразит всех противников.':isWarrior(s.actor)?(mask.slice(8,14).some(Boolean)?'Ход воина: выберите подсвеченного врага для удара мечом.':'Воин не достаёт до врагов. Можно защищаться, ждать или отступить.'):'Нажмите на живого противника, чтобы выстрелить.';
     const message=s.won?'Победа! Карта очищена.':s.lost?'Ваш отряд погиб. Начните новую игру.':s.done?'Достигнут лимит. Начните новую игру.':s.in_battle?'Выбирайте цели и берегите свой отряд.':'Подойдите к любому вражескому отряду.';
     $('message').textContent=message;

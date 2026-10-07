@@ -1,5 +1,5 @@
 {
-  "name": "NumberGrid-24x24-v9-warrior-24-squads",
+  "name": "NumberGrid-24x24-v8-mage-24-squads",
   "size": 24,
   "agent_position": [
     2,
@@ -140,11 +140,6 @@
   "battle_mode": true,
   "hero_units": 6,
   "hero_hp": 45,
-  "hero_warrior_slot": 1,
-  "warrior_hp": 100,
-  "warrior_damage": 25,
-  "warrior_accuracy": 0.8,
-  "warrior_initiative": 50,
   "hero_mage_slot": 5,
   "mage_damage": 20,
   "archer_damage": 25,
@@ -203,5 +198,5 @@
     25
   ],
   "battle_recovery": "Full party including fallen units after victory or retreat. Defeat ends the episode. Enemies also reset after a retreat.",
-  "battle_observation_version": 3
+  "battle_observation_version": 2
 }

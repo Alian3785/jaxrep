@@ -33,7 +33,7 @@ def assert_equal_state(a, b):
 def test_default_inventory_and_observation():
     env = NumberGrid()
     state, ts = env.reset(jax.random.PRNGKey(3))
-    assert state.hp[:6].tolist() == [45] * 6
+    assert state.hp[:6].tolist() == [45,100,45,45,45,45]
     assert state.hp[6:].tolist() == [0] * 6
     assert env.action_space().num_values == 18
     assert ts.observation.shape == env.observation_space().shape == (178,)
@@ -59,7 +59,7 @@ def test_compact_observation_keeps_queue_status_and_old_checkpoints_supported():
     units = np.asarray(env.observation(state))[offset:offset+48].reshape(12,4)
     assert units[0,1] > 0 and units[1,1] < 0 and units[2,1] == 0
     assert units[3,3] == .5 and units[4,3] == 1 and units[4,1] == 0
-    legacy = NumberGrid(map_config={**MAP,'battle_observation_version':1})
+    legacy = NumberGrid(map_config={**MAP,'hero_warrior_slot':-1,'battle_observation_version':1})
     assert legacy.observation(state).shape == (250,)
     saved_map = json.loads((Path(__file__).resolve().parents[2] / 'maps/number_grid-24x24-v6-12-squads.json').read_text())
     for version, size in [(1,178), (2,118)]:
@@ -106,9 +106,11 @@ def test_fixed_map_has_a_playable_full_route_with_archer_battles():
             return ~jnp.all(carry[0].done)
         def step(carry):
             states,index = carry
-            targets = jnp.argmin(jnp.where(states.hp[:,6:]>0,states.hp[:,6:],10000),axis=-1)
+            masks = jax.vmap(env.action_mask)(states)
+            targets = jnp.argmin(jnp.where(masks[:,SHOOT:DEFEND],states.hp[:,6:],10000),axis=-1)
+            attacks = jnp.where(jnp.any(masks[:,SHOOT:DEFEND],axis=-1),SHOOT+targets,DEFEND)
             actions = jnp.where(states.in_battle,
-                                jnp.where(states.actor<6,SHOOT+targets,CONTINUE),
+                                jnp.where(states.actor<6,attacks,CONTINUE),
                                 route[jnp.minimum(index,len(route)-1)])
             index += (~states.in_battle & ~states.done).astype(jnp.int32)
             states,_ = jax.vmap(env.step)(states,actions)
@@ -117,7 +119,7 @@ def test_fixed_map_has_a_playable_full_route_with_archer_battles():
     states,index = jax.jit(run)(states)
     assert int(jnp.sum(states.won)) > 0
     assert np.all(np.asarray(index)[np.asarray(states.won)] == len(route))
-    assert np.all(np.asarray(states.hp[:,:6])[np.asarray(states.won)] == 45)
+    assert np.all(np.asarray(states.hp[:,:6])[np.asarray(states.won)] == np.asarray(env.hero_full))
 
 
 @pytest.mark.parametrize('count,hp', [(6,45), (7,20), (0,20), (2,46), (2,0)])
@@ -172,7 +174,7 @@ def test_mage_hits_all_six_enemies_independently_of_selected_target():
     state = state.replace(actor=jnp.int32(5), hp=state.hp.at[6:].set(35))
     results, timesteps = jax.jit(jax.vmap(env.step, in_axes=(None, 0)))(
         state, jnp.arange(SHOOT, DEFEND, dtype=jnp.int32))
-    np.testing.assert_array_equal(results.hp[:, :6], np.full((6,6), 45))
+    np.testing.assert_array_equal(results.hp[:, :6], np.tile(env.hero_full, (6,1)))
     np.testing.assert_array_equal(results.hp[:, 6:], np.full((6,6), 15))
     assert np.all(results.last_damage == 120) and np.all(results.last_target == -1)
     assert np.all(results.last_event == HIT) and np.all(results.turn_phase[:,5] == 2)
@@ -224,7 +226,7 @@ def test_mage_can_end_battle_with_multiple_kills_and_restore_the_party():
     assert result.last_event == VICTORY and result.won and result.done
     assert not result.in_battle and not np.any(result.alive)
     assert result.last_damage == 51 and result.last_target == -1
-    np.testing.assert_array_equal(result.hp[:6], [45]*6)
+    np.testing.assert_array_equal(result.hp[:6], [45,100,45,45,45,45])
     assert ts.extras['battle_victory'] and float(ts.reward) == pytest.approx(3.999)
 
 
@@ -232,7 +234,7 @@ def test_enemy_sixth_archer_still_shoots_one_hero_for_25():
     _, state, advance = fixture(archer_accuracy=1.)
     state = state.replace(actor=jnp.int32(11), hp=state.hp.at[11].set(35))
     result, _ = advance(state, jnp.int32(CONTINUE))
-    assert np.sum(np.asarray(result.hp[:6]) != 45) == 1
+    assert np.sum(np.asarray(result.hp[:6]) != np.asarray(state.hp[:6])) == 1
     assert result.last_damage == 25 and 0 <= result.last_target < 6
     np.testing.assert_array_equal(result.hp[6:], state.hp[6:])
 
@@ -319,7 +321,7 @@ def test_retreat_is_delayed_then_restores_the_entire_party():
         state, ts = advance(state, jnp.int32(CONTINUE))
     assert not state.in_battle and not state.done and state.last_event == WITHDRAW
     assert np.all(state.alive)
-    np.testing.assert_array_equal(state.hp[:6], [45]*6)
+    np.testing.assert_array_equal(state.hp[:6], [45,100,45,45,45,45])
     np.testing.assert_array_equal(state.position,[2,2])
     assert not np.any(state.escaped | state.retreating | state.defended)
     # An invalid combat command on the map cannot immediately restart the fight.
@@ -344,7 +346,7 @@ def test_victory_removes_only_current_enemy_and_restores_casualties():
     result, ts = advance(state,jnp.int32(SHOOT))
     assert result.last_event == VICTORY and not result.in_battle and not result.done
     assert not result.alive[1] and int(jnp.sum(result.alive)) == env.num_opponents-1
-    np.testing.assert_array_equal(result.hp[:6], [45]*6)
+    np.testing.assert_array_equal(result.hp[:6], [45,100,45,45,45,45])
     assert result.number == state.number+1 and float(ts.reward) == pytest.approx(.999)
     assert ts.extras['battle_victory']
     # Clear the last map opponent: terminal success takes precedence over timeout.

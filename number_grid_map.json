@@ -1,5 +1,5 @@
 {
-  "name": "NumberGrid-24x24-v13-buildings",
+  "name": "NumberGrid-24x24-v14-rest-turns",
   "size": 24,
   "agent_position": [
     2,
@@ -203,7 +203,7 @@
     25
   ],
   "battle_recovery": "Full party including fallen units after victory or retreat. Defeat ends the episode. Enemies also reset after a retreat.",
-  "battle_observation_version": 6,
+  "battle_observation_version": 7,
   "enemy_warrior_slots": [
     0,
     1,
@@ -241,5 +241,6 @@
   "faction": "legions",
   "building_reward": 0.05,
   "blocked_buildings": [],
-  "max_building_level": 5
+  "max_building_level": 5,
+  "rest_penalty_per_point": 0.001
 }

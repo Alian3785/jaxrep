@@ -198,7 +198,7 @@ def test_human_service_uses_identical_mask_and_rejects_unreachable_target():
     assert service.sessions[session][1] is state
     direct, ts = env.step(state, jnp.int32(SHOOT))
     first = service.act(session, SHOOT)['events'][0]
-    assert first == service.snapshot(env, direct, float(ts.reward))
+    assert first == {**service.snapshot(env, direct, float(ts.reward)), 'reward': float(ts.reward)}
 
 
 @pytest.mark.parametrize('overrides', [

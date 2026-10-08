@@ -1,5 +1,7 @@
 """Reference XP rules, battle integration and growing stats on JAX/CUDA."""
 import copy
+import json
+from pathlib import Path
 
 import chex
 import jax
@@ -32,13 +34,13 @@ def win(env, states):
 def test_initial_experience_and_observation_contract(env):
     state, ts = jax.jit(env.reset)(jax.random.PRNGKey(42))
     chex.assert_trees_all_equal(env.unit_experience(state)[:5],
-        jnp.array([[1,25,95,0]]*3+[[1,20,75,0]]*2))
+        jnp.array([[1,25,95,0],[1,60,150,0],[1,25,95,0]]+[[1,20,75,0]]*2))
     enemy = battle(env, 11)
     chex.assert_trees_all_equal(env.unit_experience(enemy)[6:],
         jnp.array([[1,20,70,0],[1,20,80,0]]+[[1,20,70,0]]*4))
     assert ts.observation.shape == (379,) and env.observation_size == 379
     encoded = ts.observation[280:340].reshape(12,5)
-    chex.assert_trees_all_close(encoded[:5,2], jnp.array([.025]*3+[.02]*2))
+    chex.assert_trees_all_close(encoded[:5,2], jnp.array([.025,.06,.025,.02,.02]))
     chex.assert_trees_all_equal(encoded[5:], jnp.zeros((7,5)))
 
 
@@ -74,20 +76,20 @@ def test_kill_bank_counts_new_deaths_only_and_uses_exact_half_up(env):
 def test_cap_building_requirement_full_heal_and_discarded_excess(env):
     s = battle(env).replace(actor=jnp.int32(0))
     s = s.replace(hp=s.hp.at[:5].set(10).at[6].set(1),
-                  unit_xp=s.unit_xp.at[:3].set(94))
+                  unit_xp=s.unit_xp.at[jnp.array([0,2])].set(94))
     ready = s.replace(buildings=jnp.uint32(1))  # Unholy portal -> berserker
     blocked = ready.replace(blocked_buildings=jnp.uint32(1))
     excess = ready.replace(battle_xp=jnp.array([0,100000]))
     out = win(env, stack(s,ready,blocked,excess))
     for row in (0,2):
-        chex.assert_trees_all_equal(out.unit_xp[row,:3], jnp.full(3,94))
+        chex.assert_trees_all_equal(out.unit_xp[row,jnp.array([0,2])], jnp.full(2,94))
         chex.assert_trees_all_equal(out.hp[row,:3], jnp.full(3,10))
         assert not out.last_promoted[row]
     for row in (1,3):
-        chex.assert_trees_all_equal(out.unit_ids[row,:3], jnp.full(3,env.progression.ids['berserker']))
-        chex.assert_trees_all_equal(out.unit_xp[row,:3], jnp.zeros(3,jnp.int32))
-        chex.assert_trees_all_equal(out.hp[row,:3], jnp.full(3,170))
-        assert out.last_promoted[row] & 7 == 7
+        chex.assert_trees_all_equal(out.unit_ids[row,jnp.array([0,2])], jnp.full(2,env.progression.ids['berserker']))
+        chex.assert_trees_all_equal(out.unit_xp[row,jnp.array([0,2])], jnp.zeros(2,jnp.int32))
+        chex.assert_trees_all_equal(out.hp[row,jnp.array([0,2])], jnp.full(2,170))
+        assert out.last_promoted[row] & 5 == 5
     upgraded = jax.tree.map(lambda x:x[1],out)
     chex.assert_trees_all_equal(env.unit_experience(upgraded)[0], jnp.array([2,70,550,0]))
     assert env.unit_stats(upgraded)[0,1] == 50
@@ -217,3 +219,84 @@ def test_unimplemented_branches_are_masked_and_rejected_by_step(env):
 def test_invalid_experience_is_rejected_before_training(override):
     with pytest.raises(ValueError):
         NumberGrid(map_config={**MAP,'hero_combat_stats':[override]+[{}]*4})
+
+
+@pytest.fixture(scope='module')
+def duke_reference():
+    return json.loads((Path(__file__).parent / 'data/duke_levels.json').read_text())['levels']
+
+
+def test_duke_first_hundred_levels_match_python_reference(env, duke_reference):
+    levels = jnp.arange(1, 101, dtype=jnp.int32)
+    ids = jnp.full(100, env.progression.ids['duke'], jnp.int32)
+    stats = jax.jit(env.progression.stats)(ids, levels)
+    expected = jnp.array([r['stats'] for r in duke_reference], jnp.float32)
+    expected = expected.at[:,1].set(jnp.minimum(expected[:,1],400))
+    chex.assert_trees_all_equal(stats, expected)
+    xp = jax.jit(env.progression.experience)(ids, levels, jnp.zeros(100,jnp.int32))
+    chex.assert_trees_all_equal(xp, jnp.array([
+        [r['level'],r['exp_kill'],r['exp_required'],0] for r in duke_reference]))
+
+
+def test_duke_levelups_need_no_building_heal_once_and_raise_threshold(env, duke_reference):
+    levels = [1,2,3,4,9,10,12,13,14,15,57,99]
+    s = battle(env).replace(actor=jnp.int32(1))
+    s = s.replace(hp=s.hp.at[:6].set(0).at[1].set(1).at[6].set(1))
+    cases = [s.replace(unit_levels=s.unit_levels.at[1].set(level),
+        unit_xp=s.unit_xp.at[1].set(duke_reference[level-1]['exp_required']-1)) for level in levels]
+    # Even abundant XP grants only one level, as in the reference.
+    cases.append(cases[0].replace(battle_xp=jnp.array([0,100000])))
+    out = win(env, stack(*cases))
+    for i, level in enumerate(levels+[1]):
+        expected = duke_reference[level]
+        assert out.unit_levels[i,1] == level+1 and out.unit_xp[i,1] == 0
+        assert out.hp[i,1] == expected['hp'] and out.last_promoted[i] == 2
+        assert out.unit_ids[i,1] == env.progression.ids['duke']
+        assert not out.buildings[i]
+    xp = jax.jit(jax.vmap(env.unit_experience))(out)
+    chex.assert_trees_all_equal(xp[:,1,2], jnp.array([duke_reference[l]['exp_required'] for l in levels+[1]]))
+    # A subsequent battle needs 650, not the initial 150 XP.
+    raised = jax.tree.map(lambda x:x[0],out)
+    begun = env._begin_battle(raised.replace(enemy=jnp.int32(1))).replace(actor=jnp.int32(1))
+    begun = begun.replace(unit_xp=begun.unit_xp.at[1].set(150),
+        hp=begun.hp.at[:6].set(0).at[1].set(10).at[6:].set(0).at[6].set(1))
+    won = jax.tree.map(lambda x:x[0],win(env,stack(begun)))
+    assert won.unit_levels[1] == 2 and won.unit_xp[1] == 170 and won.hp[1] == 10
+    rested, _ = jax.jit(env.step)(won,jnp.int32(REST))
+    assert rested.hp[1] == 27  # ceil(10% of the new 165 maximum)
+
+
+def test_duke_damage_cap_and_passive_armor_affect_real_attacks(env):
+    s = battle(env,11)
+    # Compare an ordinary terminal fighter at the 300 cap and the Duke at 400;
+    # strike a level-15 Duke with 20 armour, including defence and all bonuses.
+    ids = s.unit_ids.at[0].set(env.progression.ids['infernal_knight']).at[6].set(env.progression.ids['duke'])
+    levels = s.unit_levels.at[:2].set(100).at[6].set(15)
+    s = s.replace(unit_ids=ids,unit_levels=levels)
+    actors = jnp.repeat(jnp.array([0,1]),12)
+    guards = jnp.tile(jnp.repeat(jnp.array([False,True]),6),2)
+    bonuses = jnp.tile(jnp.arange(6),4)
+    actual = jax.jit(env.progression.damage)(s,actors,jnp.full(24,6),guards,bonuses)
+    expected = [round((damage+bonus)*.8*(.5 if guard else 1))
+        for damage in (300,400) for guard in (False,True) for bonus in range(6)]
+    chex.assert_trees_all_equal(actual,jnp.array(expected))
+    before = s.replace(unit_levels=s.unit_levels.at[1].set(12))
+    after = s.replace(unit_levels=s.unit_levels.at[1].set(13))
+    priority = jax.jit(lambda state: env._round_priority(jnp.zeros(36),state=state))
+    assert priority(before)[1] == 50 and priority(after)[1] == 75
+
+
+def test_human_snapshot_exposes_duke_progress_and_passive_bonuses(env):
+    from serve_number_grid import GameService
+    game = GameService()
+    created = game.create(42)
+    snap = created['snapshot']
+    assert snap['unit_experience'][1] == [1,60,150,0]
+    row = created['combat']['catalogue'][snap['state']['unit_ids'][1]]
+    assert row['name'] == 'Герцог' and row['hero'] and not row['upgrades']
+    assert [b['level'] for b in row['level_bonuses']] == [4,5,13,14,15]
+    _, state, total = game.sessions[created['session']]
+    state = state.replace(unit_levels=state.unit_levels.at[1].set(15))
+    snap = game.snapshot(game.env,state,total)
+    assert snap['unit_experience'][1] == [15,230,7150,0]
+    assert snap['max_hp'][1] == 374

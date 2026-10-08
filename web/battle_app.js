@@ -103,7 +103,14 @@
     return xp?'Ур. '+xp[0]+' · опыт '+xp[3]+' / '+xp[2]+'\nЗа победу: '+xp[1]+' опыта':'';
   }
   function upgradeText(snap,i){
-    const choices=profile(i)?.upgrades;
+    const unit=profile(i),choices=unit?.upgrades;
+    if(unit?.hero){
+      const level=snap.unit_experience?.[i]?.[0]||1;
+      const earned=(unit.level_bonuses||[]).filter(b=>b.level<=level).map(b=>b.name);
+      const next=(unit.level_bonuses||[]).find(b=>b.level>level);
+      return 'Герой: повышение без здания.'+(earned.length?' Бонусы: '+earned.join('; ')+'.':'')+
+        (next?' На уровне '+next.level+': '+next.name+'.':'');
+    }
     if(!choices)return '';
     if(!choices.length)return 'Следующий уровень: рост характеристик без здания.';
     return choices.map(u=>{

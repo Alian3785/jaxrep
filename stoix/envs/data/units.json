@@ -1101,5 +1101,88 @@
       "kill_early": 14,
       "kill_late": 7
     }
+  },
+  "duke": {
+    "name": "Герцог",
+    "game_id": "g000uu0070",
+    "faction": "legions",
+    "level": 1,
+    "hero": true,
+    "role": "melee",
+    "max_hp": 150,
+    "damage": 50,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 50,
+    "attack_type": "weapon",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 60,
+    "exp_required": 150,
+    "exp_current": 0,
+    "exp_increment": 500,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        15,
+        10,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        10,
+        5,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 6,
+      "kill_late": 3
+    },
+    "level_bonuses": [
+      {
+        "level": 4,
+        "name": "Выносливость: +20% HP",
+        "stat": "max_hp",
+        "multiplier": 1.2,
+        "bonus": 0,
+        "rounding": "even"
+      },
+      {
+        "level": 5,
+        "name": "Сила: +25% урона",
+        "stat": "damage",
+        "multiplier": 1.25,
+        "bonus": 0,
+        "rounding": "even"
+      },
+      {
+        "level": 13,
+        "name": "Первый удар: +50% инициативы",
+        "stat": "initiative",
+        "multiplier": 1.5,
+        "bonus": 0,
+        "rounding": "half_up"
+      },
+      {
+        "level": 14,
+        "name": "Точность: +20% к точности",
+        "stat": "accuracy",
+        "multiplier": 1.2,
+        "bonus": 0,
+        "rounding": "half_up"
+      },
+      {
+        "level": 15,
+        "name": "Природная броня: +20 брони",
+        "stat": "armor",
+        "multiplier": 1,
+        "bonus": 20,
+        "rounding": "half_up"
+      }
+    ]
   }
 }

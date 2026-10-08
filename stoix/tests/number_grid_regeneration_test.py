@@ -115,4 +115,4 @@ def test_human_service_uses_the_same_regeneration_and_reports_current_health():
     expected, ts = jax.jit(env.step)(state, jnp.int32(REST))
     actual = service.act(session, REST)
     assert actual['snapshot'] == service.snapshot(env, expected, float(ts.reward))
-    assert actual['snapshot']['state']['hp'][:6] == [13, 62, 56, 0, 45, 0]
+    assert actual['snapshot']['state']['hp'][:6] == [13, 65, 56, 0, 45, 0]

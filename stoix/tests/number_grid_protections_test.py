@@ -17,10 +17,10 @@ def current(**changes):
 def test_named_armies_exactly_match_python_reference_level_one_profiles():
     env = current()
     state, ts = jax.jit(env.reset)(jax.random.PRNGKey(42))
-    chex.assert_trees_all_equal(state.hp[:6], jnp.array([120, 120, 120, 45, 45, 0]))
+    chex.assert_trees_all_equal(state.hp[:6], jnp.array([120, 150, 120, 45, 45, 0]))
     assert ts.observation.shape == (379,) and env.observation_size == 379
     assert env.action_space().num_values == 44 and env.hero_count == 5
-    expected = dict(possessed=(120, 25, 80, 0, 50, 'weapon'), cultist=(45, 15, 80, 0, 40, 'fire'),
+    expected = dict(duke=(150, 50, 80, 0, 50, 'weapon'), possessed=(120, 25, 80, 0, 50, 'weapon'), cultist=(45, 15, 80, 0, 40, 'fire'),
                     squire=(100, 25, 80, 0, 50, 'weapon'), archer=(45, 25, 80, 0, 60, 'weapon'))
     for name, values in expected.items():
         unit = UNITS[name]
@@ -150,11 +150,11 @@ def test_human_api_reports_named_units_sources_and_current_ward_state():
     from serve_number_grid import GameService
     game = GameService()
     created = game.create(42)
-    assert [u['name'] if u else None for u in created['combat']['heroes']] == ['Одержимый']*3+['Сектант']*2+[None]
+    assert [u['name'] if u else None for u in created['combat']['heroes']] == ['Одержимый','Герцог','Одержимый']+['Сектант']*2+[None]
     assert created['combat']['heroes'][3]['attack_type'] == 'fire'
     assert len(created['combat']['attack_types']) == 9
     assert created['snapshot']['state']['wards_used'] == [0]*12
-    assert created['snapshot']['state']['hp'][:6] == [120, 120, 120, 45, 45, 0]
+    assert created['snapshot']['state']['hp'][:6] == [120, 150, 120, 45, 45, 0]
 
 
 def test_real_rng_can_defeat_every_current_squad_size_without_changing_stats():

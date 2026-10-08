@@ -1,5 +1,5 @@
 {
-  "name": "NumberGrid-24x24-v17-unit-progression",
+  "name": "NumberGrid-24x24-v18-legions-duke",
   "size": 24,
   "agent_position": [
     2,
@@ -203,7 +203,7 @@
   "rest_penalty_per_point": 0.001,
   "hero_roster": [
     "possessed",
-    "possessed",
+    "duke",
     "possessed",
     "cultist",
     "cultist",

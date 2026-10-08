@@ -67,10 +67,20 @@ def build(output=None):
         final,frames = jax.lax.scan(step,(state,ts,jax.random.PRNGKey(seed+100)),None,length=env.max_steps)
         return initial,final[0],frames
 
+    @jax.jit
+    def snapshot_fields(states):
+        # Batch display data on the GPU once instead of transferring every
+        # frame back to JAX for four small calculations during JSON export.
+        return jax.vmap(lambda state: (env.construction.status(state),
+            env.rest_penalty(state), env.unit_experience(state),
+            env.unit_stats(state)))(states)
+
     records=[]
     for index in range(3):
         seed=42+index
-        (initial,mask,max_hp),final,(states,actions,rewards,masks,max_hps)=jax.device_get(rollout(jnp.int32(seed),index==0))
+        device_rollout = rollout(jnp.int32(seed),index==0)
+        (initial,mask,max_hp),final,(states,actions,rewards,masks,max_hps)=jax.device_get(device_rollout)
+        statuses,penalties,experiences,stats=jax.device_get(snapshot_fields(device_rollout[2][0]))
         frames=[{'state':state_dict(initial),'action':None,'reward':0.,'total_reward':0.,
                  'action_mask':mask.tolist(),'max_hp':max_hp.tolist(),
                  'building_status':np.asarray(env.construction.status(initial)).tolist(),
@@ -84,10 +94,10 @@ def build(output=None):
             state=jax.tree.map(lambda x,t=t:x[t],states)
             frames.append({'state':state_dict(state),'action':action,'reward':float(rewards[t]),
                            'total_reward':total,'action_mask':masks[t].tolist(),'max_hp':max_hps[t].tolist(),
-                           'building_status':np.asarray(env.construction.status(state)).tolist(),
-                           'rest_penalty':float(env.rest_penalty(state)),
-                           'unit_experience':np.asarray(env.unit_experience(state)).tolist(),
-                           'unit_stats':np.asarray(env.unit_stats(state)).tolist() if env.basic_combat else None})
+                           'building_status':statuses[t].tolist(),
+                           'rest_penalty':float(penalties[t]),
+                           'unit_experience':experiences[t].tolist(),
+                           'unit_stats':stats[t].tolist() if env.basic_combat else None})
         assert bool(final.done)
         outcome='победа' if bool(final.won) else 'поражение' if bool(final.lost) else 'лимит'
         records.append({'label':f'{"Argmax" if index==0 else "Выборка"} · {outcome} · {int(final.step_count)} шагов',

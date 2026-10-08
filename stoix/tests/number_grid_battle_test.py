@@ -125,7 +125,8 @@ def test_fixed_map_has_a_playable_full_route_with_archer_battles():
             attacks = jnp.where(jnp.any(masks[:,SHOOT:DEFEND],axis=-1),SHOOT+targets,DEFEND)
             moves = route[jnp.minimum(index,len(route)-1)]
             if env.basic_combat:
-                needs_rest = (states.movement_points < MOVE_COST) | jnp.any(states.hp[:, :6] < env.hero_full, axis=1)
+                maximum = jax.vmap(env.max_hp)(states)[:, :6]
+                needs_rest = (states.movement_points < MOVE_COST) | jnp.any(states.hp[:, :6] < maximum, axis=1)
                 moves = jnp.where(needs_rest, REST, moves)
             actions = jnp.where(states.in_battle,
                                 jnp.where(states.actor<6,attacks,CONTINUE), moves)
@@ -138,7 +139,8 @@ def test_fixed_map_has_a_playable_full_route_with_archer_battles():
     assert np.all(np.asarray(index)[np.asarray(states.won)] == len(route))
     survivors = np.asarray(states.hp[:, :6])[np.asarray(states.won)]
     assert np.all(survivors[:, np.asarray(env.hero_full) > 0] > 0)
-    assert np.all(survivors <= np.asarray(env.hero_full))
+    maximum = np.asarray(jax.vmap(env.max_hp)(states))[:, :6][np.asarray(states.won)]
+    assert np.all(survivors <= maximum)
 
 
 @pytest.mark.parametrize('count,hp', [(6,45), (7,20), (0,20), (2,46), (2,0)])

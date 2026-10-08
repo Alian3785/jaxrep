@@ -25,7 +25,7 @@ def _validated_stats(values):
             or not 0 <= stats['accuracy'] <= 100 or not 0 <= stats['armor'] <= 100
             or type(stats['initiative']) is not int or not 0 <= stats['initiative'] <= 1000):
         raise ValueError('Combat stats outside supported ranges')
-    stats['damage'] = min(stats['damage'], 300)
+    stats['damage'] = min(stats['damage'], 400 if values.get('hero') else 300)
     stats['armor'] = min(stats['armor'], 90)
     return [stats[name] for name in STAT_NAMES]
 

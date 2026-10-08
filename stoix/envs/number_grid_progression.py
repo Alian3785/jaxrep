@@ -7,7 +7,7 @@ import json
 import jax.numpy as jnp
 
 from stoix.envs.number_grid_combat import (
-    UNITS, ROLES, HP, DAMAGE, ARMOR,
+    UNITS, ROLES, HP, DAMAGE, ARMOR, STAT_NAMES,
     _validated_stats, _source, _protection_mask,
 )
 from stoix.envs.number_grid_buildings import CATALOG
@@ -73,27 +73,60 @@ class ProgressionRules:
         self.late = jnp.array([r['growth']['late'] for r in rows], jnp.float32)
         self.kill_base = jnp.array([r['exp_kill'] for r in rows], jnp.int32)
         self.kill_early = jnp.array([r['growth']['kill_early'] for r in rows], jnp.int32)
-        self.kill_late = jnp.array([r['growth']['kill_late'] for r in rows], jnp.int32)
+        self.kill_late = jnp.array([0 if r.get('hero') else r['growth']['kill_late'] for r in rows], jnp.int32)
         # A tiny lookup covers the early levels; later growth is linear. This
         # avoids gathering five separate profile arrays on every environment step.
-        self.level_anchor = max(r['growth']['threshold'] for r in rows)
-        stat_levels, kill_levels = [], []
-        def grown_values(row, level):
+        self.level_anchor = max(max(r['growth']['threshold'],
+            max((b['level'] for b in r.get('level_bonuses', [])), default=0)) for r in rows)
+        # Heroes use the reference's rounded x1.1 kill XP, not GDynUpgr's
+        # fixed increment. Tabulate every value representable by the JAX int32
+        # state; saturation only concerns otherwise overflowing synthetic levels.
+        hero_kills = {}
+        for i, row in enumerate(rows):
+            if row.get('hero'):
+                curve = [row['exp_kill']] * (row['level']+1)
+                while 0 < curve[-1] < 2**31-1:
+                    following = min(2**31-1, int(round(curve[-1]*1.1)))
+                    if following == curve[-1]:
+                        break
+                    curve.append(following)
+                hero_kills[i] = curve
+        self.kill_anchor = max(self.level_anchor, max((len(c)-1 for c in hero_kills.values()), default=0))
+
+        def grown_stats(row, level):
             extra = max(level-row['level'], 0)
             early = min(extra, max(row['growth']['threshold']-row['level'], 0))
             late = extra-early
-            stats = [row[k]+early*a+late*b for k, a, b in zip(
-                ('max_hp','damage','accuracy','armor','initiative'), row['growth']['early'], row['growth']['late'])]
-            killed = row['exp_kill']+early*row['growth']['kill_early']+late*row['growth']['kill_late']
-            return stats, killed
-        for level in range(self.level_anchor+1):
-            values = [grown_values(row, level) for row in rows]
-            stat_levels.append([v[0] for v in values])
-            kill_levels.append([v[1] for v in values])
-        self.stat_levels = jnp.array(stat_levels, jnp.float32)
-        self.kill_levels = jnp.array(kill_levels, jnp.int32)
-        self.stat_caps = jnp.array([jnp.inf, 300, 100, 90, jnp.inf], jnp.float32)
+            if not row.get('level_bonuses'):
+                return [row[k]+early*a+late*b for k, a, b in zip(
+                    STAT_NAMES, row['growth']['early'], row['growth']['late'])]
+            values = [row[k] for k in STAT_NAMES]
+            for next_level in range(row['level']+1, level+1):
+                increment = row['growth']['early' if next_level <= row['growth']['threshold'] else 'late']
+                values = [v+inc for v, inc in zip(values, increment)]
+                for bonus in row['level_bonuses']:
+                    if bonus['level'] == next_level:
+                        index = STAT_NAMES.index(bonus['stat'])
+                        value = values[index]*bonus['multiplier']+bonus['bonus']
+                        values[index] = int(value+.5) if bonus['rounding'] == 'half_up' else round(value)
+                values[2] = min(values[2], 100)
+            return values
+
+        def killed_value(i, row, level):
+            if i in hero_kills:
+                return hero_kills[i][min(level, len(hero_kills[i])-1)]
+            extra = max(level-row['level'], 0)
+            early = min(extra, max(row['growth']['threshold']-row['level'], 0))
+            return row['exp_kill']+early*row['growth']['kill_early']+(extra-early)*row['growth']['kill_late']
+
+        self.stat_levels = jnp.array([[grown_stats(r, level) for r in rows]
+                                     for level in range(self.level_anchor+1)], jnp.float32)
+        self.kill_levels = jnp.array([[killed_value(i, r, level) for i, r in enumerate(rows)]
+                                     for level in range(self.kill_anchor+1)], jnp.int32)
+        self.stat_caps = jnp.array([[jnp.inf, 400 if r.get('hero') else 300, 100, 90, jnp.inf]
+                                    for r in rows], jnp.float32)
         self.required = jnp.array([r['exp_required'] for r in rows], jnp.int32)
+        self.required_increment = jnp.array([r.get('exp_increment', 0) for r in rows], jnp.int32)
         self.dynamic = jnp.array([i > 0 and not r['upgrades'] for i, r in enumerate(rows)])
         targets, bits = [], []
         for row in rows:
@@ -113,18 +146,18 @@ class ProgressionRules:
                 raise ValueError('Progression catalogue supports at most two direct evolutions')
         self.targets = jnp.array(targets, jnp.int32)
         self.building_bits = jnp.array(bits, jnp.uint32)
-        # Preserve Python float/round for every possible damage (capped at 300).
+        # Preserve Python float/round for every possible damage (400 for heroes, 300 for other units).
         # Integer armour growth reaches its cap within this lookup. The first
         # ten levels use the early increment, all later levels the late one.
         armor_rows = []
         self.armor_max_level = self.level_anchor+100
         for level in range(self.armor_max_level+1):
-            armor_rows.append([min(90, grown_values(row, level)[0][ARMOR]) for row in rows])
+            armor_rows.append([min(90, grown_stats(row, level)[ARMOR]) for row in rows])
         armors = sorted({value for row in armor_rows for value in row})
         self.armor_ids = jnp.array([[armors.index(a) for a in row] for row in armor_rows], jnp.int32)
         self.damage_rolls = jnp.array([[[[int(round((damage+bonus)*(1-armor/100)*(.5 if defend else 1)))
              if damage else 0 for bonus in range(6)] for defend in (False, True)]
-             for armor in armors] for damage in range(301)], jnp.int32)
+             for armor in armors] for damage in range(401)], jnp.int32)
         self.has_protections = any(r['immunities'] or r['protections'] for r in rows)
         self.metadata = []
         for i, row in enumerate(rows):
@@ -139,6 +172,7 @@ class ProgressionRules:
                     reason=target_row.get('upgrade_unavailable_reason', '')))
             self.metadata.append(None if i == 0 else dict(
                 name=row['name'], key=row['key'], faction=row['faction'], level=row['level'],
+                hero=row.get('hero', False), level_bonuses=row.get('level_bonuses', []),
                 role=row['role'], attack_type=row['attack_type'],
                 immunities=_protection_mask(row['immunities']),
                 protections=_protection_mask(row['protections']), upgrades=options,
@@ -147,12 +181,15 @@ class ProgressionRules:
     def stats(self, ids, levels):
         anchor = jnp.minimum(levels, self.level_anchor)
         values = self.stat_levels[anchor, ids] + jnp.maximum(levels-self.level_anchor, 0)[..., None]*self.late[ids]
-        return jnp.minimum(values, self.stat_caps)
+        return jnp.minimum(values, self.stat_caps[ids])
+
+    def required_xp(self, ids, levels):
+        return self.required[ids] + jnp.maximum(levels-self.base_levels[ids], 0)*self.required_increment[ids]
 
     def experience(self, ids, levels, current):
-        killed = (self.kill_levels[jnp.minimum(levels, self.level_anchor), ids]
-                  + jnp.maximum(levels-self.level_anchor, 0)*self.kill_late[ids])
-        return jnp.stack((levels, killed, self.required[ids], current), axis=-1)
+        killed = (self.kill_levels[jnp.minimum(levels, self.kill_anchor), ids]
+                  + jnp.maximum(levels-self.kill_anchor, 0)*self.kill_late[ids])
+        return jnp.stack((levels, killed, self.required_xp(ids, levels), current), axis=-1)
 
     def damage(self, state, actor, targets, guarded, bonuses):
         stats = self.stats(state.unit_ids, state.unit_levels)
@@ -173,7 +210,7 @@ class ProgressionRules:
         gains = jnp.where(recipients, award, 0)
         xp = state.unit_xp + gains
         ids, levels = state.unit_ids, state.unit_levels
-        required = self.required[ids]
+        required = self.required_xp(ids, levels)
         reached = (gains > 0) & (required > 0) & (xp >= required)
         choices, bits = self.targets[ids], self.building_bits[ids]
         # Opponents have no capital in this scenario. They still retain XP and

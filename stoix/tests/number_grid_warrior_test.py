@@ -17,6 +17,10 @@ from stoix.networks.heads import CategoricalHead
 from stoix.networks.torso import MLPTorso
 
 
+# These regressions retain the saved v10 combat contract. Version 2 has its own tests.
+MAP = {**MAP, 'combat_rules_version': 1, 'battle_observation_version': 3}
+
+
 def battle(**overrides):
     env = NumberGrid(map_config={**MAP, **overrides})
     state, _ = env.reset(jax.random.PRNGKey(42))
@@ -182,7 +186,10 @@ def test_human_service_uses_identical_mask_and_rejects_unreachable_target():
     from serve_number_grid import GameService
     service = GameService()
     session = service.create(42)['session']
-    env, state = battle()
+    env = service.env
+    state, _ = env.reset(jax.random.PRNGKey(42))
+    state = env._begin_battle(state.replace(enemy=jnp.int32(11)))
+    state = state.replace(actor=jnp.int32(env.warrior_slot))
     service.sessions[session] = (state, 0.)
     snapshot = service.snapshot(state, 0.)
     np.testing.assert_array_equal(snapshot['action_mask'], env.action_mask(state))

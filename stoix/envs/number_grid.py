@@ -9,6 +9,9 @@ from pathlib import Path
 import jax
 import jax.numpy as jnp
 from flax import struct
+from stoix.envs.number_grid_combat import (
+    HP, DAMAGE, ACCURACY, ARMOR, INITIATIVE, build_combat_tables, accuracy_hits,
+)
 from stoa import AddActionMaskWrapper, ArraySpace, DictSpace, DiscreteSpace
 from stoix.envs.number_grid_legacy import (
     DIRECTIONS, NumberGrid as NumericNumberGrid, NumberGridState,
@@ -51,6 +54,11 @@ class NumberGrid(NumericNumberGrid):
         self.battle_mode = bool(game_map.get('battle_mode', False))
         if not self.battle_mode:
             return
+        self.combat_rules_version = game_map.get('combat_rules_version', 1)
+        if type(self.combat_rules_version) is not int or self.combat_rules_version not in (1, 2):
+            raise ValueError('Unsupported combat_rules_version')
+        self.basic_combat = self.combat_rules_version == 2
+        self.random_size = 36 if self.basic_combat else 13
         self.mask_walls = True
         self.hero_count = int(game_map.get('hero_units', 6))
         self.hero_hp = int(game_map.get('hero_hp', 45))
@@ -116,11 +124,19 @@ class NumberGrid(NumericNumberGrid):
                 (self.slots[None, :] >= 6)
                 & (self.slots[None, :] - 6 == self.enemy_warrior_slots[:, None]))
             self.squad_initiative_scale = jnp.where(warriors, self.warrior_initiative / 60, 1.)
+        if self.basic_combat:
+            (self.stats_table, self.damage_ids, self.armor_ids,
+             self.damage_rolls, self.priority_scale) = build_combat_tables(game_map)
+            self.hero_full = self.stats_table[0, :6, HP].astype(jnp.int32)
         self.restored_hp = jnp.concatenate((self.hero_full, jnp.zeros(6, jnp.int32)))
         self.observation_version = int(game_map.get('battle_observation_version', 1))
-        if (self.warrior_slot >= 0 or self.has_enemy_warriors) and self.observation_version != 3:
+        if self.basic_combat and self.observation_version != 4:
+            raise ValueError('Combat rules version 2 requires observation version 4')
+        if not self.basic_combat and self.observation_version == 4:
+            raise ValueError('Observation version 4 requires combat rules version 2')
+        if (self.warrior_slot >= 0 or self.has_enemy_warriors) and self.observation_version not in (3, 4):
             raise ValueError('Warrior maps require battle_observation_version 3')
-        self.observation_size = (4 + 5 * self.num_opponents + 48 + 6 if self.observation_version in (2, 3)
+        self.observation_size = (4 + 5 * self.num_opponents + (108 if self.basic_combat else 48) + 6 if self.observation_version in (2, 3, 4)
                                  else self.observation_size + 2 * self.num_opponents + 12 * 8 + 6)
 
     def reset(self, rng_key, env_params=None):
@@ -146,7 +162,14 @@ class NumberGrid(NumericNumberGrid):
         )
         return state, self._timestep(state, jnp.float32(0), first=True)
 
+    def unit_stats(self, state):
+        """Five effective characteristics per slot; empty/world enemy slots are zero."""
+        values = self.stats_table[jnp.maximum(state.enemy, 0)]
+        return jnp.where(((self.slots < 6) | state.in_battle)[:, None], values, 0.)
+
     def max_hp(self, state):
+        if self.basic_combat:
+            return self.unit_stats(state)[:, HP].astype(jnp.int32)
         enemy = jnp.maximum(state.enemy, 0)
         opponents = jnp.where(jnp.arange(6) < self.enemy_counts[enemy], self.enemy_health[enemy], 0)
         return jnp.concatenate((self.hero_full, jnp.where(state.in_battle, opponents, 0)))
@@ -159,7 +182,7 @@ class NumberGrid(NumericNumberGrid):
             state.round / self.max_rounds, state.actor / 11,
             state.origin[0] / (self.size - 1), state.origin[1] / (self.size - 1)
         ], jnp.float32)
-        if self.observation_version in (2, 3):
+        if self.observation_version in (2, 3, 4):
             # No duplicate max-HP arrays or obsolete numeric battle strengths.
             # Signed queue priority contains both order and waiting/acted status.
             world = jnp.stack((self.opponent_positions[:,0] / (self.size-1),
@@ -168,10 +191,15 @@ class NumberGrid(NumericNumberGrid):
             active = (state.hp > 0) & ~state.escaped
             queue = jnp.where(active & (state.turn_phase == 0), state.priority,
                              jnp.where(active & (state.turn_phase == 1), -state.priority, 0.))
-            hp_scale = (jnp.maximum(self.max_hp(state), 1) if self.observation_version == 3
+            hp_scale = (jnp.maximum(self.max_hp(state), 1) if self.observation_version in (3, 4)
                         else self.hero_hp)
+            if self.basic_combat:
+                queue /= self.priority_scale
             units = jnp.stack((state.hp / hp_scale, queue, state.defended,
                                jnp.where(state.escaped, 1., state.retreating * .5)),axis=1)
+            if self.basic_combat:
+                units = jnp.concatenate((units, self.unit_stats(state) /
+                                         jnp.asarray([100., 300., 100., 100., 100.])), axis=1)
             return jnp.concatenate((state.position / (self.size-1),
                                     jnp.asarray([state.number / self.number_scale,
                                                  state.step_count / self.max_steps],jnp.float32),
@@ -202,6 +230,10 @@ class NumberGrid(NumericNumberGrid):
         return (state.actor >= 6) & (state.actor - 6 == self.enemy_warrior_slots[state.enemy])
 
     def _round_priority(self, random_values, enemy=0):
+        if self.basic_combat:
+            # BAT_INIT=10: discrete bonus 0..9 plus a fractional random tie key.
+            # The fractional part only orders ties; it is not a displayed stat.
+            return self.stats_table[enemy, :, INITIATIVE] + random_values[:12] * 10
         # Preserve existing random initiative (1..2), scaled by base initiative.
         # Archers/mage stay at 60; a warrior at 50 is slower, but not always last.
         priority = random_values[1:] + 1
@@ -239,10 +271,12 @@ class NumberGrid(NumericNumberGrid):
     def _begin_battle(self, state, key=None, random_values=None):
         if key is None:
             key, random_key = jax.random.split(state.battle_key)
-            random_values = jax.random.uniform(random_key, (13,))
+            random_values = jax.random.uniform(random_key, (self.random_size,))
         priority = self._round_priority(random_values, state.enemy)
         enemy_hp = jnp.where(jnp.arange(6) < self.enemy_counts[state.enemy],
                              self.enemy_health[state.enemy], 0)
+        if self.basic_combat:
+            enemy_hp = self.stats_table[state.enemy, 6:, HP].astype(jnp.int32)
         hp = jnp.concatenate((self.hero_full, enemy_hp))
         actor = jnp.argmax(jnp.where(hp > 0, priority, -100)).astype(jnp.int32)
         return state.replace(
@@ -282,6 +316,11 @@ class NumberGrid(NumericNumberGrid):
             valid &= ~warrior | self._melee_targets(state, enemy_side=True)
             base_damage = jnp.where(warrior, self.warrior_damage, base_damage)
         damage = jnp.where(state.defended[:6], (base_damage + 1) // 2, base_damage)
+        if self.basic_combat:
+            # Use minimum damage for a guaranteed kill, without peeking at hit RNG.
+            damage = self.damage_rolls[self.damage_ids[state.enemy, state.actor],
+                                       self.armor_ids[state.enemy, :6],
+                                       state.defended[:6].astype(jnp.int32), 0]
         kill = valid & (state.hp[:6] <= damage)
         candidates = valid & jnp.where(jnp.any(kill), kill, True)
         # HP dominates the random tie breaker, including among killable targets.
@@ -292,7 +331,8 @@ class NumberGrid(NumericNumberGrid):
     def _battle_step(self, state, action, key, random_values):
         actor = state.actor
         escaping = state.retreating[actor]
-        action = jnp.where(actor >= 6, self._enemy_action(state, random_values[1:]), action)
+        action = jnp.where(actor >= 6, self._enemy_action(
+            state, random_values[30:36] if self.basic_combat else random_values[1:]), action)
         action = jnp.where(escaping, CONTINUE, action)
         attack = (action >= SHOOT) & (action < DEFEND)
         target = jnp.clip(action - SHOOT, 0, 5) + jnp.where(actor < 6, 6, 0)
@@ -305,7 +345,24 @@ class NumberGrid(NumericNumberGrid):
             single_damage = jnp.where(warrior, self.warrior_damage, single_damage)
         hit = attack & (random_values[0] < accuracy)
         area_attack = jnp.bool_(False)
-        if self.mage_slot >= 0:
+        if self.basic_combat:
+            stats = self.stats_table[state.enemy]
+            target_slots = jnp.arange(6) + jnp.where(actor < 6, 6, 0)
+            area_attack = (actor == self.mage_slot) & (actor < 6)
+            targets = ((area_attack | (target_slots == target))
+                       & (state.hp[target_slots] > 0) & ~state.escaped[target_slots])
+            hits = accuracy_hits(stats[actor, ACCURACY], random_values[12:18], random_values[18:24])
+            bonuses = jnp.minimum((random_values[24:30] * 6).astype(jnp.int32), 5)
+            damage = self.damage_rolls[self.damage_ids[state.enemy, actor],
+                                       self.armor_ids[state.enemy, target_slots],
+                                       state.defended[target_slots].astype(jnp.int32), bonuses]
+            removed = jnp.where(attack & targets & hits, jnp.minimum(damage, state.hp[target_slots]), 0)
+            zeros = jnp.zeros(6, jnp.int32)
+            hp = state.hp - jnp.where(actor < 6, jnp.concatenate((zeros, removed)),
+                                     jnp.concatenate((removed, zeros)))
+            applied = jnp.sum(removed)
+            hit = attack & jnp.any(targets & hits)
+        elif self.mage_slot >= 0:
             # A fixed hero role is inferable from the actor/HP slots already in
             # observation v2. One hit roll covers the entire spell, without
             # extra RNG, loops, or host operations in the vmapped learner.
@@ -332,7 +389,7 @@ class NumberGrid(NumericNumberGrid):
         priority = jnp.where(new_round, self._round_priority(random_values, state.enemy), state.priority)
         round_number = state.round + new_round.astype(jnp.int32)
         scores = jnp.where(active & (phases == 0), priority,
-                            jnp.where(active & (phases == 1), -priority, -100))
+                            jnp.where(active & (phases == 1), -priority, -1e9 if self.basic_combat else -100))
         next_actor = jnp.argmax(scores).astype(jnp.int32)
         defended = defended.at[next_actor].set(False)
         lost, victory = ~jnp.any(hp[:6] > 0), ~jnp.any(hp[6:] > 0)
@@ -385,7 +442,7 @@ class NumberGrid(NumericNumberGrid):
         valid = jnp.where(state.in_battle, battle_valid, world_valid) & ~state.done
         # Share one random draw between the vmapped map/battle branches.
         key, random_key = jax.random.split(state.battle_key)
-        random_values = jax.random.uniform(random_key, (13,))
+        random_values = jax.random.uniform(random_key, (self.random_size,))
         next_state, reward = jax.lax.cond(state.in_battle, self._battle_step, self._world_step,
                                          state, action, key, random_values)
         steps = state.step_count + 1

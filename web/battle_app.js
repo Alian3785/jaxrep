@@ -33,7 +33,7 @@
   const slots=[3,0,4,1,5,2,6,9,7,10,8,11];
   for(const i of slots){
     const button=document.createElement('button');button.className='unit'+(i>=6?' foe':'');button.dataset.slot=i;
-    button.innerHTML='<span class="unit-name"></span><span class="archer-icon" aria-hidden="true">➶</span><span class="health"></span><span class="health-bar"><span class="health-fill"></span></span><span class="status"></span>';
+    button.innerHTML='<span class="unit-name"></span><span class="archer-icon" aria-hidden="true">➶</span><span class="health"></span><span class="unit-stats"></span><span class="health-bar"><span class="health-fill"></span></span><span class="status"></span>';
     button.onclick=()=>sendAction(8+i-6);$(i<6?'allies':'enemies').append(button);
   }
   function eventText(snapshot){
@@ -71,8 +71,10 @@
     $('warrior-rule').hidden=!hasWarrior;
     $('enemy-warrior-rule').hidden=!map.enemy_warrior_slots?.some(slot=>slot>=0);
     const warriorAccuracy=Math.round((map.warrior_accuracy??.8)*100);
-    $('warrior-accuracy').textContent=warriorAccuracy+'%';
-    $('battle-hint').textContent='Лучник: '+map.archer_damage+' урона одной цели, попадание '+Math.round(map.archer_accuracy*100)+'%.'+(hasWarrior?' Воин: '+map.warrior_damage+' урона в ближнем бою, попадание '+warriorAccuracy+'%, инициатива '+map.warrior_initiative+'.':'')+(hasMage?' Маг: '+map.mage_damage+' урона всем врагам, попадание '+Math.round(map.archer_accuracy*100)+'%.':'');
+    const basic=map.combat_rules_version===2;
+    $('basic-combat-rule').hidden=!basic;
+    $('mage-rule').innerHTML='<b>Маг.</b> Атакует всех живых противников независимо от выбранной цели. '+(basic?'Попадание и прибавка к урону проверяются отдельно для каждой цели.':'Один бросок попадания на всё заклинание.');
+    $('battle-hint').textContent=basic?'Характеристики указаны на карточках. Точность — значение из игры: при 80% фактический шанс попадания 92,2%. Броня уменьшает урон до применения защиты.':'Лучник: '+map.archer_damage+' урона, попадание '+Math.round(map.archer_accuracy*100)+'%.'+(hasWarrior?' Воин: '+map.warrior_damage+' урона, попадание '+warriorAccuracy+'%, инициатива '+map.warrior_initiative+'.':'')+(hasMage?' Маг: '+map.mage_damage+' урона всем врагам.':'');
     $('attack-hint').textContent=isMage(s.actor)?'Ход мага: нажмите на любого живого врага — заклинание поразит всех противников.':isWarrior(s.actor)?(mask.slice(8,14).some(Boolean)?'Ход воина: выберите подсвеченного врага для удара мечом.':'Воин не достаёт до врагов. Можно защищаться, ждать или отступить.'):'Нажмите на живого противника, чтобы выстрелить.';
     const message=s.won?'Победа! Карта очищена.':s.lost?'Ваш отряд погиб. Начните новую игру.':s.done?'Достигнут лимит. Начните новую игру.':s.in_battle?'Выбирайте цели и берегите свой отряд.':'Подойдите к любому вражескому отряду.';
     $('message').textContent=message;
@@ -92,6 +94,8 @@
         b.querySelector('.unit-name').textContent=max?role(i)+' '+(i%6+1):'Пусто';
         b.querySelector('.archer-icon').textContent=isMage(i)?'✦':isWarrior(i)?'⚔':'➶';
         b.querySelector('.health').textContent=max?hp+' / '+max+' HP':'—';
+        const values=snap.unit_stats?.[i]??[max,isMage(i)?map.mage_damage:isWarrior(i)?map.warrior_damage:map.archer_damage,100*(isWarrior(i)?(map.warrior_accuracy??.8):map.archer_accuracy),0,isWarrior(i)?map.warrior_initiative:60];
+        b.querySelector('.unit-stats').textContent=max?'Урон '+fmt(values[1])+' · Точн. '+fmt(values[2])+'%\nБроня '+fmt(values[3])+'% · Иниц. '+fmt(values[4]):'';
         b.querySelector('.health-fill').style.width=(max?hp/max*100:0)+'%';
         b.querySelector('.status').textContent=!max?'':!hp?'Погиб':s.escaped[i]?'Отступил':unreachable?'Вне досягаемости':s.retreating[i]?'Побег':s.defended[i]?'Защита':s.turn_phase[i]===1?'Ожидание':s.turn_phase[i]===2?'Ход завершён':'';
         b.disabled=i<6||mode!=='manual'||busy||s.done||!session||!mask[8+i-6];
@@ -99,7 +103,7 @@
       });
       const queue=Array.from({length:12},(_,i)=>i).filter(i=>s.hp[i]>0&&!s.escaped[i]&&s.turn_phase[i]<2);
       const priority=i=>s.turn_phase[i]===0?s.priority[i]:-s.priority[i];queue.sort((a,b)=>priority(b)-priority(a)||a-b);
-      $('queue').replaceChildren(...queue.map(i=>{const e=document.createElement('span');e.className='queue-unit'+(i>=6?' foe':'')+(i===s.actor?' current':'');e.textContent=(isMage(i)?'М':isWarrior(i)?'⚔':i<6?'Л':'П')+(i%6+1);e.title=unitName(i);return e;}));
+      $('queue').replaceChildren(...queue.map(i=>{const e=document.createElement('span');e.className='queue-unit'+(i>=6?' foe':'')+(i===s.actor?' current':'');e.textContent=(isMage(i)?'М':isWarrior(i)?'⚔':i<6?'Л':'П')+(i%6+1);e.title=unitName(i)+(basic?' · инициатива раунда '+Math.floor(s.priority[i]):'');return e;}));
     }else drawMap(s);
     $('events').replaceChildren(...messages.slice(-6).reverse().map(text=>{const li=document.createElement('li');li.textContent=text;return li;}));
     if(records.length){const last=records[recordIndex].frames.length-1;$('scrubber').max=last;$('scrubber').value=frame;$('frame-count').textContent=frame+' / '+last;$('next').disabled=frame>=last;}

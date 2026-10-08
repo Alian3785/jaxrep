@@ -68,14 +68,16 @@ def build(output=None):
         seed=42+index
         (initial,mask,max_hp),final,(states,actions,rewards,masks,max_hps)=jax.device_get(rollout(jnp.int32(seed),index==0))
         frames=[{'state':state_dict(initial),'action':None,'reward':0.,'total_reward':0.,
-                 'action_mask':mask.tolist(),'max_hp':max_hp.tolist()}]
+                 'action_mask':mask.tolist(),'max_hp':max_hp.tolist(),
+                 'unit_stats':np.asarray(env.unit_stats(initial)).tolist() if env.basic_combat else None}]
         total=0.
         for t in range(int(final.step_count)):
             action=int(actions[t]);assert frames[-1]['action_mask'][action]
             total+=float(rewards[t])
             state=jax.tree.map(lambda x,t=t:x[t],states)
             frames.append({'state':state_dict(state),'action':action,'reward':float(rewards[t]),
-                           'total_reward':total,'action_mask':masks[t].tolist(),'max_hp':max_hps[t].tolist()})
+                           'total_reward':total,'action_mask':masks[t].tolist(),'max_hp':max_hps[t].tolist(),
+                           'unit_stats':np.asarray(env.unit_stats(state)).tolist() if env.basic_combat else None})
         assert bool(final.done)
         outcome='победа' if bool(final.won) else 'поражение' if bool(final.lost) else 'лимит'
         records.append({'label':f'{"Argmax" if index==0 else "Выборка"} · {outcome} · {int(final.step_count)} шагов',

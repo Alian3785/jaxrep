@@ -18,7 +18,7 @@ def test_named_armies_exactly_match_python_reference_level_one_profiles():
     env = current()
     state, ts = jax.jit(env.reset)(jax.random.PRNGKey(42))
     chex.assert_trees_all_equal(state.hp[:6], jnp.array([120, 120, 120, 45, 45, 0]))
-    assert ts.observation.shape == (319,) and env.observation_size == 319
+    assert ts.observation.shape == (379,) and env.observation_size == 379
     assert env.action_space().num_values == 44 and env.hero_count == 5
     expected = dict(possessed=(120, 25, 80, 0, 50, 'weapon'), cultist=(45, 15, 80, 0, 40, 'fire'),
                     squire=(100, 25, 80, 0, 50, 'weapon'), archer=(45, 25, 80, 0, 60, 'weapon'))
@@ -184,6 +184,7 @@ def test_unrelated_sources_bypass_protection_and_immunity():
     # Keep only fire immunity and water protection for the same live target.
     traits = env.combat_traits.at[:, 0, 2].set(jnp.uint32(4)).at[:, 0, 3].set(jnp.uint32(8))
     env.combat_traits = traits
+    env.progression.traits = env.progression.traits.at[env.progression.initial_ids[0], 2].set(jnp.uint32(4)).at[env.progression.initial_ids[0], 3].set(jnp.uint32(8))
     result = attack_batch(env, states)
     expected = jnp.full(9, 75, jnp.int32).at[2:4].set(100)
     chex.assert_trees_all_equal(result.hp[:, 0], expected)

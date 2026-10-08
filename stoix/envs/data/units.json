@@ -1,6 +1,8 @@
 {
   "possessed": {
     "name": "Одержимый",
+    "game_id": "g000uu0052",
+    "faction": "legions",
     "level": 1,
     "role": "melee",
     "max_hp": 120,
@@ -10,10 +12,38 @@
     "initiative": 50,
     "attack_type": "weapon",
     "immunities": [],
-    "protections": []
+    "protections": [],
+    "exp_kill": 25,
+    "exp_required": 95,
+    "exp_current": 0,
+    "upgrades": [
+      "berserker"
+    ],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        3,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        1,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 2,
+      "kill_late": 1
+    }
   },
   "cultist": {
     "name": "Сектант",
+    "game_id": "g000uu0062",
+    "faction": "legions",
     "level": 1,
     "role": "area",
     "max_hp": 45,
@@ -23,10 +53,39 @@
     "initiative": 40,
     "attack_type": "fire",
     "immunities": [],
-    "protections": []
+    "protections": [],
+    "exp_kill": 20,
+    "exp_required": 75,
+    "exp_current": 0,
+    "upgrades": [
+      "warlock",
+      "witch"
+    ],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        5,
+        2,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        1,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 2,
+      "kill_late": 1
+    }
   },
   "squire": {
     "name": "Скваер",
+    "game_id": "g000uu0001",
+    "faction": "empire",
     "level": 1,
     "role": "melee",
     "max_hp": 100,
@@ -36,10 +95,39 @@
     "initiative": 50,
     "attack_type": "weapon",
     "immunities": [],
-    "protections": []
+    "protections": [],
+    "exp_kill": 20,
+    "exp_required": 80,
+    "exp_current": 0,
+    "upgrades": [
+      "knight",
+      "witch_hunter"
+    ],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        3,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        1,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 2,
+      "kill_late": 1
+    }
   },
   "archer": {
     "name": "Лучник",
+    "game_id": "g000uu0006",
+    "faction": "empire",
     "level": 1,
     "role": "ranged",
     "max_hp": 45,
@@ -49,6 +137,969 @@
     "initiative": 60,
     "attack_type": "weapon",
     "immunities": [],
-    "protections": []
+    "protections": [],
+    "exp_kill": 20,
+    "exp_required": 70,
+    "exp_current": 0,
+    "upgrades": [
+      "marksman"
+    ],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        5,
+        3,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        1,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 2,
+      "kill_late": 1
+    }
+  },
+  "berserker": {
+    "name": "Берсерк",
+    "game_id": "g000uu0053",
+    "faction": "legions",
+    "level": 2,
+    "role": "melee",
+    "max_hp": 170,
+    "damage": 50,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 50,
+    "attack_type": "weapon",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 70,
+    "exp_required": 550,
+    "exp_current": 0,
+    "upgrades": [
+      "dark_paladin"
+    ],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        15,
+        5,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        10,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 7,
+      "kill_late": 3
+    }
+  },
+  "dark_paladin": {
+    "name": "Темный паладин",
+    "game_id": "g000uu0054",
+    "faction": "legions",
+    "level": 3,
+    "role": "melee",
+    "max_hp": 220,
+    "damage": 75,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 50,
+    "attack_type": "weapon",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 130,
+    "exp_required": 1050,
+    "exp_current": 0,
+    "upgrades": [
+      "infernal_knight"
+    ],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        20,
+        8,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        10,
+        4,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 13,
+      "kill_late": 7
+    }
+  },
+  "infernal_knight": {
+    "name": "Адский рыцарь",
+    "game_id": "g000uu0166",
+    "faction": "legions",
+    "level": 4,
+    "role": "melee",
+    "max_hp": 270,
+    "damage": 100,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 50,
+    "attack_type": "weapon",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 215,
+    "exp_required": 1725,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        25,
+        10,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        15,
+        5,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 22,
+      "kill_late": 11
+    }
+  },
+  "warlock": {
+    "name": "Колдун",
+    "game_id": "g000uu0063",
+    "faction": "legions",
+    "level": 2,
+    "role": "area",
+    "max_hp": 75,
+    "damage": 30,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "fire",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 65,
+    "exp_required": 500,
+    "exp_current": 0,
+    "upgrades": [
+      "doppelganger",
+      "demonologist"
+    ],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        3,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        2,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 6,
+      "kill_late": 3
+    }
+  },
+  "witch": {
+    "name": "Ведьма",
+    "game_id": "g000uu0067",
+    "faction": "legions",
+    "level": 2,
+    "role": "unsupported",
+    "max_hp": 75,
+    "damage": 0,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 20,
+    "attack_type": "mind",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 70,
+    "exp_required": 600,
+    "exp_current": 0,
+    "upgrades": [
+      "sorceress"
+    ],
+    "upgrade_unavailable_reason": "Паралич пока не реализован",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        0,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        0,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 3,
+      "kill_late": 2
+    }
+  },
+  "doppelganger": {
+    "name": "Двойник",
+    "game_id": "g000uu0171",
+    "faction": "legions",
+    "level": 3,
+    "role": "unsupported",
+    "max_hp": 120,
+    "damage": 30,
+    "accuracy": 100,
+    "armor": 0,
+    "initiative": 80,
+    "attack_type": "mind",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 120,
+    "exp_required": 500,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "Копирование пока не реализовано",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        0,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        0,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 12,
+      "kill_late": 6
+    }
+  },
+  "demonologist": {
+    "name": "Демонолог",
+    "game_id": "g000uu0064",
+    "faction": "legions",
+    "level": 3,
+    "role": "area",
+    "max_hp": 105,
+    "damage": 45,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "fire",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 130,
+    "exp_required": 1325,
+    "exp_current": 0,
+    "upgrades": [
+      "incubus",
+      "pandemoneus"
+    ],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        5,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        2,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 13,
+      "kill_late": 7
+    }
+  },
+  "sorceress": {
+    "name": "Колдунья",
+    "game_id": "g000uu0068",
+    "faction": "legions",
+    "level": 3,
+    "role": "unsupported",
+    "max_hp": 115,
+    "damage": 50,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 20,
+    "attack_type": "mind",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 110,
+    "exp_required": 1400,
+    "exp_current": 0,
+    "upgrades": [
+      "succubus"
+    ],
+    "upgrade_unavailable_reason": "Массовый паралич пока не реализован",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        0,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        0,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 5,
+      "kill_late": 2
+    }
+  },
+  "incubus": {
+    "name": "Инкуб",
+    "game_id": "g000uu0065",
+    "faction": "legions",
+    "level": 4,
+    "role": "unsupported",
+    "max_hp": 135,
+    "damage": 0,
+    "accuracy": 65,
+    "armor": 0,
+    "initiative": 20,
+    "attack_type": "earth",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 90,
+    "exp_required": 1125,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "Массовый паралич пока не реализован",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        15,
+        0,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        0,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 9,
+      "kill_late": 5
+    }
+  },
+  "pandemoneus": {
+    "name": "Пандемонеус",
+    "game_id": "g000uu0066",
+    "faction": "legions",
+    "level": 4,
+    "role": "area",
+    "max_hp": 135,
+    "damage": 60,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "fire",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 225,
+    "exp_required": 2250,
+    "exp_current": 0,
+    "upgrades": [
+      "modeus"
+    ],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        15,
+        6,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 23,
+      "kill_late": 11
+    }
+  },
+  "succubus": {
+    "name": "Суккуб",
+    "game_id": "g000uu0173",
+    "faction": "legions",
+    "level": 4,
+    "role": "unsupported",
+    "max_hp": 145,
+    "damage": 0,
+    "accuracy": 40,
+    "armor": 0,
+    "initiative": 20,
+    "attack_type": "mind",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 305,
+    "exp_required": 1500,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "Превращение пока не реализовано",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        15,
+        0,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        0,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 8,
+      "kill_late": 4
+    }
+  },
+  "modeus": {
+    "name": "Модеус",
+    "game_id": "g000uu0172",
+    "faction": "legions",
+    "level": 5,
+    "role": "area",
+    "max_hp": 170,
+    "damage": 75,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "fire",
+    "immunities": [],
+    "protections": [
+      "fire"
+    ],
+    "exp_kill": 390,
+    "exp_required": 3100,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        15,
+        8,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        10,
+        4,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 39,
+      "kill_late": 19
+    }
+  },
+  "knight": {
+    "name": "Рыцарь",
+    "game_id": "g000uu0002",
+    "faction": "empire",
+    "level": 2,
+    "role": "melee",
+    "max_hp": 150,
+    "damage": 50,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 50,
+    "attack_type": "weapon",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 60,
+    "exp_required": 475,
+    "exp_current": 0,
+    "upgrades": [
+      "imperial_knight"
+    ],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        15,
+        5,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        10,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 6,
+      "kill_late": 3
+    }
+  },
+  "witch_hunter": {
+    "name": "Охотник на ведьм",
+    "game_id": "g000uu0004",
+    "faction": "empire",
+    "level": 2,
+    "role": "melee",
+    "max_hp": 140,
+    "damage": 50,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 50,
+    "attack_type": "weapon",
+    "immunities": [
+      "mind"
+    ],
+    "protections": [],
+    "exp_kill": 60,
+    "exp_required": 475,
+    "exp_current": 0,
+    "upgrades": [
+      "inquisitor"
+    ],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        15,
+        5,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 5,
+      "kill_late": 3
+    }
+  },
+  "imperial_knight": {
+    "name": "Имперский рыцарь",
+    "game_id": "g000uu0003",
+    "faction": "empire",
+    "level": 3,
+    "role": "melee",
+    "max_hp": 200,
+    "damage": 75,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 50,
+    "attack_type": "weapon",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 120,
+    "exp_required": 950,
+    "exp_current": 0,
+    "upgrades": [
+      "angel",
+      "paladin"
+    ],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        20,
+        8,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        10,
+        4,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 12,
+      "kill_late": 6
+    }
+  },
+  "inquisitor": {
+    "name": "Инквизитор",
+    "game_id": "g000uu0005",
+    "faction": "empire",
+    "level": 3,
+    "role": "melee",
+    "max_hp": 180,
+    "damage": 75,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 50,
+    "attack_type": "weapon",
+    "immunities": [
+      "mind"
+    ],
+    "protections": [],
+    "exp_kill": 115,
+    "exp_required": 950,
+    "exp_current": 0,
+    "upgrades": [
+      "grand_inquisitor"
+    ],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        15,
+        8,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        10,
+        4,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 9,
+      "kill_late": 5
+    }
+  },
+  "angel": {
+    "name": "Ангел",
+    "game_id": "g000uu0014",
+    "faction": "empire",
+    "level": 4,
+    "role": "melee",
+    "max_hp": 225,
+    "damage": 125,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 50,
+    "attack_type": "weapon",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 225,
+    "exp_required": 1600,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        25,
+        13,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        10,
+        6,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 23,
+      "kill_late": 11
+    }
+  },
+  "paladin": {
+    "name": "Паладин",
+    "game_id": "g000uu0015",
+    "faction": "empire",
+    "level": 4,
+    "role": "melee",
+    "max_hp": 175,
+    "damage": 100,
+    "accuracy": 80,
+    "armor": 30,
+    "initiative": 50,
+    "attack_type": "weapon",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 200,
+    "exp_required": 1600,
+    "exp_current": 0,
+    "upgrades": [
+      "defender_of_faith",
+      "blade_master"
+    ],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        20,
+        10,
+        1,
+        1,
+        0
+      ],
+      "late": [
+        10,
+        5,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 20,
+      "kill_late": 10
+    }
+  },
+  "defender_of_faith": {
+    "name": "Защитник Веры",
+    "game_id": "g000uu0156",
+    "faction": "empire",
+    "level": 5,
+    "role": "melee",
+    "max_hp": 225,
+    "damage": 125,
+    "accuracy": 80,
+    "armor": 30,
+    "initiative": 70,
+    "attack_type": "weapon",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 320,
+    "exp_required": 2100,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        25,
+        13,
+        1,
+        1,
+        0
+      ],
+      "late": [
+        10,
+        6,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 32,
+      "kill_late": 16
+    }
+  },
+  "blade_master": {
+    "name": "Мастер клинка",
+    "game_id": "g000uu0155",
+    "faction": "empire",
+    "level": 5,
+    "role": "melee",
+    "max_hp": 250,
+    "damage": 75,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 50,
+    "attack_type": "weapon",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 300,
+    "exp_required": 2000,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "Двойная атака пока не реализована",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        25,
+        8,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        15,
+        4,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 30,
+      "kill_late": 15
+    }
+  },
+  "grand_inquisitor": {
+    "name": "Великий инквизитор",
+    "game_id": "g000uu0157",
+    "faction": "empire",
+    "level": 4,
+    "role": "melee",
+    "max_hp": 210,
+    "damage": 100,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 50,
+    "attack_type": "weapon",
+    "immunities": [
+      "mind"
+    ],
+    "protections": [
+      "fire"
+    ],
+    "exp_kill": 190,
+    "exp_required": 800,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        20,
+        10,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        10,
+        5,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 16,
+      "kill_late": 8
+    }
+  },
+  "marksman": {
+    "name": "Стрелок",
+    "game_id": "g000uu0007",
+    "faction": "empire",
+    "level": 2,
+    "role": "ranged",
+    "max_hp": 90,
+    "damage": 40,
+    "accuracy": 85,
+    "armor": 0,
+    "initiative": 60,
+    "attack_type": "weapon",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 60,
+    "exp_required": 500,
+    "exp_current": 0,
+    "upgrades": [
+      "imperial_assassin"
+    ],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        4,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        2,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 6,
+      "kill_late": 3
+    }
+  },
+  "imperial_assassin": {
+    "name": "Имперский ассасин",
+    "game_id": "g000uu0154",
+    "faction": "empire",
+    "level": 3,
+    "role": "ranged",
+    "max_hp": 135,
+    "damage": 60,
+    "accuracy": 85,
+    "armor": 0,
+    "initiative": 60,
+    "attack_type": "weapon",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 140,
+    "exp_required": 1100,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "Дополнительная атака пока не реализована",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        15,
+        6,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 14,
+      "kill_late": 7
+    }
   }
 }

@@ -75,6 +75,7 @@ def build(output=None):
                  'action_mask':mask.tolist(),'max_hp':max_hp.tolist(),
                  'building_status':np.asarray(env.construction.status(initial)).tolist(),
                  'rest_penalty':float(env.rest_penalty(initial)),
+                 'unit_experience':np.asarray(env.unit_experience(initial)).tolist(),
                  'unit_stats':np.asarray(env.unit_stats(initial)).tolist() if env.basic_combat else None}]
         total=0.
         for t in range(int(final.step_count)):
@@ -85,6 +86,7 @@ def build(output=None):
                            'total_reward':total,'action_mask':masks[t].tolist(),'max_hp':max_hps[t].tolist(),
                            'building_status':np.asarray(env.construction.status(state)).tolist(),
                            'rest_penalty':float(env.rest_penalty(state)),
+                           'unit_experience':np.asarray(env.unit_experience(state)).tolist(),
                            'unit_stats':np.asarray(env.unit_stats(state)).tolist() if env.basic_combat else None})
         assert bool(final.done)
         outcome='победа' if bool(final.won) else 'поражение' if bool(final.lost) else 'лимит'

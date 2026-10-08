@@ -172,7 +172,9 @@ def test_training_autoreset_retains_final_build_in_terminal_observation():
     final_obs = ts.extras['next_obs']['observation']
     np.testing.assert_array_equal(final_obs[:, -27], [1, 1])
     np.testing.assert_array_equal(final_obs[:, -28], [1, 1])
-    np.testing.assert_array_equal(ts.observation['observation'][:, -28:-2], np.zeros((2, 26)))
+    expected = np.zeros((2, 26))
+    expected[:, np.array([5,6,8,9,11])+1] = -1  # unavailable special-ability branches
+    np.testing.assert_array_equal(ts.observation['observation'][:, -28:-2], expected)
 
 
 def test_human_sessions_build_with_shared_actions_and_isolate_factions():

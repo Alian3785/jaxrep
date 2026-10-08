@@ -1,5 +1,5 @@
 {
-  "name": "NumberGrid-24x24-v16-attack-protections",
+  "name": "NumberGrid-24x24-v17-unit-progression",
   "size": 24,
   "agent_position": [
     2,
@@ -194,7 +194,7 @@
     100
   ],
   "battle_recovery": "Victory or retreat preserves survivors HP and revives fallen hero units with 1 HP. Defeat ends the episode. Enemies reset after retreat. Rest heals living heroes by ceil(10% max HP), capped at max HP.",
-  "battle_observation_version": 8,
+  "battle_observation_version": 9,
   "combat_rules_version": 2,
   "faction": "legions",
   "building_reward": 0.05,
@@ -402,5 +402,6 @@
       "archer",
       "archer"
     ]
-  ]
+  ],
+  "unit_progression": true
 }

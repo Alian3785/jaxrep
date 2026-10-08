@@ -12,7 +12,7 @@ ATTACK_LABELS = ('Оружие', 'Земля', 'Огонь', 'Вода', 'Яд',
 EMPTY, MELEE, RANGED, AREA = range(4)
 ROLES = {'melee': MELEE, 'ranged': RANGED, 'area': AREA}
 UNITS = json.loads((Path(__file__).parent / 'data/units.json').read_text(encoding='utf-8'))
-PROFILE_FIELDS = set(STAT_NAMES) | {'role', 'attack_type', 'immunities', 'protections'}
+PROFILE_FIELDS = set(STAT_NAMES) | {'role', 'attack_type', 'immunities', 'protections', 'exp_kill', 'exp_required', 'exp_current'}
 
 
 def _validated_stats(values):
@@ -97,8 +97,16 @@ def build_combat_tables(game_map):
             if not isinstance(override, dict) or set(override) - PROFILE_FIELDS:
                 raise ValueError('Unknown combat profile fields')
             values = {**defaults, **override}
-            if values['role'] not in ROLES:
+            if values.get('upgrade_unavailable_reason'):
+                raise ValueError(values['upgrade_unavailable_reason'])
+            if not isinstance(values['role'], str) or values['role'] not in ROLES:
                 raise ValueError('Unknown combat role')
+            for field in ('exp_kill', 'exp_required', 'exp_current'):
+                value = values.get(field, 0)
+                if type(value) is not int or not 0 <= value <= 1_000_000:
+                    raise ValueError('Invalid combat '+field)
+            if values.get('exp_required', 0) > 0 and values.get('exp_current', 0) >= values['exp_required']:
+                raise ValueError('Initial experience must be below the level threshold')
             stats = _validated_stats(values)
             source = _source(values['attack_type'])
             immune, wards = _protection_mask(values['immunities']), _protection_mask(values['protections'])

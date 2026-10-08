@@ -9,6 +9,8 @@ from pathlib import Path
 
 import jax.numpy as jnp
 
+from stoix.envs.number_grid_combat import UNITS
+
 BUILD_START, BUILD_SLOTS = 18, 25
 DAILY_GOLD = 100
 CATALOG = json.loads((Path(__file__).parent / 'data/buildings.json').read_text(encoding='utf-8'))
@@ -23,7 +25,10 @@ class BuildingRules:
             raise ValueError(f'Unknown faction: {self.faction}')
         faction = CATALOG['factions'][self.faction]
         self.name = faction['name']
-        self.rows = faction['buildings']
+        unavailable = {u['name']: u['upgrade_unavailable_reason'] for u in UNITS.values()
+                       if game_map.get('unit_progression') and u.get('upgrade_unavailable_reason')}
+        self.rows = [{**row, 'unavailable_reason': unavailable.get(row['unit'], '')}
+                     for row in faction['buildings']]
         count = len(self.rows)
         names = {row['name']: i for i, row in enumerate(self.rows)}
         ids = {row['id']: i for i, row in enumerate(self.rows)}
@@ -61,7 +66,7 @@ class BuildingRules:
         forbidden = game_map.get('blocked_buildings', [])
         if not isinstance(forbidden, (list, tuple)):
             raise ValueError('blocked_buildings must be a list of building IDs or names')
-        initial = 0
+        initial = sum(1 << i for i, row in enumerate(self.rows) if row['unavailable_reason'])
         for name in forbidden:
             index = ids.get(name, names.get(name))
             if index is None:

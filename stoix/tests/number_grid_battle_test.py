@@ -106,7 +106,7 @@ def test_fixed_map_has_a_playable_full_route_with_archer_battles():
     route = jnp.array(route,jnp.int32)
     env = NumberGrid(map_config=MAP)
     trials = 64
-    if env.observation_version == 8:
+    if env.observation_version >= 8:
         # Structural reachability under legal controlled hit/miss outcomes, not a win-rate claim.
         # Real PRNG outcomes for every squad size are checked separately.
         battle_step = env._battle_step

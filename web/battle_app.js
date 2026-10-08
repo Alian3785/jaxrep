@@ -4,15 +4,19 @@
   const $=id=>document.getElementById(id), fmt=n=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:3}).format(n);
   const canvas=$('board'), ctx=canvas.getContext('2d');
   let mode='manual', session=null, manual=null, manualMap=null, busy=false, frame=0, recordIndex=0, timer=null, messages=[];
-  let manualConstruction=null, manualTurnRules=null, capitalOpen=false, capitalKey=null;
+  let manualConstruction=null, manualTurnRules=null, manualCombat=null, capitalOpen=false, capitalKey=null;
   const records=data.records||[];
-  const archerCount=n=>n+' '+(n===1?'лучник':n>=2&&n<=4?'лучника':'лучников');
-  const isMage=i=>i>=0&&i<6&&i===currentMap().hero_mage_slot;
-  const enemyWarriorSlot=(map,enemy)=>map.enemy_warrior_slots?.[enemy]??-1;
-  const isWarrior=i=>i>=0&&i<12&&(i<6?i===currentMap().hero_warrior_slot:i-6===enemyWarriorSlot(currentMap(),current()?.state.enemy));
-  const enemyParty=(map,enemy)=>{const n=map.enemy_units[enemy],warrior=enemyWarriorSlot(map,enemy)>=0;return warrior?(n===1?'1 воин':archerCount(n-1)+' + воин'):archerCount(n);};
-  const role=i=>isMage(i)?'Маг':isWarrior(i)?'Воин':'Лучник';
+  const combatInfo=()=>mode==='manual'?(manualCombat||data.combat):data.combat;
+  const profile=i=>i>=0&&i<12?(i<6?combatInfo()?.heroes[i]:combatInfo()?.enemies[current()?.state.enemy]?.[i-6]):null;
+  const isMage=i=>profile(i)?.role==='area';
+  const isWarrior=i=>profile(i)?.role==='melee';
+  const role=i=>profile(i)?.name||'Пусто';
   const unitName=i=>(i<6?'Ваш ':'Вражеский ')+role(i).toLowerCase()+' '+(i%6+1);
+  const partyText=units=>{const counts=new Map();for(const u of units||[])if(u)counts.set(u.name,(counts.get(u.name)||0)+1);return [...counts].map(([name,count])=>name+' × '+count).join(' · ');};
+  const enemyParty=(map,enemy)=>partyText(combatInfo()?.enemies[enemy]);
+  const sourceName=key=>combatInfo()?.attack_types.find(t=>t.key===key)?.name||key;
+  const protectionNames=bits=>(combatInfo()?.attack_types||[]).filter(t=>bits&t.bit).map(t=>t.name).join(', ')||'нет';
+  const blockText=s=>{const parts=[];for(const [key,label] of [['last_immune','Иммунитет'],['last_ward','Защита поглотила удар']]){const names=Array.from({length:12},(_,i)=>i).filter(i=>s[key]&(1<<i)).map(unitName);if(names.length)parts.push(label+': '+names.join(', ')+'.');}return parts.length?' '+parts.join(' '):'';};
   function current(){return mode==='manual'?manual:records[recordIndex]?.frames[frame];}
   function currentMap(){return mode==='manual'?(manualMap||data.map):data.map;}
   function construction(){return mode==='manual'?(manualConstruction||data.construction):data.construction;}
@@ -98,7 +102,7 @@
     const s=snapshot.state,a=unitName(s.last_actor),t=unitName(s.last_target);
     switch(s.last_event){
       case 1:return 'Начался бой с отрядом № '+(s.enemy+1)+'.';
-      case 2:return isMage(s.last_actor)?a+': заклинание по всем противникам (суммарный урон '+s.last_damage+').':a+(isWarrior(s.last_actor)?': удар мечом по ':': попадание в ')+t.toLowerCase()+' (−'+s.last_damage+').';
+      case 2:return isMage(s.last_actor)?a+': заклинание по всем противникам (суммарный урон '+s.last_damage+').'+blockText(s):a+(isWarrior(s.last_actor)?': удар мечом по ':': попадание в ')+t.toLowerCase()+' (−'+s.last_damage+').'+blockText(s);
       case 3:return a+': промах.';
       case 4:return a+' встал в защиту.';
       case 5:return a+' ждёт конца раунда.';
@@ -110,6 +114,8 @@
       case 11:return 'Бой достиг лимита раундов. Эпизод завершён.';
       case 12:{const b=construction()?.buildings[s.last_building];return b?'Построено: '+b.name+' (−'+b.gold+' золота).':null;}
       case 13:return 'Отдых. Начался ход '+s.day+', +'+turnRules().income+' золота; очки перемещения восстановлены, живые бойцы получили регенерацию 10% HP. Штраф: '+fmt(Math.max(0,-snapshot.reward))+'.';
+      case 14:return 'Атака заблокирована иммунитетом.'+blockText(s);
+      case 15:return 'Атака поглощена защитой.'+blockText(s);
       default:return null;
     }
   }
@@ -131,21 +137,17 @@
     $('rest').dataset.action=turns.rest_action;
     $('rest-hint').textContent=s.in_battle?'Отдых доступен после завершения боя.':snap.rest_penalty>0?'Штраф за оставшиеся очки: −'+fmt(snap.rest_penalty)+'. Следующий ход: +'+turns.income+' золота и полный запас очков.':'Все очки использованы: отдых без штрафа. Следующий ход: +'+turns.income+' золота и полный запас очков.';
     if(!s.in_battle)$('rest-hint').textContent+=' Живым бойцам: +'+turns.regeneration_percent+'% максимального HP с округлением вверх (до максимума).';
-    const mageAlive=s.hp.slice(0,6).some((hp,i)=>hp>0&&isMage(i));
-    const warriorAlive=s.hp.slice(0,6).some((hp,i)=>hp>0&&isWarrior(i));
-    $('party-health').textContent=archerCount(s.hp.slice(0,6).filter((hp,i)=>hp>0&&!isMage(i)&&!isWarrior(i)).length)+(warriorAlive?' + воин':'')+(mageAlive?' + маг':'')+' · '+s.hp.slice(0,6).reduce((a,b)=>a+b,0)+' здоровья';
-    const hasMage=Number.isInteger(map.hero_mage_slot)&&map.hero_mage_slot>=0;
-    const hasWarrior=Number.isInteger(map.hero_warrior_slot)&&map.hero_warrior_slot>=0;
-    $('party-title').textContent=hasWarrior?(hasMage?'Четыре лучника, воин и маг.':'Пять лучников и воин.'):(hasMage?'Пять лучников и маг.':'Шесть лучников.');
-    $('mage-rule').hidden=!hasMage;
-    $('warrior-rule').hidden=!hasWarrior;
-    $('enemy-warrior-rule').hidden=!map.enemy_warrior_slots?.some(slot=>slot>=0);
-    const warriorAccuracy=Math.round((map.warrior_accuracy??.8)*100);
-    const basic=map.combat_rules_version===2;
-    $('basic-combat-rule').hidden=!basic;
-    $('mage-rule').innerHTML='<b>Маг.</b> Атакует всех живых противников независимо от выбранной цели. '+(basic?'Попадание и прибавка к урону проверяются отдельно для каждой цели.':'Один бросок попадания на всё заклинание.');
-    $('battle-hint').textContent=basic?'Характеристики указаны на карточках. Точность — значение из игры: при 80% фактический шанс попадания 92,2%. Броня уменьшает урон до применения защиты.':'Лучник: '+map.archer_damage+' урона, попадание '+Math.round(map.archer_accuracy*100)+'%.'+(hasWarrior?' Воин: '+map.warrior_damage+' урона, попадание '+warriorAccuracy+'%, инициатива '+map.warrior_initiative+'.':'')+(hasMage?' Маг: '+map.mage_damage+' урона всем врагам.':'');
-    $('attack-hint').textContent=isMage(s.actor)?'Ход мага: нажмите на любого живого врага — заклинание поразит всех противников.':isWarrior(s.actor)?(mask.slice(8,14).some(Boolean)?'Ход воина: выберите подсвеченного врага для удара мечом.':'Воин не достаёт до врагов. Можно защищаться, ждать или отступить.'):'Нажмите на живого противника, чтобы выстрелить.';
+    const heroes=combatInfo()?.heroes||[];
+    $('party-health').textContent=partyText(heroes.filter((u,i)=>u&&s.hp[i]>0))+' · '+s.hp.slice(0,6).reduce((a,b)=>a+b,0)+' здоровья';
+    $('party-title').textContent=partyText(heroes)+'.';
+    $('mage-rule').hidden=!heroes.some(u=>u?.role==='area');
+    $('warrior-rule').hidden=!heroes.some(u=>u?.role==='melee');
+    $('enemy-warrior-rule').hidden=!combatInfo()?.enemies.some(row=>row.some(u=>u?.role==='melee'));
+    const basic=true;
+    $('basic-combat-rule').hidden=false;
+    $('mage-rule').innerHTML='<b>Массовая атака.</b> Каждый сектант атакует всех живых противников. Попадание, прибавка к урону, иммунитет и защита проверяются отдельно для каждой цели.';
+    $('battle-hint').textContent='Источник атаки, иммунитеты и оставшиеся защиты указаны на карточках. Точность 80% соответствует фактическому шансу попадания 92,2%. Броня и действие защиты уменьшают прошедший урон.';
+    $('attack-hint').textContent=isMage(s.actor)?'Массовая атака: выберите любого живого врага.':isWarrior(s.actor)?(mask.slice(8,14).some(Boolean)?'Ход воина: выберите подсвеченного врага для удара мечом.':'Воин не достаёт до врагов. Можно защищаться, ждать или отступить.'):'Нажмите на живого противника, чтобы выстрелить.';
     const message=s.won?'Победа! Карта очищена.':s.lost?'Ваш отряд погиб. Начните новую игру.':s.done?'Достигнут лимит. Начните новую игру.':s.in_battle?'Выбирайте цели и берегите свой отряд.':s.movement_points<turns.move_cost?'Очки перемещения закончились. Можно построить здание или отдохнуть.':'Подойдите к любому вражескому отряду.';
     $('message').textContent=message;
     $('map-controls').hidden=s.in_battle||capitalOpen;$('battle-controls').hidden=!s.in_battle||capitalOpen;
@@ -165,7 +167,7 @@
         b.querySelector('.archer-icon').textContent=isMage(i)?'✦':isWarrior(i)?'⚔':'➶';
         b.querySelector('.health').textContent=max?hp+' / '+max+' HP':'—';
         const values=snap.unit_stats?.[i]??[max,isMage(i)?map.mage_damage:isWarrior(i)?map.warrior_damage:map.archer_damage,100*(isWarrior(i)?(map.warrior_accuracy??.8):map.archer_accuracy),0,isWarrior(i)?map.warrior_initiative:60];
-        b.querySelector('.unit-stats').textContent=max?'Урон '+fmt(values[1])+' · Точн. '+fmt(values[2])+'%\nБроня '+fmt(values[3])+'% · Иниц. '+fmt(values[4]):'';
+        b.querySelector('.unit-stats').textContent=max?'Урон '+fmt(values[1])+' · Точн. '+fmt(values[2])+'%\nБроня '+fmt(values[3])+'% · Иниц. '+fmt(values[4])+'\nИсточник: '+sourceName(profile(i)?.attack_type)+'\nИммунитеты: '+protectionNames(profile(i)?.immunities||0)+'\nЗащиты: '+protectionNames((profile(i)?.protections||0)&~s.wards_used[i])+((profile(i)?.protections||0)&s.wards_used[i]?' (израсходовано: '+protectionNames(profile(i).protections&s.wards_used[i])+')':''):'';
         b.querySelector('.health-fill').style.width=(max?hp/max*100:0)+'%';
         b.querySelector('.status').textContent=!max?'':!hp?'Погиб':s.escaped[i]?'Отступил':unreachable?'Вне досягаемости':s.retreating[i]?'Побег':s.defended[i]?'Защита':s.turn_phase[i]===1?'Ожидание':s.turn_phase[i]===2?'Ход завершён':'';
         b.disabled=i<6||mode!=='manual'||busy||s.done||!session||!mask[8+i-6];
@@ -185,7 +187,7 @@
   function showError(error){$('connection').textContent='Игра недоступна';$('message').textContent=error.message+' Для игры запустите open-numbergrid.cmd.';}
   async function resetGame(){
     if(busy)return;busy=true;render();
-    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||data.map.faction||'legions'});session=result.session;manualMap=result.map;manualConstruction=result.construction;manualTurnRules=result.turn_rules;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
+    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||data.map.faction||'legions'});session=result.session;manualMap=result.map;manualConstruction=result.construction;manualTurnRules=result.turn_rules;manualCombat=result.combat;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
     catch(error){busy=false;render();showError(error);return;}
     busy=false;render();
   }
@@ -213,7 +215,7 @@
   window.addEventListener('resize',()=>{const snap=current();if(snap&&!snap.state.in_battle)drawMap(snap.state);});
   document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});
   $('version').textContent=data.map.name;
-  if(data.result){$('run-card').hidden=false;$('run-info').textContent='Запись: '+data.map.opponent_positions.length+' отрядов'+(data.map.enemy_warrior_slots?.some(slot=>slot>=0)?' с воинами':' без вражеских воинов')+' · '+fmt(data.result.training_steps)+' шагов · '+fmt(Math.round(data.result.mean_steps_per_second))+' шагов/с';$('run-evaluation').textContent='Победы argmax на карте записи: '+data.result.final_evaluation.successes+' / '+data.result.final_evaluation.episodes+'.';}
+  if(data.result){$('run-card').hidden=false;$('run-info').textContent='Запись: '+data.map.opponent_positions.length+' отрядов'+' сквайров и лучников'+' · '+fmt(data.result.training_steps)+' шагов · '+fmt(Math.round(data.result.mean_steps_per_second))+' шагов/с';$('run-evaluation').textContent='Победы argmax на карте записи: '+data.result.final_evaluation.successes+' / '+data.result.final_evaluation.episodes+'.';}
   window.numberGridApp={snapshot:()=>JSON.parse(JSON.stringify({mode,frame,...current()}))};
   if(records.length){manual=records[0].frames[0];render();}
   resetGame();

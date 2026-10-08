@@ -1,5 +1,5 @@
 {
-  "name": "NumberGrid-24x24-v15-rest-regeneration",
+  "name": "NumberGrid-24x24-v16-attack-protections",
   "size": 24,
   "agent_position": [
     2,
@@ -138,17 +138,8 @@
   "number_generation": "Historical labels from the twelve-squad map, repeated for the new squads. Numbers do not affect archer battles.",
   "reconstruction_note": "24x24 map: preserve the original twelve squads and add twelve distinct positions. The added squads repeat the original count/HP distribution.",
   "battle_mode": true,
-  "hero_units": 6,
-  "hero_hp": 45,
-  "hero_warrior_slot": 1,
-  "warrior_hp": 100,
-  "warrior_damage": 25,
-  "warrior_accuracy": 0.8,
-  "warrior_initiative": 50,
-  "hero_mage_slot": 5,
-  "mage_damage": 20,
-  "archer_damage": 25,
-  "archer_accuracy": 0.8,
+  "hero_units": 5,
+  "hero_hp": 120,
   "battle_max_rounds": 75,
   "enemy_units": [
     1,
@@ -177,70 +168,239 @@
     6
   ],
   "enemy_hp": [
-    20,
-    25,
-    30,
-    25,
-    30,
-    30,
-    35,
-    30,
-    35,
-    15,
-    20,
-    25,
-    20,
-    25,
-    30,
-    25,
-    30,
-    30,
-    35,
-    30,
-    35,
-    15,
-    20,
-    25
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100
   ],
   "battle_recovery": "Victory or retreat preserves survivors HP and revives fallen hero units with 1 HP. Defeat ends the episode. Enemies reset after retreat. Rest heals living heroes by ceil(10% max HP), capped at max HP.",
-  "battle_observation_version": 7,
-  "enemy_warrior_slots": [
-    0,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    0,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1
-  ],
+  "battle_observation_version": 8,
   "combat_rules_version": 2,
-  "archer_armor": 0,
-  "archer_initiative": 60,
-  "warrior_armor": 0,
-  "mage_hp": 45,
-  "mage_accuracy": 0.8,
-  "mage_armor": 0,
-  "mage_initiative": 60,
   "faction": "legions",
   "building_reward": 0.05,
   "blocked_buildings": [],
   "max_building_level": 5,
-  "rest_penalty_per_point": 0.001
+  "rest_penalty_per_point": 0.001,
+  "hero_roster": [
+    "possessed",
+    "possessed",
+    "possessed",
+    "cultist",
+    "cultist",
+    null
+  ],
+  "enemy_rosters": [
+    [
+      "squire",
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      null,
+      null,
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      null,
+      null,
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      "archer",
+      null,
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      "archer",
+      null,
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      "archer",
+      "archer",
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      "archer",
+      "archer",
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      "archer",
+      "archer",
+      "archer"
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      "archer",
+      "archer",
+      "archer"
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      "archer",
+      "archer",
+      "archer"
+    ],
+    [
+      "squire",
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      null,
+      null,
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      null,
+      null,
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      "archer",
+      null,
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      "archer",
+      null,
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      "archer",
+      "archer",
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      "archer",
+      "archer",
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      "archer",
+      "archer",
+      "archer"
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      "archer",
+      "archer",
+      "archer"
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      "archer",
+      "archer",
+      "archer"
+    ]
+  ]
 }

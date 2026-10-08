@@ -4,14 +4,15 @@ import jax
 import jax.numpy as jnp
 import pytest
 
+from stoix.tests.number_grid_fixtures import MAP
 from stoix.envs.number_grid import (
-    NumberGrid, MAP, SHOOT, DEFEND, CONTINUE, REST, VICTORY, WITHDRAW, DEFEAT, LIMIT,
+    NumberGrid, SHOOT, DEFEND, CONTINUE, REST, VICTORY, WITHDRAW, DEFEAT, LIMIT,
 )
 
 
 @pytest.fixture(scope='module')
 def env():
-    return NumberGrid()
+    return NumberGrid(map_config=MAP)
 
 
 def test_victory_and_withdrawal_revive_dead_units_without_healing_survivors(env):
@@ -109,9 +110,9 @@ def test_human_service_uses_the_same_regeneration_and_reports_current_health():
     assert created['turn_rules']['regeneration_rounding'] == 'ceil'
     assert created['turn_rules']['revive_hp'] == 1
     faction, state, reward = service.sessions[session]
-    state = state.replace(hp=state.hp.at[:6].set(jnp.array([1, 50, 44, 0, 45, 10])))
+    state = state.replace(hp=state.hp.at[:6].set(jnp.array([1, 50, 44, 0, 45, 0])))
     service.sessions[session] = (faction, state, reward)
     expected, ts = jax.jit(env.step)(state, jnp.int32(REST))
     actual = service.act(session, REST)
     assert actual['snapshot'] == service.snapshot(env, expected, float(ts.reward))
-    assert actual['snapshot']['state']['hp'][:6] == [6, 60, 45, 0, 45, 15]
+    assert actual['snapshot']['state']['hp'][:6] == [13, 62, 56, 0, 45, 0]

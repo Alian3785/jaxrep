@@ -8,8 +8,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from stoix.tests.number_grid_fixtures import MAP
 from stoix.envs.number_grid import (
-    MAP, NumberGrid, SHOOT, DEFEND, WAIT, RETREAT, CONTINUE, HIT, MISS,
+    NumberGrid, SHOOT, DEFEND, WAIT, RETREAT, CONTINUE, HIT, MISS,
 )
 from stoix.envs.number_grid_combat import accuracy_hits, HP, DAMAGE, ACCURACY, ARMOR, INITIATIVE
 
@@ -37,7 +38,7 @@ def attack(env, state, values, action=SHOOT):
 
 
 def test_default_stats_and_observation_are_individual_and_finite():
-    env = NumberGrid()
+    env = NumberGrid(map_config=MAP)
     state, ts = env.reset(jax.random.PRNGKey(0))
     assert ts.observation.shape == env.observation_space().shape == (271,)
     np.testing.assert_array_equal(env.unit_stats(state)[:, HP], env.max_hp(state))
@@ -190,7 +191,7 @@ def test_versions_and_override_shapes_are_validated():
 
 
 def test_jitted_vmap_rollout_has_finite_observations_and_valid_wait_defend_masks():
-    env = NumberGrid(max_steps=200)
+    env = NumberGrid(max_steps=200, map_config=MAP)
     states, _ = jax.vmap(env.reset)(jax.random.split(jax.random.PRNGKey(7), 16))
     states = jax.vmap(lambda s: env._begin_battle(s.replace(enemy=jnp.int32(11))))(states)
     def step(carry, key):
@@ -206,5 +207,6 @@ def test_jitted_vmap_rollout_has_finite_observations_and_valid_wait_defend_masks
 def test_current_map_has_a_winning_route_with_new_combat(monkeypatch):
     # Reuse the independent preparation-only route verifier on the current map.
     from stoix.tests import number_grid_battle_test as route_tests
-    monkeypatch.setattr(route_tests, 'MAP', MAP)
+    from stoix.envs.number_grid import MAP as current_map
+    monkeypatch.setattr(route_tests, 'MAP', current_map)
     route_tests.test_fixed_map_has_a_playable_full_route_with_archer_battles()

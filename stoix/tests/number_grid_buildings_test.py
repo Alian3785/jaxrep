@@ -6,7 +6,8 @@ import numpy as np
 import pytest
 
 from numbergrid_config import make_config
-from stoix.envs.number_grid import NumberGrid, MAP, BUILD, ACTIONS, BUILD_START, REST
+from stoix.tests.number_grid_fixtures import MAP
+from stoix.envs.number_grid import NumberGrid, BUILD, ACTIONS, BUILD_START, REST
 from stoix.envs.number_grid_buildings import FACTIONS, BuildingRules
 from stoix.utils.make_env import make
 
@@ -93,7 +94,7 @@ def test_build_mask_and_step_reject_every_restriction_and_unused_slot(env):
 
 
 def test_one_build_per_turn_until_explicit_rest_and_branch_lock():
-    env = NumberGrid()
+    env = NumberGrid(map_config=MAP)
     state, _ = env.reset(jax.random.PRNGKey(7))
     state = state.replace(movement_points=jnp.int32(2), gold=jnp.int32(2000))
     step = jax.jit(env.step)
@@ -139,7 +140,7 @@ def test_scenario_locks_close_descendants_and_bad_settings_fail():
 
 
 def test_capital_survives_battle_recovery_and_resets_on_new_episode():
-    env = NumberGrid()
+    env = NumberGrid(map_config=MAP)
     start, _ = env.reset(jax.random.PRNGKey(42))
     developed = start.replace(buildings=jnp.uint32(1 << 4), blocked_buildings=jnp.uint32(1 << 5),
                               built_today=jnp.bool_(True), gold=jnp.int32(100))

@@ -329,6 +329,13 @@
   }
   function setMode(next){if(busy)return;stop();mode=next;messages=[];$('manual-tab').setAttribute('aria-selected',String(mode==='manual'));$('replay-tab').setAttribute('aria-selected',String(mode==='replay'));$('manual-controls').hidden=mode!=='manual';$('replay-controls').hidden=mode!=='replay';render();}
   function nextFrame(){const last=records[recordIndex].frames.length-1;if(frame<last){frame++;const text=eventText(current());if(text)messages.push(text);}if(frame>=last)stop();render();}
+  $('map-zoom').onchange=()=>{
+    canvas.style.width=(Number($('map-zoom').value)*100)+'%';
+    const snap=current();if(!snap)return;drawMap(snap.state);
+    const viewport=$('map-viewport'),cell=canvas.clientWidth/currentMap().size;
+    viewport.scrollLeft=(snap.state.position[1]+.5)*cell-viewport.clientWidth/2;
+    viewport.scrollTop=(snap.state.position[0]+.5)*cell-viewport.clientHeight/2;
+  };
   canvas.ondblclick=event=>{
     const snap=current();if(mode!=='manual'||!snap||snap.state.in_battle||busy||snap.state.done)return;
     const rect=canvas.getBoundingClientRect(),map=currentMap();

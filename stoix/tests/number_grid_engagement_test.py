@@ -123,3 +123,22 @@ def test_human_server_uses_jax_target_and_cost_and_does_not_auto_attack_neighbou
     assert attacked['snapshot']['state']['enemy']==0
     assert attacked['snapshot']['state']['position']==[2,7]
     assert attacked['snapshot']['state']['movement_points']==8
+
+
+def test_expanded_map_edges_and_exploration_bits(current_game):
+    env, initial, advance, _ = current_game
+    assert env.size == 48 and initial.visited.shape == (72,)
+    state = initial.replace(position=jnp.array([45,45]))
+    state, _ = advance(state, jnp.int32(2))
+    chex.assert_trees_all_equal(state.position, jnp.array([45,46]))
+    state, _ = advance(state, jnp.int32(4))
+    chex.assert_trees_all_equal(state.position, jnp.array([46,46]))
+    assert state.movement_points == 16 and state.map_steps == 2
+    cell = 46*48+46
+    assert state.visited[cell//32] & jnp.uint32(1 << (cell % 32))
+    assert not env.action_mask(state)[2] and not env.action_mask(state)[4]
+    blocked, _ = advance(state, jnp.int32(3))
+    chex.assert_trees_all_equal(blocked.position, state.position)
+    chex.assert_trees_all_equal(blocked.visited, state.visited)
+    assert blocked.movement_points == 16 and not blocked.in_battle
+    chex.assert_trees_all_close(env.observation(state)[:2], jnp.full(2,46/47))

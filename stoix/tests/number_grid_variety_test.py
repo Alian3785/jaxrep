@@ -24,15 +24,22 @@ def stack(states):
     return jax.tree.map(lambda *values: jnp.stack(values), *states)
 
 
-def test_27_squads_and_reference_profiles(env):
-    assert env.num_opponents == 27
-    assert len(set(map(tuple, MAP['opponent_positions']))) == 27
-    assert MAP['enemy_rosters'][-3:] == [
+def test_48x48_map_with_41_squads_and_reference_profiles(env):
+    assert env.size == 48 and env.num_opponents == 41
+    assert len(set(map(tuple, MAP['opponent_positions']))) == 41
+    assert MAP['enemy_rosters'][24:27] == [
         ['orc','orc',None,None,None,None],
         ['goblin','orc','goblin',None,None,None],
         ['goblin','goblin','goblin',None,'goblin_archer',None]]
     assert sum('titan' in row for row in MAP['enemy_rosters'][:24]) == 6
     assert sum('acolyte' in row for row in MAP['enemy_rosters'][:24]) == 8
+    assert all(0 < r < 47 and 0 < c < 47 for r, c in MAP['opponent_positions'])
+    assert MAP['agent_position'] not in MAP['opponent_positions']
+    assert sum(any(key in ('orc', 'goblin', 'goblin_archer') for key in row)
+               for row in MAP['enemy_rosters']) == 3
+    assert all(any((r >= 24) == south and (c >= 24) == east
+                   for r, c in MAP['opponent_positions'])
+               for south in (False, True) for east in (False, True))
     fields = ('max_hp','damage','accuracy','armor','initiative','exp_kill','exp_required','size')
     expected = dict(titan=(250,60,80,0,50,120,475,2), acolyte=(50,20,100,0,10,20,80,1),
                     orc=(200,55,80,0,40,90,700,1), goblin=(50,15,80,0,30,5,50,1),
@@ -46,7 +53,7 @@ def test_27_squads_and_reference_profiles(env):
             if key and UNITS[key].get('size', 1) == 2:
                 assert slot < 3 and roster[slot+3] is None
     initial, ts = jax.jit(env.reset)(jax.random.PRNGKey(1))
-    assert ts.observation.shape == (427,) and env.num_actions == 80
+    assert ts.observation.shape == (497,) and env.num_actions == 80
     chex.assert_trees_all_equal(ts.observation[-12:], jnp.array([.5]*5+[0]*7))
     state = battle(env, 21)
     obs = jax.jit(env.observation)(state)

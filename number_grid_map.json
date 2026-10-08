@@ -1,6 +1,6 @@
 {
-  "name": "NumberGrid-24x24-v22-targeted-engagement",
-  "size": 24,
+  "name": "NumberGrid-48x48-v23-41-squads",
+  "size": 48,
   "agent_position": [
     2,
     2
@@ -12,108 +12,164 @@
       8
     ],
     [
-      10,
-      4
+      20,
+      8
     ],
     [
-      13,
-      13
+      26,
+      26
     ],
     [
-      3,
-      14
+      6,
+      28
     ],
     [
-      3,
+      6,
+      40
+    ],
+    [
+      16,
       20
     ],
     [
-      8,
+      16,
+      36
+    ],
+    [
+      28,
+      8
+    ],
+    [
+      30,
+      40
+    ],
+    [
+      40,
       10
     ],
     [
-      8,
-      18
+      40,
+      24
     ],
     [
-      14,
-      4
+      40,
+      40
     ],
     [
-      15,
-      20
-    ],
-    [
-      20,
-      5
-    ],
-    [
-      20,
-      12
-    ],
-    [
-      20,
-      20
-    ],
-    [
-      6,
-      4
-    ],
-    [
-      6,
-      14
-    ],
-    [
-      6,
-      21
-    ],
-    [
-      11,
+      12,
       8
     ],
     [
-      11,
-      17
+      12,
+      28
     ],
     [
-      11,
-      21
+      12,
+      42
     ],
     [
-      16,
-      8
-    ],
-    [
-      16,
-      14
-    ],
-    [
-      18,
-      2
-    ],
-    [
-      19,
+      22,
       16
     ],
     [
       22,
-      8
+      34
     ],
     [
       22,
-      17
+      42
     ],
     [
-      5,
+      32,
+      16
+    ],
+    [
+      32,
+      28
+    ],
+    [
+      36,
+      4
+    ],
+    [
+      38,
+      32
+    ],
+    [
+      44,
+      16
+    ],
+    [
+      44,
+      34
+    ],
+    [
+      10,
+      20
+    ],
+    [
+      24,
+      12
+    ],
+    [
+      36,
+      36
+    ],
+    [
+      19,
+      27
+    ],
+    [
+      3,
+      21
+    ],
+    [
+      43,
+      3
+    ],
+    [
+      32,
+      22
+    ],
+    [
+      28,
+      34
+    ],
+    [
+      16,
+      14
+    ],
+    [
+      38,
+      18
+    ],
+    [
+      10,
+      14
+    ],
+    [
+      10,
+      34
+    ],
+    [
+      34,
       10
     ],
     [
-      12,
-      6
+      4,
+      15
     ],
     [
-      18,
-      18
+      4,
+      34
+    ],
+    [
+      24,
+      21
+    ],
+    [
+      24,
+      3
     ]
   ],
   "opponent_numbers": [
@@ -143,15 +199,29 @@
     12,
     2,
     3,
-    4
+    4,
+    1,
+    1,
+    4,
+    3,
+    9,
+    9,
+    11,
+    2,
+    6,
+    3,
+    12,
+    3,
+    11,
+    12
   ],
   "max_steps": 5000,
   "step_cost": 0.001,
   "exploration_bonus": 0.01,
   "mask_walls": true,
   "map_seed": 42,
-  "number_generation": "Historical labels from the twelve-squad map, repeated for the new squads. Numbers do not affect archer battles.",
-  "reconstruction_note": "27 squads: original 24 positions retained, human armies diversified with Titans and Acolytes, plus three Orc/Goblin squads. A Titan occupies a front slot and its paired rear slot but counts as one unit.",
+  "number_generation": "Historical labels retained and copied with added squads. Numbers do not affect battles.",
+  "reconstruction_note": "48x48 map with 41 squads (27 × 1.5 rounded up). Starting capital and first nearby Squire retained; other original positions scaled by two. Fourteen additional human squads spread into the largest gaps, reusing existing compositions. The original three Orc/Goblin groups are unchanged. Titans occupy both slots of their formation line.",
   "battle_mode": true,
   "hero_units": 5,
   "hero_hp": 120,
@@ -183,7 +253,21 @@
     6,
     2,
     3,
-    4
+    4,
+    1,
+    1,
+    2,
+    3,
+    3,
+    3,
+    4,
+    5,
+    5,
+    6,
+    6,
+    3,
+    4,
+    6
   ],
   "enemy_hp": [
     100,
@@ -212,7 +296,21 @@
     100,
     200,
     200,
-    50
+    50,
+    100,
+    250,
+    100,
+    100,
+    100,
+    250,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100
   ],
   "battle_recovery": "Victory or retreat preserves all hero HP, including dead units at 0 HP. Full defeat ends the episode. Enemies reset after retreat. Rest heals living heroes by ceil(10% max HP). Paid healing and revival to 1 HP require the temple and exact starting cell (capital).",
   "battle_observation_version": 12,
@@ -446,6 +544,118 @@
       null,
       "goblin_archer",
       null
+    ],
+    [
+      "squire",
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      null,
+      "titan",
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      null,
+      "squire",
+      null,
+      "archer",
+      "acolyte",
+      null
+    ],
+    [
+      "squire",
+      "squire",
+      null,
+      null,
+      "archer",
+      null
+    ],
+    [
+      null,
+      "titan",
+      null,
+      "archer",
+      null,
+      "acolyte"
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      "archer",
+      null,
+      null
+    ],
+    [
+      "squire",
+      "squire",
+      "archer",
+      "acolyte",
+      "archer",
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      "archer",
+      "archer",
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      "archer",
+      "archer",
+      "archer"
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      "archer",
+      "archer",
+      "archer"
+    ],
+    [
+      "squire",
+      "squire",
+      null,
+      null,
+      "acolyte",
+      null
+    ],
+    [
+      "squire",
+      "archer",
+      null,
+      "archer",
+      "acolyte",
+      null
+    ],
+    [
+      "squire",
+      "squire",
+      "archer",
+      "archer",
+      "acolyte",
+      "archer"
     ]
   ],
   "unit_progression": true,

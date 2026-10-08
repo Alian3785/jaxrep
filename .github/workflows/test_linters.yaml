@@ -1,29 +1,40 @@
-name: Tests and Linters 🧪
+name: Ruff
 
-on: [ pull_request ]
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  tests-and-linters:
-    name: "Python ${{ matrix.python-version }} on ${{ matrix.os }}"
-    runs-on: "${{ matrix.os }}"
-    timeout-minutes: 15
-
-    strategy:
-      matrix:
-        python-version: ["3.12"]
-        os: [ubuntu-latest]
+  lint:
+    name: Ruff
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     steps:
-      - name: Checkout stoix
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install uv and set the python version
         uses: astral-sh/setup-uv@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.12'
+          cache-dependency-glob: |
+            pyproject.toml
 
-      - name: Install the project
-        run: uv sync --all-extras --dev
+      - name: Install lint dependencies
+        run: |
+          uv venv --python 3.12
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import tomllib
+          dev = tomllib.loads(Path('pyproject.toml').read_text())['project']['optional-dependencies']['dev']
+          subprocess.run(['uv', 'pip', 'install', '--python', '.venv/bin/python', *dev], check=True)
+          PY
 
       - name: Run Ruff
-        run: uv run --no-sync ruff check .
+        run: .venv/bin/python -m ruff check .

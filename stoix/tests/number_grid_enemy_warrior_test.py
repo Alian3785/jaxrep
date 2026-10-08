@@ -11,6 +11,10 @@ import pytest
 from stoix.envs.number_grid import MAP, NumberGrid, SHOOT, DEFEND, CONTINUE, HIT, MISS, GUARD
 
 
+# These regressions retain the saved v10 combat contract. Version 2 has its own tests.
+MAP = {**MAP, 'combat_rules_version': 1, 'battle_observation_version': 3}
+
+
 def battle(slot=1, **overrides):
     counts = list(MAP['enemy_units'])
     counts[6] = 6
@@ -36,7 +40,7 @@ def reachable(slot, enemies, front):
 
 
 def test_current_map_has_one_front_warrior_per_squad_with_unchanged_hp():
-    env = NumberGrid()
+    env = NumberGrid(map_config=MAP)
     assert MAP['enemy_warrior_slots'] == [0 if n == 1 else 1 for n in MAP['enemy_units']]
     assert sum(MAP['enemy_units']) == 94 and len(MAP['enemy_warrior_slots']) == 24
     state, ts = env.reset(jax.random.PRNGKey(0))

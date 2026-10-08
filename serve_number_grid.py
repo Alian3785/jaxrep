@@ -40,7 +40,9 @@ class GameService:
                 'battle_max_rounds': self.env.max_rounds,
                 'max_steps': self.env.max_steps,
                 'action_mask': np.asarray(self.env.action_mask(state)).tolist(),
-                'max_hp': np.asarray(self.env.max_hp(state)).tolist()}
+                'max_hp': np.asarray(self.env.max_hp(state)).tolist(),
+                'unit_stats': (np.asarray(self.env.unit_stats(state)).tolist()
+                               if self.env.basic_combat else None)}
 
     def create(self, seed):
         with self.lock:

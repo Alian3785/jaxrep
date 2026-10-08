@@ -16,6 +16,10 @@ from stoix.envs.number_grid import (
 )
 
 
+# These regressions retain the saved v10 combat contract. Version 2 has its own tests.
+MAP = {**MAP, 'combat_rules_version': 1, 'battle_observation_version': 3}
+
+
 def fixture(**overrides):
     env = NumberGrid(map_config={**MAP, 'enemy_warrior_slots':[-1]*len(MAP['enemy_units']), **overrides})
     state, _ = env.reset(jax.random.PRNGKey(42))
@@ -31,7 +35,7 @@ def assert_equal_state(a, b):
 
 
 def test_default_inventory_and_observation():
-    env = NumberGrid()
+    env = NumberGrid(map_config=MAP)
     state, ts = env.reset(jax.random.PRNGKey(3))
     assert state.hp[:6].tolist() == [45,100,45,45,45,45]
     assert state.hp[6:].tolist() == [0] * 6
@@ -99,7 +103,7 @@ def test_fixed_map_has_a_playable_full_route_with_archer_battles():
         route.extend(path)
         alive.remove(enemy)
     route = jnp.array(route,jnp.int32)
-    env = NumberGrid()
+    env = NumberGrid(map_config=MAP)
     states,_ = jax.vmap(env.reset)(jax.random.split(jax.random.PRNGKey(875),64))
     def run(states):
         def condition(carry):

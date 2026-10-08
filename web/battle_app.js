@@ -153,6 +153,13 @@
     }
     const token=(p,n,hero)=>{roundRect(p[1]*cell+cell*.09,p[0]*cell+cell*.09,cell*.82,cell*.82,cell*.2,hero?'#a5d6ad':'#d5c0e8');ctx.fillStyle=hero?'#244c30':'#654777';ctx.font='650 '+Math.round(cell*.55)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n,(p[1]+.5)*cell,(p[0]+.52)*cell);};
     map.opponent_positions.forEach((p,i)=>{if(s.alive[i])token(p,map.enemy_units[i],false);});
+    (map.chests||[]).forEach((chest,i)=>{
+      if(!s.chest_alive?.[i])return;
+      const [r,c]=chest.position,x=c*cell,y=r*cell;
+      roundRect(x+cell*.12,y+cell*.24,cell*.76,cell*.6,cell*.1,'#9b6230');
+      roundRect(x+cell*.12,y+cell*.17,cell*.76,cell*.28,cell*.1,'#d8ad64');
+      ctx.fillStyle='#f5dfa1';ctx.fillRect(x+cell*.44,y+cell*.35,cell*.12,cell*.24);
+    });
     const capital=capitalInfo()?.position;
     if(capital){
       roundRect(capital[1]*cell+1,capital[0]*cell+1,cell-2,cell-2,cell*.15,'#dfb963');
@@ -232,6 +239,7 @@
       case 17:return 'Храм: '+t.toLowerCase()+' восстановил '+s.last_damage+' HP за '+s.last_service_cost+' золота.';
       case 18:return 'Храм: '+t.toLowerCase()+' воскрешён с 1 HP за '+s.last_service_cost+' золота.';
       case 19:return potionInfo()?.[s.last_potion]?.name+': '+t.toLowerCase()+' восстановил '+s.last_damage+' HP. Осталось: '+s.potions[s.last_potion]+'.';
+      case 21:return 'Сундук: '+s.last_loot.map((n,i)=>n?(potionInfo()?.[i]?.name+' × '+n):'').filter(Boolean).join(', ')+'. Добавлено в инвентарь зелий.';
       case 20:return 'Зелье воскрешения: '+t.toLowerCase()+' вернулся с 1 HP. Осталось: '+s.potions[s.last_potion]+'.';
       case 15:return 'Атака поглощена защитой.'+blockText(s);
       default:return null;
@@ -249,6 +257,8 @@
     renderMapCommands(snap);
     $('phase-label').textContent=s.in_battle?'Бой · отряд № '+(s.enemy+1):'Карта '+map.size+' × '+map.size;
     $('remaining').textContent=s.alive.filter(Boolean).length;
+    $('chest-status').hidden=!(map.chests||[]).length;
+    $('chest-status').textContent=(s.last_event===21?eventText(snap)+' ':'')+'Сундуков осталось: '+(s.chest_alive||[]).filter(Boolean).length+' / '+(map.chests||[]).length+'. Подойдите на соседнюю клетку, включая диагональ: зелье попадёт в инвентарь.';
     $('wins').textContent=s.alive.filter(v=>!v).length;
     $('steps').textContent=fmt(s.step_count);$('reward').textContent=fmt(snap.total_reward);
     $('gold').textContent=fmt(s.gold);
@@ -335,6 +345,13 @@
     const viewport=$('map-viewport'),cell=canvas.clientWidth/currentMap().size;
     viewport.scrollLeft=(snap.state.position[1]+.5)*cell-viewport.clientWidth/2;
     viewport.scrollTop=(snap.state.position[0]+.5)*cell-viewport.clientHeight/2;
+  };
+  canvas.onmousemove=event=>{
+    const snap=current();if(!snap)return;
+    const rect=canvas.getBoundingClientRect(),map=currentMap();
+    const row=Math.floor((event.clientY-rect.top)/rect.height*map.size),col=Math.floor((event.clientX-rect.left)/rect.width*map.size);
+    const chest=(map.chests||[]).find((c,i)=>snap.state.chest_alive?.[i]&&c.position[0]===row&&c.position[1]===col);
+    canvas.title=chest?'Сундук: '+chest.potions.map((n,i)=>n?(potionInfo()?.[i]?.name+' × '+n):'').filter(Boolean).join(', '):'';
   };
   canvas.ondblclick=event=>{
     const snap=current();if(mode!=='manual'||!snap||snap.state.in_battle||busy||snap.state.done)return;

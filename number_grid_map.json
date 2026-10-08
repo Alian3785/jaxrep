@@ -1,5 +1,5 @@
 {
-  "name": "NumberGrid-48x48-v23-41-squads",
+  "name": "NumberGrid-48x48-v24-potion-chests",
   "size": 48,
   "agent_position": [
     2,
@@ -313,7 +313,7 @@
     100
   ],
   "battle_recovery": "Victory or retreat preserves all hero HP, including dead units at 0 HP. Full defeat ends the episode. Enemies reset after retreat. Rest heals living heroes by ceil(10% max HP). Paid healing and revival to 1 HP require the temple and exact starting cell (capital).",
-  "battle_observation_version": 12,
+  "battle_observation_version": 13,
   "combat_rules_version": 2,
   "faction": "legions",
   "building_reward": 0.05,
@@ -666,5 +666,67 @@
     5,
     10
   ],
-  "battle_engagement": "A directional command targeting a living enemy stack starts combat from the current tile. Passing beside a stack is safe. Entry costs ceil(half the full movement allowance), capped at remaining points; zero points forbids attack. Victory and retreat keep the attacker on its original tile."
+  "battle_engagement": "A directional command targeting a living enemy stack starts combat from the current tile. Passing beside a stack is safe. Entry costs ceil(half the full movement allowance), capped at remaining points; zero points forbids attack. Victory and retreat keep the attacker on its original tile.",
+  "chests": [
+    {
+      "position": [
+        5,
+        4
+      ],
+      "potions": [
+        1,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "position": [
+        10,
+        26
+      ],
+      "potions": [
+        0,
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "position": [
+        25,
+        12
+      ],
+      "potions": [
+        0,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "position": [
+        31,
+        43
+      ],
+      "potions": [
+        0,
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "position": [
+        43,
+        27
+      ],
+      "potions": [
+        0,
+        0,
+        0,
+        1
+      ]
+    }
+  ]
 }

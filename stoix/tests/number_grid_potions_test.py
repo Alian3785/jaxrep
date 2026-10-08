@@ -21,8 +21,8 @@ def game(current_game):
 def test_starting_stock_observation_and_input_validation(game):
     env, state, _ = game
     assert state.potions.tolist() == [5,5,5,10]
-    assert env.num_actions == 80 and env.observation_size == 497
-    assert env.observation(state).shape == (497,)
+    assert env.num_actions == 80 and env.observation_size == 532
+    assert env.observation(state).shape == (532,)
     chex.assert_trees_all_equal(env.observation(state)[-55:-51], jnp.ones(4))
     used = state.replace(potions=jnp.array([4,3,0,9]))
     chex.assert_trees_all_close(env.observation(used)[-55:-51], jnp.array([.8,.6,0.,.9]))
@@ -131,15 +131,20 @@ def test_ppo_autoreset_restores_inventory_and_keeps_terminal_stock():
     state, _ = training.reset(jax.random.split(jax.random.PRNGKey(42),2))
     def injure(live):
         if isinstance(live,BattleState):
-            return live.replace(hp=live.hp.at[:,0].set(10),potions=live.potions.at[:,0].set(2))
+            return live.replace(hp=live.hp.at[:,0].set(10),potions=live.potions.at[:,0].set(2),
+                                position=live.position.at[1].set(jnp.array([4,2])))
         return live.replace(base_env_state=injure(live.base_env_state))
     state = injure(state)
-    following, ts = jax.jit(training.step)(state,jnp.full(2,POTION_START,jnp.int32))
+    following, ts = jax.jit(training.step)(state,jnp.array([POTION_START,2],jnp.int32))
     assert jnp.all(ts.truncated())
     chex.assert_trees_all_equal(following.potions,jnp.array([[5,5,5,10]]*2))
     chex.assert_trees_all_close(ts.extras['next_obs']['observation'][:,-55:-51],
-                              jnp.array([[.2,1.,1.,1.]]*2))
+                              jnp.array([[.2,1.,1.,1.],[.6,1.,1.,1.]]))
     chex.assert_trees_all_equal(ts.observation['observation'][:,-55:-51],jnp.ones((2,4)))
+    chex.assert_trees_all_equal(following.chest_alive,jnp.ones((2,5),bool))
+    chest_flag=220+5*len(MAP['opponent_positions'])+6
+    chex.assert_trees_all_equal(ts.extras['next_obs']['observation'][:,chest_flag],jnp.array([1.,0.]))
+    chex.assert_trees_all_equal(ts.observation['observation'][:,chest_flag],jnp.ones(2))
 
 
 def test_human_service_uses_same_inventory_and_quotes(game):

@@ -26,6 +26,10 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           python-version: '3.12'
+          cache-dependency-glob: |
+            numbergrid-runtime.txt
+            runtime-constraints.txt
+            pyproject.toml
 
       - name: Install pinned runtime without CUDA packages
         run: |
@@ -39,12 +43,12 @@ jobs:
               if line and not line.startswith(('#', 'nvidia-')):
                   requirements.append(line.replace('jax[cuda13]', 'jax'))
           dev = tomllib.loads(Path('pyproject.toml').read_text())['project']['optional-dependencies']['dev']
-          subprocess.run(['uv', 'pip', 'install', '--system', '--constraint',
+          subprocess.run(['uv', 'pip', 'install', '--python', '.venv/bin/python', '--constraint',
                           'runtime-constraints.txt', *requirements, *dev], check=True)
           PY
 
       - name: Run Ruff
-        run: python -m ruff check .
+        run: .venv/bin/python -m ruff check .
 
       - name: Run NumberGrid and Chex tests
-        run: python -m pytest -q --junitxml=test-results.xml
+        run: .venv/bin/python -m pytest -q --junitxml=test-results.xml

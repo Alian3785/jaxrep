@@ -87,6 +87,7 @@ def run_training(args, tracking):
         raise FileExistsError(f'Output already contains files; choose another --output: {output}')
     output.mkdir(parents=True, exist_ok=True)
     measured_sources = ['benchmark_number_grid.py', 'numbergrid_config.py', 'numbergrid_tracking.py',
+                        'stoix/envs/number_grid_buildings.py', 'stoix/envs/data/buildings.json',
                         'stoix/envs/number_grid.py', 'stoix/envs/number_grid_combat.py', 'stoix/envs/number_grid_legacy.py',
                         'stoix/utils/make_env.py', 'stoix/wrappers/number_grid_metrics.py',
                         'stoix/wrappers/number_grid_reset.py', 'stoix/systems/ppo/anakin/ff_ppo.py']
@@ -125,7 +126,7 @@ def run_training(args, tracking):
             # Exploration can increase return without a win: use the actual flag.
             episode_success_rate=wins / jnp.maximum(count, 1),
         )
-        for name in ('battle_transition', 'player_battle_transition', 'enemy_battle_transition', 'battle_victory'):
+        for name in ('battle_transition', 'player_battle_transition', 'enemy_battle_transition', 'battle_victory', 'building_constructed'):
             if name in episodes:
                 losses[name] = jnp.sum(episodes[name])
         return result.learner_state, losses
@@ -217,7 +218,8 @@ def run_training(args, tracking):
     if game_map.get('battle_mode'):
         result['combat_counts'] = {name: int(sum(row[name] for row in rows)) for name in (
             'battle_transition', 'player_battle_transition', 'enemy_battle_transition', 'battle_victory')}
-        result['transition_definition'] = 'One map move or one unit turn; includes scripted enemy turns and completed retreats.'
+        result['construction_count'] = int(sum(row.get('building_constructed', 0) for row in rows))
+        result['transition_definition'] = 'One map move, construction or unit turn; includes scripted enemy turns and completed retreats.'
     result['source_hashes'] = source_hashes
     save_json(output / 'results.json', result)
     tracking.summary(result)

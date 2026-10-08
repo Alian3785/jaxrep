@@ -1,5 +1,5 @@
 {
-  "name": "NumberGrid-24x24-v12-gold",
+  "name": "NumberGrid-24x24-v13-buildings",
   "size": 24,
   "agent_position": [
     2,
@@ -203,7 +203,7 @@
     25
   ],
   "battle_recovery": "Full party including fallen units after victory or retreat. Defeat ends the episode. Enemies also reset after a retreat.",
-  "battle_observation_version": 5,
+  "battle_observation_version": 6,
   "enemy_warrior_slots": [
     0,
     1,
@@ -237,5 +237,9 @@
   "mage_hp": 45,
   "mage_accuracy": 0.8,
   "mage_armor": 0,
-  "mage_initiative": 60
+  "mage_initiative": 60,
+  "faction": "legions",
+  "building_reward": 0.05,
+  "blocked_buildings": [],
+  "max_building_level": 5
 }

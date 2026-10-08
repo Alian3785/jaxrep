@@ -27,7 +27,7 @@ jobs:
 
       - name: Install lint dependencies
         run: |
-          uv venv --python 3.12
+          test -x .venv/bin/python || uv venv --python 3.12
           python - <<'PY'
           from pathlib import Path
           import subprocess

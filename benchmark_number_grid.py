@@ -126,7 +126,7 @@ def run_training(args, tracking):
             # Exploration can increase return without a win: use the actual flag.
             episode_success_rate=wins / jnp.maximum(count, 1),
         )
-        for name in ('battle_transition', 'player_battle_transition', 'enemy_battle_transition', 'battle_victory', 'building_constructed'):
+        for name in ('battle_transition', 'player_battle_transition', 'enemy_battle_transition', 'battle_victory', 'building_constructed', 'turn_ended', 'rest_penalty'):
             if name in episodes:
                 losses[name] = jnp.sum(episodes[name])
         return result.learner_state, losses
@@ -219,7 +219,9 @@ def run_training(args, tracking):
         result['combat_counts'] = {name: int(sum(row[name] for row in rows)) for name in (
             'battle_transition', 'player_battle_transition', 'enemy_battle_transition', 'battle_victory')}
         result['construction_count'] = int(sum(row.get('building_constructed', 0) for row in rows))
-        result['transition_definition'] = 'One map move, construction or unit turn; includes scripted enemy turns and completed retreats.'
+        result['rest_count'] = int(sum(row.get('turn_ended', 0) for row in rows))
+        result['rest_penalty_total'] = float(sum(row.get('rest_penalty', 0) for row in rows))
+        result['transition_definition'] = 'One map move, rest, construction or unit turn; includes scripted enemy turns and completed retreats.'
     result['source_hashes'] = source_hashes
     save_json(output / 'results.json', result)
     tracking.summary(result)

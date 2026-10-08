@@ -10,7 +10,7 @@ from pathlib import Path
 import jax.numpy as jnp
 
 BUILD_START, BUILD_SLOTS = 18, 25
-DAY_MOVES, DAILY_GOLD = 20, 100
+DAILY_GOLD = 100
 CATALOG = json.loads((Path(__file__).parent / 'data/buildings.json').read_text(encoding='utf-8'))
 FACTIONS = tuple(CATALOG['factions'])
 DEFAULT_FACTION = 'legions'

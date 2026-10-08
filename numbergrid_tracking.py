@@ -25,6 +25,8 @@ class NumberGridTracking:
         self.wins = 0
         self.battle_wins = 0
         self.buildings_built = 0
+        self.turns_ended = 0
+        self.rest_penalty_total = 0.
         self.logging_seconds = 0.0
         self.metadata = {}
         self.pending = []
@@ -72,7 +74,7 @@ class NumberGridTracking:
                                         x_disable_stats=True, init_timeout=30),
             )
             self.run.define_metric('training_steps', hidden=True)
-            for group in ('episodes', 'battles', 'construction', 'ppo', 'performance', 'eval_argmax', 'eval_sample'):
+            for group in ('episodes', 'battles', 'construction', 'turns', 'ppo', 'performance', 'eval_argmax', 'eval_sample'):
                 self.run.define_metric(f'{group}/*', step_metric='training_steps')
             self.metadata.update(mode=mode, id=self.run.id, project=self.run.project,
                                  directory=str(Path(self.run.dir).parent),
@@ -95,7 +97,7 @@ class NumberGridTracking:
             return None
         rows = [item[0] for item in self.pending]
         counts = ('episodes', 'episode_wins', 'battle_transition', 'player_battle_transition',
-                  'enemy_battle_transition', 'battle_victory', 'building_constructed')
+                  'enemy_battle_transition', 'battle_victory', 'building_constructed', 'turn_ended', 'rest_penalty')
         means = ('mean_episode_length', 'mean_episode_return')
         summary = row.copy()
         for key in counts:
@@ -150,10 +152,17 @@ class NumberGridTracking:
         if 'building_constructed' in row:
             data['construction/built'] = int(row['building_constructed'])
             data['construction/built_total'] = self.buildings_built
+        if 'turn_ended' in row:
+            self.turns_ended += int(row['turn_ended'])
+            self.rest_penalty_total += float(row['rest_penalty'])
+            data['turns/rests'] = int(row['turn_ended'])
+            data['turns/rests_total'] = self.turns_ended
+            data['turns/rest_penalty'] = float(row['rest_penalty'])
+            data['turns/rest_penalty_total'] = self.rest_penalty_total
         excluded = {'all_finite', 'episodes', 'episode_wins', 'episode_success_rate',
                     'mean_episode_length', 'mean_episode_return', 'training_steps', 'training_seconds',
                     'battle_transition', 'player_battle_transition', 'enemy_battle_transition',
-                    'battle_victory', 'building_constructed'}
+                    'battle_victory', 'building_constructed', 'turn_ended', 'rest_penalty'}
         data.update({f'ppo/{key}': value for key, value in row.items() if key not in excluded})
         return data
 

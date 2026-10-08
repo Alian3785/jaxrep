@@ -12,7 +12,7 @@ from numbergrid_config import make_config
 from stoix.utils.make_env import make
 from stoix.envs.number_grid import (
     MAP, NumberGrid, wrap_wall_action_mask, SHOOT, DEFEND, WAIT, RETREAT, CONTINUE,
-    ENGAGE, HIT, MISS, VICTORY, DEFEAT, WITHDRAW, LIMIT,
+    ENGAGE, HIT, MISS, VICTORY, DEFEAT, WITHDRAW, LIMIT, REST, MOVE_COST,
 )
 
 
@@ -113,17 +113,21 @@ def test_fixed_map_has_a_playable_full_route_with_archer_battles():
             masks = jax.vmap(env.action_mask)(states)
             targets = jnp.argmin(jnp.where(masks[:,SHOOT:DEFEND],states.hp[:,6:],10000),axis=-1)
             attacks = jnp.where(jnp.any(masks[:,SHOOT:DEFEND],axis=-1),SHOOT+targets,DEFEND)
+            moves = route[jnp.minimum(index,len(route)-1)]
+            if env.basic_combat:
+                needs_rest = (states.movement_points < MOVE_COST) | jnp.any(states.hp[:, :6] < env.hero_full, axis=1)
+                moves = jnp.where(needs_rest, REST, moves)
             actions = jnp.where(states.in_battle,
-                                jnp.where(states.actor<6,attacks,CONTINUE),
-                                route[jnp.minimum(index,len(route)-1)])
-            index += (~states.in_battle & ~states.done).astype(jnp.int32)
+                                jnp.where(states.actor<6,attacks,CONTINUE), moves)
+            index += (~states.in_battle & ~states.done & (actions < 8)).astype(jnp.int32)
             states,_ = jax.vmap(env.step)(states,actions)
             return states,index
         return jax.lax.while_loop(condition,step,(states,jnp.zeros(64,jnp.int32)))
     states,index = jax.jit(run)(states)
     assert int(jnp.sum(states.won)) > 0
     assert np.all(np.asarray(index)[np.asarray(states.won)] == len(route))
-    assert np.all(np.asarray(states.hp[:,:6])[np.asarray(states.won)] == np.asarray(env.hero_full))
+    survivors = np.asarray(states.hp[:, :6])[np.asarray(states.won)]
+    assert np.all(survivors > 0) and np.all(survivors <= np.asarray(env.hero_full))
 
 
 @pytest.mark.parametrize('count,hp', [(6,45), (7,20), (0,20), (2,46), (2,0)])
@@ -396,7 +400,8 @@ def test_cached_autoreset_changes_rng_and_preserves_final_observation():
     assert not np.array_equal(original,state.battle_key)
     assert np.all(ts.extras['next_obs']['observation'][:,3] == 1)
     assert np.all(ts.observation['observation'][:,3] == 0)
-    np.testing.assert_array_equal(ts.observation['action_mask'][:,8:],False)
+    np.testing.assert_array_equal(ts.observation['action_mask'][:,8:REST],False)
+    assert np.all(ts.observation['action_mask'][:, REST])
     again, _ = advance(state,jnp.array([7,3]))
     assert not np.array_equal(state.battle_key,again.battle_key)
 

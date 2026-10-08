@@ -4,7 +4,7 @@
   const $=id=>document.getElementById(id), fmt=n=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:3}).format(n);
   const canvas=$('board'), ctx=canvas.getContext('2d');
   let mode='manual', session=null, manual=null, manualMap=null, busy=false, frame=0, recordIndex=0, timer=null, messages=[];
-  let manualConstruction=null, capitalOpen=false, capitalKey=null;
+  let manualConstruction=null, manualTurnRules=null, capitalOpen=false, capitalKey=null;
   const records=data.records||[];
   const archerCount=n=>n+' '+(n===1?'лучник':n>=2&&n<=4?'лучника':'лучников');
   const isMage=i=>i>=0&&i<6&&i===currentMap().hero_mage_slot;
@@ -16,6 +16,7 @@
   function current(){return mode==='manual'?manual:records[recordIndex]?.frames[frame];}
   function currentMap(){return mode==='manual'?(manualMap||data.map):data.map;}
   function construction(){return mode==='manual'?(manualConstruction||data.construction):data.construction;}
+  function turnRules(){return mode==='manual'?(manualTurnRules||data.turn_rules):data.turn_rules;}
   const branchNames={
     empire:['Воины','Стрелки','Маги','Целители','Титаны'],
     mountain_clans:['Воины','Стрелки','Маги','Великаны','Йети'],
@@ -24,14 +25,14 @@
     elves:['Кентавры','Стрелки','Маги','Поддержка','Грифоны'],
   };
   const buildStatus=['Доступно для строительства','Построено','Ветка или здание заблокированы',
-    'Сначала постройте предшественника','Не хватает золота','Дождитесь следующего дня',
+    'Сначала постройте предшественника','Не хватает золота','Завершите ход отдыхом',
     'Строительство недоступно во время боя','Эпизод завершён','Нет у этой фракции'];
   function renderConstruction(snap){
     const info=construction();if(!info)return;
     const s=snap.state;
     $('capital-title').textContent=info.name;
-    $('capital-day').textContent='День '+(Math.floor(s.map_steps/20)+1)+' · золото '+fmt(s.gold);
-    $('capital-status').textContent=s.done?'Эпизод завершён.':s.in_battle?'Строить можно после боя.':s.built_today?'Постройка этого дня использована. До нового дня: '+(20-s.map_steps%20)+' перемещений.':'В этом дне можно построить одно здание.';
+    $('capital-day').textContent='Ход '+s.day+' · золото '+fmt(s.gold);
+    $('capital-status').textContent=s.done?'Эпизод завершён.':s.in_battle?'Строить можно после боя.':s.built_today?'Постройка этого хода использована. Отдых откроет следующий ход.':'В этом ходу можно построить одно здание.';
     if(!$('faction').options.length){
       for(const faction of info.factions){const o=document.createElement('option');o.value=faction.id;o.textContent=faction.name;$('faction').append(o);}
       $('faction').value=currentMap().faction||'legions';
@@ -103,11 +104,12 @@
       case 5:return a+' ждёт конца раунда.';
       case 6:return a+' готовится отступить.';
       case 7:return a+' покинул бой.';
-      case 8:return 'Победа! Весь отряд восстановлен.';
+      case 8:return 'Победа! Ранения сохранены, погибшие воскрешены с 1 HP.';
       case 9:return 'Ваш отряд погиб. Игра завершена.';
-      case 10:return 'Отступление завершено. Отряд полностью восстановлен.';
+      case 10:return 'Отступление завершено. Ранения сохранены, погибшие воскрешены с 1 HP.';
       case 11:return 'Бой достиг лимита раундов. Эпизод завершён.';
       case 12:{const b=construction()?.buildings[s.last_building];return b?'Построено: '+b.name+' (−'+b.gold+' золота).':null;}
+      case 13:return 'Отдых. Начался ход '+s.day+', +'+turnRules().income+' золота; очки перемещения восстановлены, живые бойцы получили регенерацию 10% HP. Штраф: '+fmt(Math.max(0,-snapshot.reward))+'.';
       default:return null;
     }
   }
@@ -123,7 +125,12 @@
     $('wins').textContent=s.alive.filter(v=>!v).length;
     $('steps').textContent=fmt(s.step_count);$('reward').textContent=fmt(snap.total_reward);
     $('gold').textContent=fmt(s.gold);
-    $('gold-countdown').textContent='Шагов по карте до +100: '+(20-s.map_steps%20);
+    const turns=turnRules(),points=s.movement_points;
+    $('turn-summary').textContent='Ход '+s.day+' · '+points+' / '+turns.movement_points+' очков перемещения';
+    $('movement-summary').textContent=points+' / '+turns.movement_points+' очков · '+Math.floor(points/turns.move_cost)+' перемещений';
+    $('rest').dataset.action=turns.rest_action;
+    $('rest-hint').textContent=s.in_battle?'Отдых доступен после завершения боя.':snap.rest_penalty>0?'Штраф за оставшиеся очки: −'+fmt(snap.rest_penalty)+'. Следующий ход: +'+turns.income+' золота и полный запас очков.':'Все очки использованы: отдых без штрафа. Следующий ход: +'+turns.income+' золота и полный запас очков.';
+    if(!s.in_battle)$('rest-hint').textContent+=' Живым бойцам: +'+turns.regeneration_percent+'% максимального HP с округлением вверх (до максимума).';
     const mageAlive=s.hp.slice(0,6).some((hp,i)=>hp>0&&isMage(i));
     const warriorAlive=s.hp.slice(0,6).some((hp,i)=>hp>0&&isWarrior(i));
     $('party-health').textContent=archerCount(s.hp.slice(0,6).filter((hp,i)=>hp>0&&!isMage(i)&&!isWarrior(i)).length)+(warriorAlive?' + воин':'')+(mageAlive?' + маг':'')+' · '+s.hp.slice(0,6).reduce((a,b)=>a+b,0)+' здоровья';
@@ -139,7 +146,7 @@
     $('mage-rule').innerHTML='<b>Маг.</b> Атакует всех живых противников независимо от выбранной цели. '+(basic?'Попадание и прибавка к урону проверяются отдельно для каждой цели.':'Один бросок попадания на всё заклинание.');
     $('battle-hint').textContent=basic?'Характеристики указаны на карточках. Точность — значение из игры: при 80% фактический шанс попадания 92,2%. Броня уменьшает урон до применения защиты.':'Лучник: '+map.archer_damage+' урона, попадание '+Math.round(map.archer_accuracy*100)+'%.'+(hasWarrior?' Воин: '+map.warrior_damage+' урона, попадание '+warriorAccuracy+'%, инициатива '+map.warrior_initiative+'.':'')+(hasMage?' Маг: '+map.mage_damage+' урона всем врагам.':'');
     $('attack-hint').textContent=isMage(s.actor)?'Ход мага: нажмите на любого живого врага — заклинание поразит всех противников.':isWarrior(s.actor)?(mask.slice(8,14).some(Boolean)?'Ход воина: выберите подсвеченного врага для удара мечом.':'Воин не достаёт до врагов. Можно защищаться, ждать или отступить.'):'Нажмите на живого противника, чтобы выстрелить.';
-    const message=s.won?'Победа! Карта очищена.':s.lost?'Ваш отряд погиб. Начните новую игру.':s.done?'Достигнут лимит. Начните новую игру.':s.in_battle?'Выбирайте цели и берегите свой отряд.':'Подойдите к любому вражескому отряду.';
+    const message=s.won?'Победа! Карта очищена.':s.lost?'Ваш отряд погиб. Начните новую игру.':s.done?'Достигнут лимит. Начните новую игру.':s.in_battle?'Выбирайте цели и берегите свой отряд.':s.movement_points<turns.move_cost?'Очки перемещения закончились. Можно построить здание или отдохнуть.':'Подойдите к любому вражескому отряду.';
     $('message').textContent=message;
     $('map-controls').hidden=s.in_battle||capitalOpen;$('battle-controls').hidden=!s.in_battle||capitalOpen;
     $('continue').hidden=!s.in_battle||!mask[17];
@@ -178,7 +185,7 @@
   function showError(error){$('connection').textContent='Игра недоступна';$('message').textContent=error.message+' Для игры запустите open-numbergrid.cmd.';}
   async function resetGame(){
     if(busy)return;busy=true;render();
-    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||data.map.faction||'legions'});session=result.session;manualMap=result.map;manualConstruction=result.construction;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
+    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||data.map.faction||'legions'});session=result.session;manualMap=result.map;manualConstruction=result.construction;manualTurnRules=result.turn_rules;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
     catch(error){busy=false;render();showError(error);return;}
     busy=false;render();
   }

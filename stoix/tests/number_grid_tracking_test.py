@@ -80,7 +80,8 @@ def test_million_step_summary_includes_all_episodes_with_weighted_means():
     for index, (episodes, wins, length) in enumerate(((1, 1, 10), (3, 0, 30), (0, 0, 0), (6, 2, 50))):
         summary = tracking.log_training(
             row(episodes, wins, (index + 1) * 250_000, mean_episode_length=length,
-                mean_episode_return=length / 10, battle_victory=10, battle_transition=100_000, building_constructed=index+1),
+                mean_episode_return=length / 10, battle_victory=10, battle_transition=100_000, building_constructed=index+1,
+                turn_ended=2*(index+1), rest_penalty=.01*(index+1)),
             250_000, 0.5, (index + 1) * 0.6)
         if index < 3:
             assert summary is None
@@ -95,6 +96,9 @@ def test_million_step_summary_includes_all_episodes_with_weighted_means():
     assert logged['episodes/return_mean'] == pytest.approx(4)
     assert logged['battles/wins'] == 40
     assert logged['construction/built'] == logged['construction/built_total'] == 10
+    assert logged['turns/rests'] == logged['turns/rests_total'] == 20
+    assert logged['turns/rest_penalty'] == logged['turns/rest_penalty_total'] == pytest.approx(.1)
+    assert 'ppo/turn_ended' not in logged and 'ppo/rest_penalty' not in logged
     assert 'ppo/building_constructed' not in logged
     assert logged['battles/transition_fraction'] == pytest.approx(0.4)
     assert logged['performance/steps_per_second'] == 500_000
@@ -104,7 +108,7 @@ def test_final_partial_window_is_logged_once_and_counts_are_preserved():
     tracking = tracker()
     tracking.run = Mock()
     for index in range(5):
-        tracking.log_training(row(2, 1, (index + 1) * 250_000), 250_000, 0.5,
+        tracking.log_training(row(2, 1, (index + 1) * 250_000, turn_ended=3, rest_penalty=.015), 250_000, 0.5,
                               (index + 1) * 0.6, final=index == 4)
     calls = [call.args[0] for call in tracking.run.log.call_args_list]
     assert [call['training_steps'] for call in calls] == [1_000_000, 1_250_000]
@@ -112,6 +116,9 @@ def test_final_partial_window_is_logged_once_and_counts_are_preserved():
     assert calls[1]['episodes/completed'] == 2
     assert calls[1]['episodes/completed_total'] == 10
     assert calls[1]['episodes/wins_total'] == 5
+    assert calls[1]['turns/rests'] == 3 and calls[1]['turns/rests_total'] == 15
+    assert calls[1]['turns/rest_penalty'] == pytest.approx(.015)
+    assert calls[1]['turns/rest_penalty_total'] == pytest.approx(.075)
     assert not tracking.pending
 
 

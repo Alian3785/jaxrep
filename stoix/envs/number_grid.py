@@ -26,6 +26,8 @@ MOVE, ENGAGE, HIT, MISS, GUARD, DELAY, FLEE, ESCAPE, VICTORY, DEFEAT, WITHDRAW, 
 
 @struct.dataclass
 class BattleState(NumberGridState):
+    gold: jax.Array
+    map_steps: jax.Array  # successful map movements, excluding combat/invalid actions
     battle_key: jax.Array
     in_battle: jax.Array
     enemy: jax.Array
@@ -130,13 +132,13 @@ class NumberGrid(NumericNumberGrid):
             self.hero_full = self.stats_table[0, :6, HP].astype(jnp.int32)
         self.restored_hp = jnp.concatenate((self.hero_full, jnp.zeros(6, jnp.int32)))
         self.observation_version = int(game_map.get('battle_observation_version', 1))
-        if self.basic_combat and self.observation_version != 4:
-            raise ValueError('Combat rules version 2 requires observation version 4')
-        if not self.basic_combat and self.observation_version == 4:
-            raise ValueError('Observation version 4 requires combat rules version 2')
-        if (self.warrior_slot >= 0 or self.has_enemy_warriors) and self.observation_version not in (3, 4):
+        if self.basic_combat and self.observation_version != 5:
+            raise ValueError('Combat rules version 2 requires observation version 5')
+        if not self.basic_combat and self.observation_version in (4, 5):
+            raise ValueError('Observation version 5 requires combat rules version 2')
+        if (self.warrior_slot >= 0 or self.has_enemy_warriors) and self.observation_version not in (3, 5):
             raise ValueError('Warrior maps require battle_observation_version 3')
-        self.observation_size = (4 + 5 * self.num_opponents + (108 if self.basic_combat else 48) + 6 if self.observation_version in (2, 3, 4)
+        self.observation_size = (4 + 5 * self.num_opponents + (110 if self.basic_combat else 48) + 6 if self.observation_version in (2, 3, 5)
                                  else self.observation_size + 2 * self.num_opponents + 12 * 8 + 6)
 
     def reset(self, rng_key, env_params=None):
@@ -159,6 +161,7 @@ class NumberGrid(NumericNumberGrid):
             actor=zero, round=zero, last_event=jnp.int32(MOVE), last_actor=jnp.int32(-1),
             last_target=jnp.int32(-1), last_damage=zero, battle_steps=zero,
             player_turns=zero, enemy_turns=zero,
+            gold=zero, map_steps=zero,
         )
         return state, self._timestep(state, jnp.float32(0), first=True)
 
@@ -182,7 +185,10 @@ class NumberGrid(NumericNumberGrid):
             state.round / self.max_rounds, state.actor / 11,
             state.origin[0] / (self.size - 1), state.origin[1] / (self.size - 1)
         ], jnp.float32)
-        if self.observation_version in (2, 3, 4):
+        if self.basic_combat:
+            context = jnp.concatenate((context, jnp.asarray(
+                [state.gold / 1000., (state.map_steps % 20) / 20.], jnp.float32)))
+        if self.observation_version in (2, 3, 5):
             # No duplicate max-HP arrays or obsolete numeric battle strengths.
             # Signed queue priority contains both order and waiting/acted status.
             world = jnp.stack((self.opponent_positions[:,0] / (self.size-1),
@@ -191,7 +197,7 @@ class NumberGrid(NumericNumberGrid):
             active = (state.hp > 0) & ~state.escaped
             queue = jnp.where(active & (state.turn_phase == 0), state.priority,
                              jnp.where(active & (state.turn_phase == 1), -state.priority, 0.))
-            hp_scale = (jnp.maximum(self.max_hp(state), 1) if self.observation_version in (3, 4)
+            hp_scale = (jnp.maximum(self.max_hp(state), 1) if self.observation_version in (3, 5)
                         else self.hero_hp)
             if self.basic_combat:
                 queue /= self.priority_scale
@@ -294,7 +300,10 @@ class NumberGrid(NumericNumberGrid):
         nearby = state.alive & (jnp.max(jnp.abs(self.opponent_positions - position), axis=1) == 1)
         engage = moved & jnp.any(nearby)
         enemy = jnp.argmax(nearby).astype(jnp.int32)
+        map_steps = state.map_steps + moved.astype(jnp.int32)
+        gold = state.gold + jnp.where(moved & (map_steps % 20 == 0), 100, 0)
         next_state = state.replace(position=position, origin=state.position,
+                                   gold=gold, map_steps=map_steps,
                                    enemy=jnp.where(engage, enemy, state.enemy),
                                    last_event=jnp.int32(MOVE), last_actor=jnp.int32(-1),
                                    last_target=jnp.int32(-1), last_damage=jnp.int32(0))

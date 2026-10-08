@@ -1,5 +1,5 @@
 {
-  "name": "NumberGrid-24x24-v11-basic-combat",
+  "name": "NumberGrid-24x24-v12-gold",
   "size": 24,
   "agent_position": [
     2,
@@ -203,7 +203,7 @@
     25
   ],
   "battle_recovery": "Full party including fallen units after victory or retreat. Defeat ends the episode. Enemies also reset after a retreat.",
-  "battle_observation_version": 4,
+  "battle_observation_version": 5,
   "enemy_warrior_slots": [
     0,
     1,

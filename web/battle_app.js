@@ -61,6 +61,8 @@
     $('remaining').textContent=s.alive.filter(Boolean).length;
     $('wins').textContent=s.alive.filter(v=>!v).length;
     $('steps').textContent=fmt(s.step_count);$('reward').textContent=fmt(snap.total_reward);
+    $('gold').textContent=fmt(s.gold);
+    $('gold-countdown').textContent='Шагов по карте до +100: '+(20-s.map_steps%20);
     const mageAlive=s.hp.slice(0,6).some((hp,i)=>hp>0&&isMage(i));
     const warriorAlive=s.hp.slice(0,6).some((hp,i)=>hp>0&&isWarrior(i));
     $('party-health').textContent=archerCount(s.hp.slice(0,6).filter((hp,i)=>hp>0&&!isMage(i)&&!isWarrior(i)).length)+(warriorAlive?' + воин':'')+(mageAlive?' + маг':'')+' · '+s.hp.slice(0,6).reduce((a,b)=>a+b,0)+' здоровья';

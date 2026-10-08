@@ -4,16 +4,17 @@
   const $=id=>document.getElementById(id), fmt=n=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:3}).format(n);
   const canvas=$('board'), ctx=canvas.getContext('2d');
   let mode='manual', session=null, manual=null, manualMap=null, busy=false, frame=0, recordIndex=0, timer=null, messages=[];
-  let manualConstruction=null, manualTurnRules=null, manualCombat=null, capitalOpen=false, capitalKey=null;
+  let manualConstruction=null, manualTurnRules=null, manualCombat=null, manualCapital=null, manualPotions=null, capitalOpen=false, potionsOpen=false, selectedPotion=0, capitalKey=null;
   const records=data.records||[];
   const combatInfo=()=>mode==='manual'?(manualCombat||data.combat):data.combat;
-  const profile=i=>i>=0&&i<12?(i<6?combatInfo()?.heroes[i]:combatInfo()?.enemies[current()?.state.enemy]?.[i-6]):null;
+  const profile=i=>i>=0&&i<12?(combatInfo()?.catalogue?.[current()?.state.unit_ids?.[i]]??(i<6?combatInfo()?.heroes[i]:combatInfo()?.enemies[current()?.state.enemy]?.[i-6])):null;
   const isMage=i=>profile(i)?.role==='area';
   const isWarrior=i=>profile(i)?.role==='melee';
+  const isHealer=i=>profile(i)?.role==='healer';
   const role=i=>profile(i)?.name||'Пусто';
   const unitName=i=>(i<6?'Ваш ':'Вражеский ')+role(i).toLowerCase()+' '+(i%6+1);
   const partyText=units=>{const counts=new Map();for(const u of units||[])if(u)counts.set(u.name,(counts.get(u.name)||0)+1);return [...counts].map(([name,count])=>name+' × '+count).join(' · ');};
-  const enemyParty=(map,enemy)=>partyText(combatInfo()?.enemies[enemy]);
+  const enemyParty=(map,enemy)=>partyText(current()?.state.in_battle?Array.from({length:6},(_,i)=>profile(i+6)):combatInfo()?.enemies[enemy]);
   const sourceName=key=>combatInfo()?.attack_types.find(t=>t.key===key)?.name||key;
   const protectionNames=bits=>(combatInfo()?.attack_types||[]).filter(t=>bits&t.bit).map(t=>t.name).join(', ')||'нет';
   const blockText=s=>{const parts=[];for(const [key,label] of [['last_immune','Иммунитет'],['last_ward','Защита поглотила удар']]){const names=Array.from({length:12},(_,i)=>i).filter(i=>s[key]&(1<<i)).map(unitName);if(names.length)parts.push(label+': '+names.join(', ')+'.');}return parts.length?' '+parts.join(' '):'';};
@@ -21,6 +22,8 @@
   function currentMap(){return mode==='manual'?(manualMap||data.map):data.map;}
   function construction(){return mode==='manual'?(manualConstruction||data.construction):data.construction;}
   function turnRules(){return mode==='manual'?(manualTurnRules||data.turn_rules):data.turn_rules;}
+  const potionInfo=()=>mode==='manual'?(manualPotions||data.potions):data.potions;
+  const capitalInfo=()=>mode==='manual'?(manualCapital||data.capital):data.capital;
   const branchNames={
     empire:['Воины','Стрелки','Маги','Целители','Титаны'],
     mountain_clans:['Воины','Стрелки','Маги','Великаны','Йети'],
@@ -70,7 +73,7 @@
     document.querySelectorAll('[data-building]').forEach(card=>{
       const i=Number(card.dataset.building),code=snap.building_status[i];
       card.className='building-card'+(code===1?' is-built':code===2?' is-blocked':code===0?' is-ready':'');
-      card.querySelector('.building-status').textContent=buildStatus[code];
+      card.querySelector('.building-status').textContent=info.buildings[i].unavailable_reason||buildStatus[code];
       const button=card.querySelector('button');button.textContent=code===1?'Построено':'Построить';
       button.disabled=mode!=='manual'||busy||!session||!snap.action_mask[Number(button.dataset.action)];
     });
@@ -78,6 +81,66 @@
   }
   function stop(){if(timer)clearInterval(timer);timer=null;$('play').textContent='▶ Смотреть';}
   function roundRect(x,y,w,h,r,color){ctx.fillStyle=color;ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill();}
+  function renderCapitalServices(snap){
+    const info=capitalInfo(),section=$('capital-services');section.hidden=!info;if(!info)return;
+    const s=snap.state,atCapital=s.position.every((n,i)=>n===info.position[i]);
+    const temple=snap.building_status?.[info.temple_action-18]===1;
+    $('capital-location').textContent='Столица · клетка '+info.position.join(', ')+' · без стража';
+    $('service-status').textContent=s.done?'Эпизод завершён.':s.in_battle?'Услуги доступны после боя.':!atCapital?'Вернитесь на золотую клетку столицы, чтобы лечить и воскрешать бойцов.':!temple?'Вы в столице. Постройте Храм за 300 золота, чтобы открыть лечение и воскрешение.':'Вы в столице. Храм открыт; услуги не расходуют очки перемещения и не завершают ход.';
+    const cards=[];
+    for(let i=0;i<6;i++){
+      if(!snap.max_hp[i])continue;
+      const q=snap.capital_quotes?.[i];if(!q)continue;
+      const card=document.createElement('article');card.className='recovery-card'+(!s.hp[i]?' fallen':'');
+      const name=document.createElement('h3');name.textContent=role(i)+' '+(i+1);card.append(name);
+      const hp=document.createElement('p');hp.className='recovery-health';hp.textContent=s.hp[i]+' / '+snap.max_hp[i]+' HP'+(!s.hp[i]?' · погиб':'');card.append(hp);
+      const prices=document.createElement('p');prices.className='recovery-price';prices.textContent='Лечение: '+q[0]+' золото / HP · воскрешение: '+q[4]+' золота';card.append(prices);
+      const action=(!s.hp[i]?info.revive_start:info.heal_start)+i;
+      const button=document.createElement('button');button.dataset.action=action;
+      button.textContent=!s.hp[i]?'Воскресить · '+q[4]+' золота':q[1]===0?'Здоровье полное':q[2]>0?'Лечить +'+q[2]+' HP · '+q[3]+' золота':'Не хватает золота';
+      button.onclick=()=>sendAction(action);card.append(button);
+      cards.push(card);
+    }
+    $('recovery-list').replaceChildren(...cards);
+  }
+  function renderPotions(snap){
+    const items=potionInfo()||[],s=snap.state;
+    $('potion-status').textContent=s.done?'Эпизод завершён.':s.in_battle?'Зелья можно использовать после завершения боя.':'Доступны на любой клетке карты, даже без очков перемещения. Выберите зелье и бойца.';
+    $('potion-stock').replaceChildren(...items.map((item,i)=>{
+      const button=document.createElement('button');button.className='potion-choice';
+      button.setAttribute('aria-pressed',String(selectedPotion===i));
+      button.textContent=item.name+' · '+(item.effect==='revive'?'1 HP':item.amount+' HP')+' · '+s.potions[i]+' шт.';
+      button.onclick=()=>{selectedPotion=i;render();};return button;
+    }));
+    const item=items[selectedPotion];if(!item)return;
+    $('potion-detail').textContent=item.effect==='revive'?'Воскрешает одного погибшего бойца с 1 HP.':'Восстанавливает до '+item.amount+' HP одному живому раненому бойцу. Здоровье не превышает максимум.';
+    const cards=[];
+    for(let i=0;i<6;i++){
+      if(!snap.max_hp[i])continue;
+      const card=document.createElement('article');card.className='recovery-card'+(!s.hp[i]?' fallen':'');
+      const name=document.createElement('h3');name.textContent=role(i)+' '+(i+1);card.append(name);
+      const hp=document.createElement('p');hp.className='recovery-health';hp.textContent=s.hp[i]+' / '+snap.max_hp[i]+' HP'+(!s.hp[i]?' · погиб':'');card.append(hp);
+      const button=document.createElement('button'),amount=snap.potion_quotes?.[selectedPotion]?.[i]||0;
+      button.dataset.action=item.action_start+i;
+      button.textContent=!s.potions[selectedPotion]?'Зелья закончились':item.effect==='revive'?(s.hp[i]?'Боец жив':'Воскресить · 1 бутылка'):!s.hp[i]?'Сначала воскресите бойца':!amount?'Здоровье полное':'Лечить +'+amount+' HP · 1 бутылка';
+      button.onclick=()=>sendAction(item.action_start+i);card.append(button);cards.push(card);
+    }
+    $('potion-targets').replaceChildren(...cards);
+  }
+  function renderMapCommands(snap){
+    const attacks=[];
+    for(const [action,command] of (snap.map_commands||[]).entries()){
+      const [enemy,cost]=command, direction=document.querySelector('.dpad [data-action="'+action+'"]');
+      direction.classList.toggle('attack-direction',enemy>=0);
+      direction.title=enemy>=0?'Атаковать отряд № '+(enemy+1)+' · '+cost+' очков':'Перемещение · '+cost+' очка';
+      if(enemy<0)continue;
+      const button=document.createElement('button');button.dataset.action=action;
+      button.textContent='Атаковать отряд № '+(enemy+1)+' · '+enemyParty(currentMap(),enemy)+' · '+cost+' очков';
+      button.onclick=()=>sendAction(action);attacks.push(button);
+    }
+    $('map-targets').replaceChildren(...attacks);
+    $('map-targets').hidden=!attacks.length;
+  }
   function drawMap(s){
     const map=currentMap();
     const width=canvas.clientWidth;if(!width)return;
@@ -90,31 +153,94 @@
     }
     const token=(p,n,hero)=>{roundRect(p[1]*cell+cell*.09,p[0]*cell+cell*.09,cell*.82,cell*.82,cell*.2,hero?'#a5d6ad':'#d5c0e8');ctx.fillStyle=hero?'#244c30':'#654777';ctx.font='650 '+Math.round(cell*.55)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n,(p[1]+.5)*cell,(p[0]+.52)*cell);};
     map.opponent_positions.forEach((p,i)=>{if(s.alive[i])token(p,map.enemy_units[i],false);});
+    (map.chests||[]).forEach((chest,i)=>{
+      if(!s.chest_alive?.[i])return;
+      const [r,c]=chest.position,x=c*cell,y=r*cell;
+      roundRect(x+cell*.12,y+cell*.24,cell*.76,cell*.6,cell*.1,'#9b6230');
+      roundRect(x+cell*.12,y+cell*.17,cell*.76,cell*.28,cell*.1,'#d8ad64');
+      ctx.fillStyle='#f5dfa1';ctx.fillRect(x+cell*.44,y+cell*.35,cell*.12,cell*.24);
+    });
+    const capital=capitalInfo()?.position;
+    if(capital){
+      roundRect(capital[1]*cell+1,capital[0]*cell+1,cell-2,cell-2,cell*.15,'#dfb963');
+      ctx.fillStyle='#604515';ctx.font='650 '+Math.round(cell*.62)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('♜',(capital[1]+.5)*cell,(capital[0]+.52)*cell);
+    }
     token(s.position,s.hp.slice(0,6).filter(h=>h>0).length,true);
+    if(capital){ctx.strokeStyle='#aa7623';ctx.lineWidth=2;ctx.strokeRect(capital[1]*cell+1,capital[0]*cell+1,cell-2,cell-2);}
   }
   const slots=[3,0,4,1,5,2,6,9,7,10,8,11];
   for(const i of slots){
     const button=document.createElement('button');button.className='unit'+(i>=6?' foe':'');button.dataset.slot=i;
-    button.innerHTML='<span class="unit-name"></span><span class="archer-icon" aria-hidden="true">➶</span><span class="health"></span><span class="unit-stats"></span><span class="health-bar"><span class="health-fill"></span></span><span class="status"></span>';
-    button.onclick=()=>sendAction(8+i-6);$(i<6?'allies':'enemies').append(button);
+    button.innerHTML='<span class="unit-name"></span><span class="archer-icon" aria-hidden="true">➶</span><span class="health"></span><span class="unit-stats"></span><span class="unit-xp"></span><span class="health-bar"><span class="health-fill"></span></span><span class="status"></span>';
+    button.onclick=()=>sendAction(8+i%6);$(i<6?'allies':'enemies').append(button);
+  }
+  function experienceText(snap,i){
+    const xp=snap.unit_experience?.[i];
+    return xp?'Ур. '+xp[0]+' · опыт '+xp[3]+' / '+xp[2]+'\nЗа победу: '+xp[1]+' опыта':'';
+  }
+  function upgradeText(snap,i){
+    const unit=profile(i),choices=unit?.upgrades;
+    if(unit?.hero){
+      const level=snap.unit_experience?.[i]?.[0]||1;
+      const earned=(unit.level_bonuses||[]).filter(b=>b.level<=level).map(b=>b.name);
+      const next=(unit.level_bonuses||[]).find(b=>b.level>level);
+      return 'Герой: повышение без здания.'+(earned.length?' Бонусы: '+earned.join('; ')+'.':'')+
+        (next?' На уровне '+next.level+': '+next.name+'.':'');
+    }
+    if(!choices)return '';
+    if(!choices.length)return 'Следующий уровень: рост характеристик без здания.';
+    return choices.map(u=>{
+      if(!u.supported)return u.name+': недоступно — '+u.reason.toLowerCase()+'.';
+      const b=construction()?.buildings.find(b=>b.name===u.building);
+      const bit=b?1<<(b.action-18):0;
+      const status=!b?'нужна столица родной фракции':snap.state.buildings&bit?'построено':snap.state.blocked_buildings&bit?'заблокировано':'не построено';
+      return u.name+' ← '+u.building+' ('+status+').';
+    }).join(' ');
+  }
+  function renderExperience(snap){
+    const cards=[];
+    for(let i=0;i<6;i++){
+      if(!snap.max_hp[i])continue;
+      const card=document.createElement('article');card.className='experience-card';
+      const heading=document.createElement('b');heading.textContent=role(i)+' '+(i+1);card.append(heading);
+      const hp=document.createElement('span');hp.textContent=snap.state.hp[i]+' / '+snap.max_hp[i]+' HP';card.append(hp);
+      const xp=document.createElement('p');xp.textContent=experienceText(snap,i);card.append(xp);
+      const next=document.createElement('small');next.textContent=upgradeText(snap,i);card.append(next);
+      cards.push(card);
+    }
+    $('hero-experience').replaceChildren(...cards);
+  }
+  function xpSummary(snap){
+    const parts=[];
+    for(let i=0;i<12;i++){
+      if(snap.state.last_promoted&(1<<i))parts.push(unitName(i)+' → уровень '+snap.unit_experience[i][0]+', полное лечение, опыт сброшен');
+      else if(snap.state.last_xp?.[i])parts.push(unitName(i)+': опыт '+snap.unit_experience[i][3]+' / '+snap.unit_experience[i][2]);
+    }
+    return parts.length?' '+parts.join('; ')+'.':'';
   }
   function eventText(snapshot){
     const s=snapshot.state,a=unitName(s.last_actor),t=unitName(s.last_target);
     switch(s.last_event){
-      case 1:return 'Начался бой с отрядом № '+(s.enemy+1)+'.';
+      case 1:return 'Атака отряда № '+(s.enemy+1)+'. Отряд остаётся на своей клетке; очков перемещения: '+s.movement_points+'.';
       case 2:return isMage(s.last_actor)?a+': заклинание по всем противникам (суммарный урон '+s.last_damage+').'+blockText(s):a+(isWarrior(s.last_actor)?': удар мечом по ':': попадание в ')+t.toLowerCase()+' (−'+s.last_damage+').'+blockText(s);
       case 3:return a+': промах.';
       case 4:return a+' встал в защиту.';
       case 5:return a+' ждёт конца раунда.';
       case 6:return a+' готовится отступить.';
       case 7:return a+' покинул бой.';
-      case 8:return 'Победа! Ранения сохранены, погибшие воскрешены с 1 HP.';
+      case 8:return 'Победа! Ранения и потери сохранены.'+xpSummary(snapshot);
       case 9:return 'Ваш отряд погиб. Игра завершена.';
-      case 10:return 'Отступление завершено. Ранения сохранены, погибшие воскрешены с 1 HP.';
+      case 10:return 'Отступление завершено. Ранения и потери сохранены.';
       case 11:return 'Бой достиг лимита раундов. Эпизод завершён.';
       case 12:{const b=construction()?.buildings[s.last_building];return b?'Построено: '+b.name+' (−'+b.gold+' золота).':null;}
       case 13:return 'Отдых. Начался ход '+s.day+', +'+turnRules().income+' золота; очки перемещения восстановлены, живые бойцы получили регенерацию 10% HP. Штраф: '+fmt(Math.max(0,-snapshot.reward))+'.';
       case 14:return 'Атака заблокирована иммунитетом.'+blockText(s);
+      case 16:return a+': лечение — '+t.toLowerCase()+' (+'+s.last_damage+' HP).';
+      case 17:return 'Храм: '+t.toLowerCase()+' восстановил '+s.last_damage+' HP за '+s.last_service_cost+' золота.';
+      case 18:return 'Храм: '+t.toLowerCase()+' воскрешён с 1 HP за '+s.last_service_cost+' золота.';
+      case 19:return potionInfo()?.[s.last_potion]?.name+': '+t.toLowerCase()+' восстановил '+s.last_damage+' HP. Осталось: '+s.potions[s.last_potion]+'.';
+      case 21:return 'Сундук: '+s.last_loot.map((n,i)=>n?(potionInfo()?.[i]?.name+' × '+n):'').filter(Boolean).join(', ')+'. Добавлено в инвентарь зелий.';
+      case 20:return 'Зелье воскрешения: '+t.toLowerCase()+' вернулся с 1 HP. Осталось: '+s.potions[s.last_potion]+'.';
       case 15:return 'Атака поглощена защитой.'+blockText(s);
       default:return null;
     }
@@ -122,12 +248,17 @@
   function render(){
     const snap=current();if(!snap)return;const s=snap.state,mask=snap.action_mask,map=currentMap();
     $('version').textContent=map.name;
-    $('map-panel').hidden=s.in_battle||capitalOpen;$('battle-panel').hidden=!s.in_battle||capitalOpen;
-    $('capital-panel').hidden=!capitalOpen;
-    $('world-view').setAttribute('aria-pressed',String(!capitalOpen));$('capital-view').setAttribute('aria-pressed',String(capitalOpen));
+    $('map-panel').hidden=s.in_battle||capitalOpen||potionsOpen;$('battle-panel').hidden=!s.in_battle||capitalOpen||potionsOpen;
+    $('capital-panel').hidden=!capitalOpen;$('potions-panel').hidden=!potionsOpen;
+    $('world-view').setAttribute('aria-pressed',String(!capitalOpen&&!potionsOpen));$('capital-view').setAttribute('aria-pressed',String(capitalOpen));$('potions-view').setAttribute('aria-pressed',String(potionsOpen));
     renderConstruction(snap);
+    renderCapitalServices(snap);
+    renderPotions(snap);
+    renderMapCommands(snap);
     $('phase-label').textContent=s.in_battle?'Бой · отряд № '+(s.enemy+1):'Карта '+map.size+' × '+map.size;
     $('remaining').textContent=s.alive.filter(Boolean).length;
+    $('chest-status').hidden=!(map.chests||[]).length;
+    $('chest-status').textContent=(s.last_event===21?eventText(snap)+' ':'')+'Сундуков осталось: '+(s.chest_alive||[]).filter(Boolean).length+' / '+(map.chests||[]).length+'. Подойдите на соседнюю клетку, включая диагональ: зелье попадёт в инвентарь.';
     $('wins').textContent=s.alive.filter(v=>!v).length;
     $('steps').textContent=fmt(s.step_count);$('reward').textContent=fmt(snap.total_reward);
     $('gold').textContent=fmt(s.gold);
@@ -137,7 +268,8 @@
     $('rest').dataset.action=turns.rest_action;
     $('rest-hint').textContent=s.in_battle?'Отдых доступен после завершения боя.':snap.rest_penalty>0?'Штраф за оставшиеся очки: −'+fmt(snap.rest_penalty)+'. Следующий ход: +'+turns.income+' золота и полный запас очков.':'Все очки использованы: отдых без штрафа. Следующий ход: +'+turns.income+' золота и полный запас очков.';
     if(!s.in_battle)$('rest-hint').textContent+=' Живым бойцам: +'+turns.regeneration_percent+'% максимального HP с округлением вверх (до максимума).';
-    const heroes=combatInfo()?.heroes||[];
+    const heroes=Array.from({length:6},(_,i)=>profile(i));
+    renderExperience(snap);
     $('party-health').textContent=partyText(heroes.filter((u,i)=>u&&s.hp[i]>0))+' · '+s.hp.slice(0,6).reduce((a,b)=>a+b,0)+' здоровья';
     $('party-title').textContent=partyText(heroes)+'.';
     $('mage-rule').hidden=!heroes.some(u=>u?.role==='area');
@@ -145,12 +277,12 @@
     $('enemy-warrior-rule').hidden=!combatInfo()?.enemies.some(row=>row.some(u=>u?.role==='melee'));
     const basic=true;
     $('basic-combat-rule').hidden=false;
-    $('mage-rule').innerHTML='<b>Массовая атака.</b> Каждый сектант атакует всех живых противников. Попадание, прибавка к урону, иммунитет и защита проверяются отдельно для каждой цели.';
-    $('battle-hint').textContent='Источник атаки, иммунитеты и оставшиеся защиты указаны на карточках. Точность 80% соответствует фактическому шансу попадания 92,2%. Броня и действие защиты уменьшают прошедший урон.';
-    $('attack-hint').textContent=isMage(s.actor)?'Массовая атака: выберите любого живого врага.':isWarrior(s.actor)?(mask.slice(8,14).some(Boolean)?'Ход воина: выберите подсвеченного врага для удара мечом.':'Воин не достаёт до врагов. Можно защищаться, ждать или отступить.'):'Нажмите на живого противника, чтобы выстрелить.';
-    const message=s.won?'Победа! Карта очищена.':s.lost?'Ваш отряд погиб. Начните новую игру.':s.done?'Достигнут лимит. Начните новую игру.':s.in_battle?'Выбирайте цели и берегите свой отряд.':s.movement_points<turns.move_cost?'Очки перемещения закончились. Можно построить здание или отдохнуть.':'Подойдите к любому вражескому отряду.';
+    $('mage-rule').innerHTML='<b>Массовая атака.</b> Маг атакует всех живых противников. Попадание, прибавка к урону, иммунитет и защита проверяются отдельно для каждой цели.';
+    $('battle-hint').textContent='Источник атаки, иммунитеты и оставшиеся защиты указаны на карточках. Точность 80% соответствует фактическому шансу попадания 92,2%. Броня и действие защиты уменьшают прошедший урон. Титан занимает обе клетки линии. Служка лечит одного живого союзника на 20 HP.';
+    $('attack-hint').textContent=isHealer(s.actor)?'Лечение: выберите живого союзника.':isMage(s.actor)?'Массовая атака: выберите любого живого врага.':isWarrior(s.actor)?(mask.slice(8,14).some(Boolean)?'Ход воина: выберите подсвеченного врага для удара мечом.':'Воин не достаёт до врагов. Можно защищаться, ждать или отступить.'):'Нажмите на живого противника, чтобы выстрелить.';
+    const message=s.won?'Победа! Карта очищена.':s.lost?'Ваш отряд погиб. Начните новую игру.':s.done?'Достигнут лимит. Начните новую игру.':s.in_battle?'Выбирайте цели и берегите свой отряд.':!s.movement_points?'Очки перемещения закончились. Можно использовать зелья, строить или отдохнуть.':'Шаг на клетку врага — атака. Рядом с отрядом можно пройти без боя.';
     $('message').textContent=message;
-    $('map-controls').hidden=s.in_battle||capitalOpen;$('battle-controls').hidden=!s.in_battle||capitalOpen;
+    $('map-controls').hidden=s.in_battle||capitalOpen||potionsOpen;$('battle-controls').hidden=!s.in_battle||capitalOpen||potionsOpen;
     $('continue').hidden=!s.in_battle||!mask[17];
     document.querySelectorAll('[data-action]').forEach(b=>b.disabled=mode!=='manual'||busy||s.done||!session||!mask[Number(b.dataset.action)]);
     $('reset').disabled=busy;
@@ -160,22 +292,27 @@
       $('turn-message').textContent=s.done?message:s.actor<6&&!s.retreating[s.actor]?'Ваш ход: '+role(s.actor).toLowerCase()+' '+(s.actor+1):s.actor>=6?'Ход противника: '+role(s.actor).toLowerCase()+' '+(s.actor-5):unitName(s.actor)+' завершает отступление';
       document.querySelectorAll('[data-slot]').forEach(b=>{
         const i=Number(b.dataset.slot),max=snap.max_hp[i],hp=s.hp[i];
-        const targetTurn=i>=6&&s.actor<6&&!s.retreating[s.actor]&&!s.done;
-        const unreachable=targetTurn&&hp>0&&!s.escaped[i]&&!mask[8+i-6];
-        b.className='unit'+(i>=6?' foe':'')+(isMage(i)?' mage':'')+(isWarrior(i)?' warrior':'')+(i===s.actor&&!s.done?' active':'')+(!max?' empty':!hp?' dead':s.escaped[i]?' escaped':'')+(unreachable?' unreachable':targetTurn&&mask[8+i-6]?' reachable':'');
-        b.querySelector('.unit-name').textContent=max?role(i)+' '+(i%6+1):'Пусто';
-        b.querySelector('.archer-icon').textContent=isMage(i)?'✦':isWarrior(i)?'⚔':'➶';
+        const local=i%6,big=profile(i)?.size===2,covered=local>=3&&profile(i-3)?.size===2;
+        b.hidden=covered;
+        b.style.gridRow=String(local%3+1);
+        b.style.gridColumn=big?'1 / span 2':String(i<6?(local<3?2:1):(local<3?1:2));
+        const targetTurn=(isHealer(s.actor)?i<6:i>=6)&&s.actor<6&&!s.retreating[s.actor]&&!s.done;
+        const unreachable=targetTurn&&hp>0&&!s.escaped[i]&&!mask[8+i%6];
+        b.className='unit'+(i>=6?' foe':'')+(big?' large':'')+(isHealer(i)?' healer':'')+(isMage(i)?' mage':'')+(isWarrior(i)?' warrior':'')+(i===s.actor&&!s.done?' active':'')+(!max?' empty':!hp?' dead':s.escaped[i]?' escaped':'')+(unreachable?' unreachable':targetTurn&&mask[8+i%6]?' reachable':'');
+        b.querySelector('.unit-name').textContent=max?role(i)+' '+(i%6+1)+(big?' · 2 клетки':''):'Пусто';
+        b.querySelector('.archer-icon').textContent=isHealer(i)?'✚':isMage(i)?'✦':isWarrior(i)?'⚔':'➶';
         b.querySelector('.health').textContent=max?hp+' / '+max+' HP':'—';
         const values=snap.unit_stats?.[i]??[max,isMage(i)?map.mage_damage:isWarrior(i)?map.warrior_damage:map.archer_damage,100*(isWarrior(i)?(map.warrior_accuracy??.8):map.archer_accuracy),0,isWarrior(i)?map.warrior_initiative:60];
-        b.querySelector('.unit-stats').textContent=max?'Урон '+fmt(values[1])+' · Точн. '+fmt(values[2])+'%\nБроня '+fmt(values[3])+'% · Иниц. '+fmt(values[4])+'\nИсточник: '+sourceName(profile(i)?.attack_type)+'\nИммунитеты: '+protectionNames(profile(i)?.immunities||0)+'\nЗащиты: '+protectionNames((profile(i)?.protections||0)&~s.wards_used[i])+((profile(i)?.protections||0)&s.wards_used[i]?' (израсходовано: '+protectionNames(profile(i).protections&s.wards_used[i])+')':''):'';
+        b.querySelector('.unit-stats').textContent=max?(isHealer(i)?'Лечение ':'Урон ')+fmt(values[1])+' · Точн. '+fmt(values[2])+'%\nБроня '+fmt(values[3])+'% · Иниц. '+fmt(values[4])+'\nИсточник: '+sourceName(profile(i)?.attack_type)+'\nИммунитеты: '+protectionNames(profile(i)?.immunities||0)+'\nЗащиты: '+protectionNames((profile(i)?.protections||0)&~s.wards_used[i])+((profile(i)?.protections||0)&s.wards_used[i]?' (израсходовано: '+protectionNames(profile(i).protections&s.wards_used[i])+')':''):'';
+        b.querySelector('.unit-xp').textContent=max?experienceText(snap,i):'';
         b.querySelector('.health-fill').style.width=(max?hp/max*100:0)+'%';
         b.querySelector('.status').textContent=!max?'':!hp?'Погиб':s.escaped[i]?'Отступил':unreachable?'Вне досягаемости':s.retreating[i]?'Побег':s.defended[i]?'Защита':s.turn_phase[i]===1?'Ожидание':s.turn_phase[i]===2?'Ход завершён':'';
-        b.disabled=i<6||mode!=='manual'||busy||s.done||!session||!mask[8+i-6];
-        b.setAttribute('aria-label',(i>=6?(isMage(s.actor)?'Заклинание по всем врагам: противник ':isWarrior(s.actor)?'Удар мечом: противник ':'Стрелять: противник ')+(i%6+1):unitName(i))+', '+hp+' из '+max+' здоровья'+(unreachable?', вне досягаемости':''));
+        b.disabled=!targetTurn||mode!=='manual'||busy||s.done||!session||!mask[8+i%6];
+        b.setAttribute('aria-label',(isHealer(s.actor)&&i<6?'Лечить: '+unitName(i):i>=6?(isMage(s.actor)?'Заклинание по всем врагам: противник ':isWarrior(s.actor)?'Удар мечом: противник ':'Стрелять: противник ')+(i%6+1):unitName(i))+', '+hp+' из '+max+' здоровья'+(unreachable?', вне досягаемости':''));
       });
       const queue=Array.from({length:12},(_,i)=>i).filter(i=>s.hp[i]>0&&!s.escaped[i]&&s.turn_phase[i]<2);
       const priority=i=>s.turn_phase[i]===0?s.priority[i]:-s.priority[i];queue.sort((a,b)=>priority(b)-priority(a)||a-b);
-      $('queue').replaceChildren(...queue.map(i=>{const e=document.createElement('span');e.className='queue-unit'+(i>=6?' foe':'')+(i===s.actor?' current':'');e.textContent=(isMage(i)?'М':isWarrior(i)?'⚔':i<6?'Л':'П')+(i%6+1);e.title=unitName(i)+(basic?' · инициатива раунда '+Math.floor(s.priority[i]):'');return e;}));
+      $('queue').replaceChildren(...queue.map(i=>{const e=document.createElement('span');e.className='queue-unit'+(i>=6?' foe':'')+(i===s.actor?' current':'');e.textContent=(isHealer(i)?'✚':isMage(i)?'М':isWarrior(i)?'⚔':i<6?'Л':'П')+(i%6+1);e.title=unitName(i)+(basic?' · инициатива раунда '+Math.floor(s.priority[i]):'');return e;}));
     }else drawMap(s);
     $('events').replaceChildren(...messages.slice(-6).reverse().map(text=>{const li=document.createElement('li');li.textContent=text;return li;}));
     if(records.length){const last=records[recordIndex].frames.length-1;$('scrubber').max=last;$('scrubber').value=frame;$('frame-count').textContent=frame+' / '+last;$('next').disabled=frame>=last;}
@@ -187,7 +324,7 @@
   function showError(error){$('connection').textContent='Игра недоступна';$('message').textContent=error.message+' Для игры запустите open-numbergrid.cmd.';}
   async function resetGame(){
     if(busy)return;busy=true;render();
-    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||data.map.faction||'legions'});session=result.session;manualMap=result.map;manualConstruction=result.construction;manualTurnRules=result.turn_rules;manualCombat=result.combat;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
+    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||data.map.faction||'legions'});session=result.session;manualMap=result.map;manualConstruction=result.construction;manualTurnRules=result.turn_rules;manualCombat=result.combat;manualCapital=result.capital;manualPotions=result.potions;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
     catch(error){busy=false;render();showError(error);return;}
     busy=false;render();
   }
@@ -202,8 +339,32 @@
   }
   function setMode(next){if(busy)return;stop();mode=next;messages=[];$('manual-tab').setAttribute('aria-selected',String(mode==='manual'));$('replay-tab').setAttribute('aria-selected',String(mode==='replay'));$('manual-controls').hidden=mode!=='manual';$('replay-controls').hidden=mode!=='replay';render();}
   function nextFrame(){const last=records[recordIndex].frames.length-1;if(frame<last){frame++;const text=eventText(current());if(text)messages.push(text);}if(frame>=last)stop();render();}
+  $('map-zoom').onchange=()=>{
+    canvas.style.width=(Number($('map-zoom').value)*100)+'%';
+    const snap=current();if(!snap)return;drawMap(snap.state);
+    const viewport=$('map-viewport'),cell=canvas.clientWidth/currentMap().size;
+    viewport.scrollLeft=(snap.state.position[1]+.5)*cell-viewport.clientWidth/2;
+    viewport.scrollTop=(snap.state.position[0]+.5)*cell-viewport.clientHeight/2;
+  };
+  canvas.onmousemove=event=>{
+    const snap=current();if(!snap)return;
+    const rect=canvas.getBoundingClientRect(),map=currentMap();
+    const row=Math.floor((event.clientY-rect.top)/rect.height*map.size),col=Math.floor((event.clientX-rect.left)/rect.width*map.size);
+    const chest=(map.chests||[]).find((c,i)=>snap.state.chest_alive?.[i]&&c.position[0]===row&&c.position[1]===col);
+    canvas.title=chest?'Сундук: '+chest.potions.map((n,i)=>n?(potionInfo()?.[i]?.name+' × '+n):'').filter(Boolean).join(', '):'';
+  };
+  canvas.ondblclick=event=>{
+    const snap=current();if(mode!=='manual'||!snap||snap.state.in_battle||busy||snap.state.done)return;
+    const rect=canvas.getBoundingClientRect(),map=currentMap();
+    const row=Math.floor((event.clientY-rect.top)/rect.height*map.size),col=Math.floor((event.clientX-rect.left)/rect.width*map.size);
+    const enemy=map.opponent_positions.findIndex((p,i)=>snap.state.alive[i]&&p[0]===row&&p[1]===col);
+    if(enemy<0)return;
+    const action=(snap.map_commands||[]).findIndex(command=>command[0]===enemy);
+    if(action>=0&&snap.action_mask[action])sendAction(action);
+  };
   $('manual-tab').onclick=()=>setMode('manual');$('replay-tab').onclick=()=>setMode('replay');$('replay-tab').disabled=!records.length;
-  $('world-view').onclick=()=>{capitalOpen=false;render();};$('capital-view').onclick=()=>{capitalOpen=true;render();};
+  $('world-view').onclick=()=>{capitalOpen=false;potionsOpen=false;render();};$('capital-view').onclick=()=>{capitalOpen=true;potionsOpen=false;render();};
+  $('potions-view').onclick=()=>{capitalOpen=false;potionsOpen=true;render();};
   $('building-branch').onchange=render;
   $('reset').onclick=resetGame;document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>sendAction(Number(b.dataset.action)));
   $('play').onclick=()=>{if(timer){stop();return;}if(frame===records[recordIndex].frames.length-1){frame=0;messages=[];}timer=setInterval(nextFrame,230);$('play').textContent='Ⅱ Пауза';};
@@ -211,11 +372,11 @@
   $('record').onchange=()=>{stop();recordIndex=Number($('record').value);frame=0;messages=[];render();};
   records.forEach((r,i)=>{const option=document.createElement('option');option.value=i;option.textContent=r.label;$('record').append(option);});
   const keys={ArrowUp:0,ArrowRight:2,ArrowDown:4,ArrowLeft:6,KeyW:0,KeyE:1,KeyD:2,KeyC:3,KeyX:4,KeyS:4,KeyZ:5,KeyA:6,KeyQ:7};
-  window.addEventListener('keydown',event=>{if(event.target.matches('select,input,textarea')||event.ctrlKey||event.metaKey||event.altKey)return;if(mode==='manual'&&!capitalOpen&&!manual?.state.in_battle&&keys[event.code]!==undefined){event.preventDefault();sendAction(keys[event.code]);}});
+  window.addEventListener('keydown',event=>{if(event.target.matches('select,input,textarea')||event.ctrlKey||event.metaKey||event.altKey)return;if(mode==='manual'&&!capitalOpen&&!potionsOpen&&!manual?.state.in_battle&&keys[event.code]!==undefined){event.preventDefault();sendAction(keys[event.code]);}});
   window.addEventListener('resize',()=>{const snap=current();if(snap&&!snap.state.in_battle)drawMap(snap.state);});
   document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});
   $('version').textContent=data.map.name;
-  if(data.result){$('run-card').hidden=false;$('run-info').textContent='Запись: '+data.map.opponent_positions.length+' отрядов'+' сквайров и лучников'+' · '+fmt(data.result.training_steps)+' шагов · '+fmt(Math.round(data.result.mean_steps_per_second))+' шагов/с';$('run-evaluation').textContent='Победы argmax на карте записи: '+data.result.final_evaluation.successes+' / '+data.result.final_evaluation.episodes+'.';}
+  if(data.result){$('run-card').hidden=false;$('run-info').textContent='Запись: '+data.map.opponent_positions.length+' вражеских отрядов'+' · '+fmt(data.result.training_steps)+' шагов · '+fmt(Math.round(data.result.mean_steps_per_second))+' шагов/с';$('run-evaluation').textContent='Победы argmax на карте записи: '+data.result.final_evaluation.successes+' / '+data.result.final_evaluation.episodes+'.';}
   window.numberGridApp={snapshot:()=>JSON.parse(JSON.stringify({mode,frame,...current()}))};
   if(records.length){manual=records[0].frames[0];render();}
   resetGame();

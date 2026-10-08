@@ -1,6 +1,6 @@
 {
-  "name": "NumberGrid-24x24-v16-attack-protections",
-  "size": 24,
+  "name": "NumberGrid-48x48-v24-potion-chests",
+  "size": 48,
   "agent_position": [
     2,
     2
@@ -12,96 +12,164 @@
       8
     ],
     [
-      10,
-      4
+      20,
+      8
     ],
     [
-      13,
-      13
+      26,
+      26
     ],
     [
-      3,
-      14
+      6,
+      28
     ],
     [
-      3,
+      6,
+      40
+    ],
+    [
+      16,
       20
     ],
     [
-      8,
+      16,
+      36
+    ],
+    [
+      28,
+      8
+    ],
+    [
+      30,
+      40
+    ],
+    [
+      40,
       10
     ],
     [
-      8,
-      18
+      40,
+      24
     ],
     [
-      14,
-      4
+      40,
+      40
     ],
     [
-      15,
-      20
-    ],
-    [
-      20,
-      5
-    ],
-    [
-      20,
-      12
-    ],
-    [
-      20,
-      20
-    ],
-    [
-      6,
-      4
-    ],
-    [
-      6,
-      14
-    ],
-    [
-      6,
-      21
-    ],
-    [
-      11,
+      12,
       8
     ],
     [
-      11,
-      17
+      12,
+      28
     ],
     [
-      11,
-      21
+      12,
+      42
     ],
     [
-      16,
-      8
-    ],
-    [
-      16,
-      14
-    ],
-    [
-      18,
-      2
-    ],
-    [
-      19,
+      22,
       16
     ],
     [
       22,
-      8
+      34
     ],
     [
       22,
-      17
+      42
+    ],
+    [
+      32,
+      16
+    ],
+    [
+      32,
+      28
+    ],
+    [
+      36,
+      4
+    ],
+    [
+      38,
+      32
+    ],
+    [
+      44,
+      16
+    ],
+    [
+      44,
+      34
+    ],
+    [
+      10,
+      20
+    ],
+    [
+      24,
+      12
+    ],
+    [
+      36,
+      36
+    ],
+    [
+      19,
+      27
+    ],
+    [
+      3,
+      21
+    ],
+    [
+      43,
+      3
+    ],
+    [
+      32,
+      22
+    ],
+    [
+      28,
+      34
+    ],
+    [
+      16,
+      14
+    ],
+    [
+      38,
+      18
+    ],
+    [
+      10,
+      14
+    ],
+    [
+      10,
+      34
+    ],
+    [
+      34,
+      10
+    ],
+    [
+      4,
+      15
+    ],
+    [
+      4,
+      34
+    ],
+    [
+      24,
+      21
+    ],
+    [
+      24,
+      3
     ]
   ],
   "opponent_numbers": [
@@ -128,6 +196,23 @@
     6,
     1,
     3,
+    12,
+    2,
+    3,
+    4,
+    1,
+    1,
+    4,
+    3,
+    9,
+    9,
+    11,
+    2,
+    6,
+    3,
+    12,
+    3,
+    11,
     12
   ],
   "max_steps": 5000,
@@ -135,55 +220,89 @@
   "exploration_bonus": 0.01,
   "mask_walls": true,
   "map_seed": 42,
-  "number_generation": "Historical labels from the twelve-squad map, repeated for the new squads. Numbers do not affect archer battles.",
-  "reconstruction_note": "24x24 map: preserve the original twelve squads and add twelve distinct positions. The added squads repeat the original count/HP distribution.",
+  "number_generation": "Historical labels retained and copied with added squads. Numbers do not affect battles.",
+  "reconstruction_note": "48x48 map with 41 squads (27 × 1.5 rounded up). Starting capital and first nearby Squire retained; other original positions scaled by two. Fourteen additional human squads spread into the largest gaps, reusing existing compositions. The original three Orc/Goblin groups are unchanged. Titans occupy both slots of their formation line.",
   "battle_mode": true,
   "hero_units": 5,
   "hero_hp": 120,
   "battle_max_rounds": 75,
   "enemy_units": [
     1,
-    2,
+    1,
     2,
     3,
     3,
-    4,
+    3,
     4,
     5,
     5,
-    6,
+    5,
     6,
     6,
     1,
     2,
+    1,
+    3,
+    3,
+    3,
+    4,
+    5,
+    5,
+    4,
+    6,
+    6,
+    2,
+    3,
+    4,
+    1,
+    1,
     2,
     3,
     3,
-    4,
+    3,
     4,
     5,
     5,
     6,
     6,
+    3,
+    4,
     6
   ],
   "enemy_hp": [
     100,
+    250,
+    100,
+    100,
+    100,
+    250,
+    100,
+    100,
+    100,
+    250,
     100,
     100,
     100,
     100,
+    250,
+    100,
+    100,
+    250,
     100,
     100,
     100,
+    250,
+    100,
+    100,
+    200,
+    200,
+    50,
+    100,
+    250,
     100,
     100,
     100,
-    100,
-    100,
-    100,
-    100,
-    100,
+    250,
     100,
     100,
     100,
@@ -193,8 +312,8 @@
     100,
     100
   ],
-  "battle_recovery": "Victory or retreat preserves survivors HP and revives fallen hero units with 1 HP. Defeat ends the episode. Enemies reset after retreat. Rest heals living heroes by ceil(10% max HP), capped at max HP.",
-  "battle_observation_version": 8,
+  "battle_recovery": "Victory or retreat preserves all hero HP, including dead units at 0 HP. Full defeat ends the episode. Enemies reset after retreat. Rest heals living heroes by ceil(10% max HP). Paid healing and revival to 1 HP require the temple and exact starting cell (capital).",
+  "battle_observation_version": 13,
   "combat_rules_version": 2,
   "faction": "legions",
   "building_reward": 0.05,
@@ -203,7 +322,7 @@
   "rest_penalty_per_point": 0.001,
   "hero_roster": [
     "possessed",
-    "possessed",
+    "duke",
     "possessed",
     "cultist",
     "cultist",
@@ -219,8 +338,8 @@
       null
     ],
     [
-      "archer",
-      "squire",
+      null,
+      "titan",
       null,
       null,
       null,
@@ -235,50 +354,42 @@
       null
     ],
     [
-      "archer",
+      null,
       "squire",
+      null,
       "archer",
-      null,
-      null,
+      "acolyte",
       null
     ],
     [
-      "archer",
       "squire",
+      "squire",
+      null,
+      null,
       "archer",
-      null,
-      null,
       null
     ],
     [
-      "archer",
-      "squire",
-      "archer",
+      null,
+      "titan",
+      null,
       "archer",
       null,
-      null
-    ],
-    [
-      "archer",
-      "squire",
-      "archer",
-      "archer",
-      null,
-      null
+      "acolyte"
     ],
     [
       "archer",
       "squire",
       "archer",
       "archer",
-      "archer",
+      null,
       null
     ],
     [
-      "archer",
+      "squire",
       "squire",
       "archer",
-      "archer",
+      "acolyte",
       "archer",
       null
     ],
@@ -288,6 +399,14 @@
       "archer",
       "archer",
       "archer",
+      null
+    ],
+    [
+      "squire",
+      "titan",
+      "archer",
+      "acolyte",
+      null,
       "archer"
     ],
     [
@@ -323,11 +442,19 @@
       null
     ],
     [
-      "archer",
+      "titan",
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      "squire",
       "squire",
       null,
       null,
-      null,
+      "acolyte",
       null
     ],
     [
@@ -339,12 +466,132 @@
       null
     ],
     [
+      null,
+      "titan",
+      null,
       "archer",
+      null,
+      "archer"
+    ],
+    [
       "squire",
       "archer",
       null,
+      "archer",
+      "acolyte",
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      "archer",
+      "archer",
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      "archer",
+      "archer",
+      null
+    ],
+    [
+      "titan",
+      "squire",
+      "titan",
+      null,
+      "acolyte",
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      "archer",
+      "archer",
+      "archer",
+      "archer"
+    ],
+    [
+      "squire",
+      "squire",
+      "archer",
+      "archer",
+      "acolyte",
+      "archer"
+    ],
+    [
+      "orc",
+      "orc",
+      null,
+      null,
       null,
       null
+    ],
+    [
+      "goblin",
+      "orc",
+      "goblin",
+      null,
+      null,
+      null
+    ],
+    [
+      "goblin",
+      "goblin",
+      "goblin",
+      null,
+      "goblin_archer",
+      null
+    ],
+    [
+      "squire",
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      null,
+      "titan",
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      "archer",
+      "squire",
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      null,
+      "squire",
+      null,
+      "archer",
+      "acolyte",
+      null
+    ],
+    [
+      "squire",
+      "squire",
+      null,
+      null,
+      "archer",
+      null
+    ],
+    [
+      null,
+      "titan",
+      null,
+      "archer",
+      null,
+      "acolyte"
     ],
     [
       "archer",
@@ -355,18 +602,10 @@
       null
     ],
     [
-      "archer",
+      "squire",
       "squire",
       "archer",
-      "archer",
-      null,
-      null
-    ],
-    [
-      "archer",
-      "squire",
-      "archer",
-      "archer",
+      "acolyte",
       "archer",
       null
     ],
@@ -395,12 +634,99 @@
       "archer"
     ],
     [
+      "squire",
+      "squire",
+      null,
+      null,
+      "acolyte",
+      null
+    ],
+    [
+      "squire",
       "archer",
+      null,
+      "archer",
+      "acolyte",
+      null
+    ],
+    [
+      "squire",
       "squire",
       "archer",
       "archer",
-      "archer",
+      "acolyte",
       "archer"
     ]
+  ],
+  "unit_progression": true,
+  "capital_services": true,
+  "initial_potions": [
+    5,
+    5,
+    5,
+    10
+  ],
+  "battle_engagement": "A directional command targeting a living enemy stack starts combat from the current tile. Passing beside a stack is safe. Entry costs ceil(half the full movement allowance), capped at remaining points; zero points forbids attack. Victory and retreat keep the attacker on its original tile.",
+  "chests": [
+    {
+      "position": [
+        5,
+        4
+      ],
+      "potions": [
+        1,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "position": [
+        10,
+        26
+      ],
+      "potions": [
+        0,
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "position": [
+        25,
+        12
+      ],
+      "potions": [
+        0,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "position": [
+        31,
+        43
+      ],
+      "potions": [
+        0,
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "position": [
+        43,
+        27
+      ],
+      "potions": [
+        0,
+        0,
+        0,
+        1
+      ]
+    }
   ]
 }

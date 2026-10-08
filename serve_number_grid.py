@@ -48,9 +48,13 @@ class GameService:
                 'battle_max_rounds': env.max_rounds,
                 'max_steps': env.max_steps,
                 'action_mask': np.asarray(env.action_mask(state)).tolist(),
+                'map_commands': np.asarray(env.map_commands(state)).tolist(),
                 'max_hp': np.asarray(env.max_hp(state)).tolist(),
                 'building_status': np.asarray(env.construction.status(state)).tolist(),
                 'rest_penalty': float(env.rest_penalty(state)),
+                'capital_quotes': np.asarray(env.capital.quotes(state, env.max_hp(state))).tolist(),
+                'potion_quotes': np.asarray(env.potion_rules.quotes(state, env.max_hp(state))).tolist(),
+                'unit_experience': np.asarray(env.unit_experience(state)).tolist(),
                 'unit_stats': (np.asarray(env.unit_stats(state)).tolist()
                                if env.basic_combat else None)}
 
@@ -64,6 +68,7 @@ class GameService:
                 self.sessions.popitem(last=False)
             return {'session': token, 'map': env.map_config, 'construction': env.construction.metadata(),
                     'turn_rules': env.turn_metadata(), 'combat': env.combat_info,
+                    'capital': env.capital.metadata(), 'potions': env.potion_rules.metadata(),
                     'snapshot': self.snapshot(env, state, 0.), 'events': []}
 
     def act(self, token, action):

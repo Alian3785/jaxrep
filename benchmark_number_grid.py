@@ -89,7 +89,7 @@ def run_training(args, tracking):
     measured_sources = ['benchmark_number_grid.py', 'numbergrid_config.py', 'numbergrid_tracking.py',
                         'stoix/envs/number_grid_buildings.py', 'stoix/envs/data/buildings.json',
                         'stoix/envs/data/units.json',
-                        'stoix/envs/number_grid.py', 'stoix/envs/number_grid_combat.py', 'stoix/envs/number_grid_legacy.py',
+                        'stoix/envs/number_grid.py', 'stoix/envs/number_grid_combat.py', 'stoix/envs/number_grid_progression.py', 'stoix/envs/number_grid_capital.py', 'stoix/envs/number_grid_potions.py', 'stoix/envs/number_grid_chests.py', 'stoix/envs/number_grid_legacy.py',
                         'stoix/utils/make_env.py', 'stoix/wrappers/number_grid_metrics.py',
                         'stoix/wrappers/number_grid_reset.py', 'stoix/systems/ppo/anakin/ff_ppo.py']
     source_hashes = {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
@@ -222,7 +222,7 @@ def run_training(args, tracking):
         result['construction_count'] = int(sum(row.get('building_constructed', 0) for row in rows))
         result['rest_count'] = int(sum(row.get('turn_ended', 0) for row in rows))
         result['rest_penalty_total'] = float(sum(row.get('rest_penalty', 0) for row in rows))
-        result['transition_definition'] = 'One map move, rest, construction or unit turn; includes scripted enemy turns and completed retreats.'
+        result['transition_definition'] = 'One map move, rest, construction, paid capital service, potion use or unit turn; includes scripted enemy turns and completed retreats.'
     result['source_hashes'] = source_hashes
     save_json(output / 'results.json', result)
     tracking.summary(result)

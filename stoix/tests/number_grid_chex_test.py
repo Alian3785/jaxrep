@@ -1,4 +1,6 @@
 """Transformation and state-contract checks for the current combat environment."""
+from functools import lru_cache
+
 import chex
 import jax
 import jax.numpy as jnp
@@ -31,15 +33,23 @@ def assert_same_result(expected, actual):
             chex.assert_trees_all_equal(wanted, got)
 
 
+@lru_cache(maxsize=1)
+def reference_batch():
+    # Reuse the identical scalar oracle across eager/JIT variants; each still
+    # executes its own batched transformation on the GPU.
+    env = NumberGrid()
+    states, actions = scenarios(env)
+    batched = jax.tree.map(lambda *xs: jnp.stack(xs), *states)
+    expected = jax.tree.map(lambda *xs: jnp.stack(xs),
+                            *(env.step(state, action) for state, action in zip(states, actions)))
+    return env, states, actions, batched, expected
+
+
 class CombatTransformsTest(chex.TestCase):
     @chex.variants(with_jit=True, without_jit=True)
     def test_batched_step_matches_individual_steps(self):
         # Map movement, hero actions, enemy AI, escape, invalid and terminal steps.
-        env = NumberGrid()
-        states, actions = scenarios(env)
-        batched = jax.tree.map(lambda *xs: jnp.stack(xs), *states)
-        expected = jax.tree.map(lambda *xs: jnp.stack(xs),
-                                *(env.step(state, action) for state, action in zip(states, actions)))
+        env, states, actions, batched, expected = reference_batch()
         actual = self.variant(jax.vmap(env.step))(batched, actions)
         assert_same_result(expected, actual)
         next_states, ts = actual
@@ -54,7 +64,7 @@ class CombatTransformsTest(chex.TestCase):
         keys = jax.random.split(jax.random.PRNGKey(7), 4)
         states, ts = self.variant(jax.vmap(env.reset))(keys)
         masks = self.variant(jax.vmap(env.action_mask))(states)
-        chex.assert_shape(masks, (4, 44))
+        chex.assert_shape(masks, (4, env.num_actions))
         chex.assert_type(masks, jnp.bool_)
         chex.assert_tree_all_finite((states, ts))
         for index, key in enumerate(keys):

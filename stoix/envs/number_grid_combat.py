@@ -9,10 +9,10 @@ HP, DAMAGE, ACCURACY, ARMOR, INITIATIVE = range(5)
 STAT_NAMES = ('max_hp', 'damage', 'accuracy', 'armor', 'initiative')
 ATTACK_TYPES = ('weapon', 'earth', 'fire', 'water', 'poison', 'death', 'mind', 'life', 'air')
 ATTACK_LABELS = ('Оружие', 'Земля', 'Огонь', 'Вода', 'Яд', 'Смерть', 'Разум', 'Жизнь', 'Воздух')
-EMPTY, MELEE, RANGED, AREA = range(4)
-ROLES = {'melee': MELEE, 'ranged': RANGED, 'area': AREA}
+EMPTY, MELEE, RANGED, AREA, HEALER = range(5)
+ROLES = {'melee': MELEE, 'ranged': RANGED, 'area': AREA, 'healer': HEALER}
 UNITS = json.loads((Path(__file__).parent / 'data/units.json').read_text(encoding='utf-8'))
-PROFILE_FIELDS = set(STAT_NAMES) | {'role', 'attack_type', 'immunities', 'protections'}
+PROFILE_FIELDS = set(STAT_NAMES) | {'size', 'role', 'attack_type', 'immunities', 'protections', 'exp_kill', 'exp_required', 'exp_current'}
 
 
 def _validated_stats(values):
@@ -25,7 +25,7 @@ def _validated_stats(values):
             or not 0 <= stats['accuracy'] <= 100 or not 0 <= stats['armor'] <= 100
             or type(stats['initiative']) is not int or not 0 <= stats['initiative'] <= 1000):
         raise ValueError('Combat stats outside supported ranges')
-    stats['damage'] = min(stats['damage'], 300)
+    stats['damage'] = min(stats['damage'], 400 if values.get('hero') else 300)
     stats['armor'] = min(stats['armor'], 90)
     return [stats[name] for name in STAT_NAMES]
 
@@ -97,15 +97,29 @@ def build_combat_tables(game_map):
             if not isinstance(override, dict) or set(override) - PROFILE_FIELDS:
                 raise ValueError('Unknown combat profile fields')
             values = {**defaults, **override}
-            if values['role'] not in ROLES:
+            if values.get('upgrade_unavailable_reason'):
+                raise ValueError(values['upgrade_unavailable_reason'])
+            if not isinstance(values['role'], str) or values['role'] not in ROLES:
                 raise ValueError('Unknown combat role')
+            for field in ('exp_kill', 'exp_required', 'exp_current'):
+                value = values.get(field, 0)
+                if type(value) is not int or not 0 <= value <= 1_000_000:
+                    raise ValueError('Invalid combat '+field)
+            if values.get('exp_required', 0) > 0 and values.get('exp_current', 0) >= values['exp_required']:
+                raise ValueError('Initial experience must be below the level threshold')
+            size = values.get('size', 1)
+            if type(size) is not int or size not in (1, 2):
+                raise ValueError('Combat size must be 1 or 2')
             stats = _validated_stats(values)
             source = _source(values['attack_type'])
             immune, wards = _protection_mask(values['immunities']), _protection_mask(values['protections'])
-            profiles.append(dict(name=values['name'], level=values['level'], role=values['role'],
+            profiles.append(dict(name=values['name'], level=values['level'], size=size, role=values['role'],
                                  attack_type=ATTACK_TYPES[source], immunities=immune, protections=wards))
             rows.append(stats)
             traits.append([ROLES[values['role']], source+1, immune, wards])
+        for slot, profile in enumerate(profiles):
+            if profile and profile['size'] == 2 and (slot >= 3 or profiles[slot+3] is not None):
+                raise ValueError('Large units need a front slot and an empty paired rear slot')
         return profiles, rows, traits
 
     hero_names, heroes, hero_traits = formation(hero_count, hero_overrides, hero_roster)

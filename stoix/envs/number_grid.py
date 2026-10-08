@@ -153,6 +153,8 @@ class NumberGrid(NumericNumberGrid):
              self.damage_rolls, self.priority_scale) = build_combat_tables(game_map)
             self.hero_full = self.stats_table[0, :6, HP].astype(jnp.int32)
         self.restored_hp = jnp.concatenate((self.hero_full, jnp.zeros(6, jnp.int32)))
+        # User-defined prototype rule: ceil(10% max HP) once per strategic rest.
+        self.rest_healing = jnp.concatenate(((self.hero_full + 9) // 10, jnp.zeros(6, jnp.int32)))
         self.observation_version = int(game_map.get('battle_observation_version', 1))
         if self.basic_combat and self.observation_version != 7:
             raise ValueError('Combat rules version 2 requires observation version 7')
@@ -193,7 +195,8 @@ class NumberGrid(NumericNumberGrid):
 
     def turn_metadata(self):
         return {"movement_points": MAX_MOVEMENT_POINTS, "move_cost": MOVE_COST,
-                "income": DAILY_GOLD, "rest_action": REST}
+                "income": DAILY_GOLD, "rest_action": REST,
+                "regeneration_percent": 10, "regeneration_rounding": "ceil", "revive_hp": 1}
 
     def rest_penalty(self, state):
         return state.movement_points * jnp.float32(self.rest_penalty_per_point)
@@ -324,7 +327,7 @@ class NumberGrid(NumericNumberGrid):
                              self.enemy_health[state.enemy], 0)
         if self.basic_combat:
             enemy_hp = self.stats_table[state.enemy, 6:, HP].astype(jnp.int32)
-        hp = jnp.concatenate((self.hero_full, enemy_hp))
+        hp = jnp.concatenate((state.hp[:6] if self.basic_combat else self.hero_full, enemy_hp))
         actor = jnp.argmax(jnp.where(hp > 0, priority, -100)).astype(jnp.int32)
         return state.replace(
             battle_key=key, in_battle=jnp.bool_(True), hp=hp, priority=priority,
@@ -362,6 +365,8 @@ class NumberGrid(NumericNumberGrid):
                 movement_points=jnp.where(resting, MAX_MOVEMENT_POINTS,
                                           state.movement_points - moved.astype(jnp.int32) * MOVE_COST),
                 day=state.day + resting.astype(jnp.int32),
+                hp=jnp.where(resting & (state.hp > 0),
+                             jnp.minimum(state.hp + self.rest_healing, self.restored_hp), state.hp),
                 last_building=jnp.where(building_action, building, -1),
                 last_event=jnp.where(resting, RESTED, jnp.where(building_action, BUILD, MOVE)),
             )
@@ -472,8 +477,12 @@ class NumberGrid(NumericNumberGrid):
                             jnp.where(action == RETREAT, FLEE, ESCAPE))))
         event = jnp.where(victory, VICTORY, jnp.where(lost, DEFEAT,
                             jnp.where(withdrawal, WITHDRAW, jnp.where(timeout, LIMIT, event))))
+        recovered_hp = self.restored_hp
+        if self.basic_combat:
+            # Victory/withdrawal revive occupied dead slots; survivors keep their wounds.
+            recovered_hp = jnp.where(self.restored_hp > 0, jnp.maximum(hp, 1), 0)
         next_state = state.replace(
-            battle_key=key, hp=jnp.where(back, self.restored_hp, hp),
+            battle_key=key, hp=jnp.where(back, recovered_hp, hp),
             in_battle=~back, position=jnp.where(withdrawal, state.origin, state.position),
             alive=alive, number=state.number + victory.astype(jnp.int32), won=won, lost=lost,
             done=won | lost | timeout, priority=jnp.where(back, 0., priority),

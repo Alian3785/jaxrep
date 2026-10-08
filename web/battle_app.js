@@ -104,12 +104,12 @@
       case 5:return a+' ждёт конца раунда.';
       case 6:return a+' готовится отступить.';
       case 7:return a+' покинул бой.';
-      case 8:return 'Победа! Весь отряд восстановлен.';
+      case 8:return 'Победа! Ранения сохранены, погибшие воскрешены с 1 HP.';
       case 9:return 'Ваш отряд погиб. Игра завершена.';
-      case 10:return 'Отступление завершено. Отряд полностью восстановлен.';
+      case 10:return 'Отступление завершено. Ранения сохранены, погибшие воскрешены с 1 HP.';
       case 11:return 'Бой достиг лимита раундов. Эпизод завершён.';
       case 12:{const b=construction()?.buildings[s.last_building];return b?'Построено: '+b.name+' (−'+b.gold+' золота).':null;}
-      case 13:return 'Отдых. Начался ход '+s.day+', +'+turnRules().income+' золота; очки перемещения восстановлены. Штраф: '+fmt(Math.max(0,-snapshot.reward))+'.';
+      case 13:return 'Отдых. Начался ход '+s.day+', +'+turnRules().income+' золота; очки перемещения восстановлены, живые бойцы получили регенерацию 10% HP. Штраф: '+fmt(Math.max(0,-snapshot.reward))+'.';
       default:return null;
     }
   }
@@ -130,6 +130,7 @@
     $('movement-summary').textContent=points+' / '+turns.movement_points+' очков · '+Math.floor(points/turns.move_cost)+' перемещений';
     $('rest').dataset.action=turns.rest_action;
     $('rest-hint').textContent=s.in_battle?'Отдых доступен после завершения боя.':snap.rest_penalty>0?'Штраф за оставшиеся очки: −'+fmt(snap.rest_penalty)+'. Следующий ход: +'+turns.income+' золота и полный запас очков.':'Все очки использованы: отдых без штрафа. Следующий ход: +'+turns.income+' золота и полный запас очков.';
+    if(!s.in_battle)$('rest-hint').textContent+=' Живым бойцам: +'+turns.regeneration_percent+'% максимального HP с округлением вверх (до максимума).';
     const mageAlive=s.hp.slice(0,6).some((hp,i)=>hp>0&&isMage(i));
     const warriorAlive=s.hp.slice(0,6).some((hp,i)=>hp>0&&isWarrior(i));
     $('party-health').textContent=archerCount(s.hp.slice(0,6).filter((hp,i)=>hp>0&&!isMage(i)&&!isWarrior(i)).length)+(warriorAlive?' + воин':'')+(mageAlive?' + маг':'')+' · '+s.hp.slice(0,6).reduce((a,b)=>a+b,0)+' здоровья';

@@ -7,7 +7,9 @@
   const records=data.records||[];
   const archerCount=n=>n+' '+(n===1?'лучник':n>=2&&n<=4?'лучника':'лучников');
   const isMage=i=>i>=0&&i<6&&i===currentMap().hero_mage_slot;
-  const isWarrior=i=>i>=0&&i<6&&i===currentMap().hero_warrior_slot;
+  const enemyWarriorSlot=(map,enemy)=>map.enemy_warrior_slots?.[enemy]??-1;
+  const isWarrior=i=>i>=0&&i<12&&(i<6?i===currentMap().hero_warrior_slot:i-6===enemyWarriorSlot(currentMap(),current()?.state.enemy));
+  const enemyParty=(map,enemy)=>{const n=map.enemy_units[enemy],warrior=enemyWarriorSlot(map,enemy)>=0;return warrior?(n===1?'1 воин':archerCount(n-1)+' + воин'):archerCount(n);};
   const role=i=>isMage(i)?'Маг':isWarrior(i)?'Воин':'Лучник';
   const unitName=i=>(i<6?'Ваш ':'Вражеский ')+role(i).toLowerCase()+' '+(i%6+1);
   function current(){return mode==='manual'?manual:records[recordIndex]?.frames[frame];}
@@ -67,6 +69,7 @@
     $('party-title').textContent=hasWarrior?(hasMage?'Четыре лучника, воин и маг.':'Пять лучников и воин.'):(hasMage?'Пять лучников и маг.':'Шесть лучников.');
     $('mage-rule').hidden=!hasMage;
     $('warrior-rule').hidden=!hasWarrior;
+    $('enemy-warrior-rule').hidden=!map.enemy_warrior_slots?.some(slot=>slot>=0);
     const warriorAccuracy=Math.round((map.warrior_accuracy??.8)*100);
     $('warrior-accuracy').textContent=warriorAccuracy+'%';
     $('battle-hint').textContent='Лучник: '+map.archer_damage+' урона одной цели, попадание '+Math.round(map.archer_accuracy*100)+'%.'+(hasWarrior?' Воин: '+map.warrior_damage+' урона в ближнем бою, попадание '+warriorAccuracy+'%, инициатива '+map.warrior_initiative+'.':'')+(hasMage?' Маг: '+map.mage_damage+' урона всем врагам, попадание '+Math.round(map.archer_accuracy*100)+'%.':'');
@@ -78,9 +81,9 @@
     document.querySelectorAll('[data-action]').forEach(b=>b.disabled=mode!=='manual'||busy||s.done||!session||!mask[Number(b.dataset.action)]);
     $('reset').disabled=busy;
     if(s.in_battle){
-      $('battle-heading').textContent='Отряд № '+(s.enemy+1)+' · '+archerCount(map.enemy_units[s.enemy]);
+      $('battle-heading').textContent='Отряд № '+(s.enemy+1)+' · '+enemyParty(map,s.enemy);
       $('round').textContent='Раунд '+Math.min(s.round,snap.battle_max_rounds ?? map.battle_max_rounds);
-      $('turn-message').textContent=s.done?message:s.actor<6&&!s.retreating[s.actor]?'Ваш ход: '+role(s.actor).toLowerCase()+' '+(s.actor+1):s.actor>=6?'Ход противника: лучник '+(s.actor-5):unitName(s.actor)+' завершает отступление';
+      $('turn-message').textContent=s.done?message:s.actor<6&&!s.retreating[s.actor]?'Ваш ход: '+role(s.actor).toLowerCase()+' '+(s.actor+1):s.actor>=6?'Ход противника: '+role(s.actor).toLowerCase()+' '+(s.actor-5):unitName(s.actor)+' завершает отступление';
       document.querySelectorAll('[data-slot]').forEach(b=>{
         const i=Number(b.dataset.slot),max=snap.max_hp[i],hp=s.hp[i];
         const targetTurn=i>=6&&s.actor<6&&!s.retreating[s.actor]&&!s.done;
@@ -134,7 +137,7 @@
   window.addEventListener('resize',()=>{const snap=current();if(snap&&!snap.state.in_battle)drawMap(snap.state);});
   document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});
   $('version').textContent=data.map.name;
-  if(data.result){$('run-card').hidden=false;$('run-info').textContent='Запись: '+data.map.opponent_positions.length+' отрядов · '+fmt(data.result.training_steps)+' шагов · '+fmt(Math.round(data.result.mean_steps_per_second))+' шагов/с';$('run-evaluation').textContent='Победы argmax на карте записи: '+data.result.final_evaluation.successes+' / '+data.result.final_evaluation.episodes+'.';}
+  if(data.result){$('run-card').hidden=false;$('run-info').textContent='Запись: '+data.map.opponent_positions.length+' отрядов'+(data.map.enemy_warrior_slots?.some(slot=>slot>=0)?' с воинами':' без вражеских воинов')+' · '+fmt(data.result.training_steps)+' шагов · '+fmt(Math.round(data.result.mean_steps_per_second))+' шагов/с';$('run-evaluation').textContent='Победы argmax на карте записи: '+data.result.final_evaluation.successes+' / '+data.result.final_evaluation.episodes+'.';}
   window.numberGridApp={snapshot:()=>JSON.parse(JSON.stringify({mode,frame,...current()}))};
   if(records.length){manual=records[0].frames[0];render();}
   resetGame();

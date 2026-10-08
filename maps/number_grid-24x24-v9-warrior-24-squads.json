@@ -1,5 +1,5 @@
 {
-  "name": "NumberGrid-24x24-v10-enemy-warriors",
+  "name": "NumberGrid-24x24-v9-warrior-24-squads",
   "size": 24,
   "agent_position": [
     2,
@@ -203,31 +203,5 @@
     25
   ],
   "battle_recovery": "Full party including fallen units after victory or retreat. Defeat ends the episode. Enemies also reset after a retreat.",
-  "battle_observation_version": 3,
-  "enemy_warrior_slots": [
-    0,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    0,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
-    1
-  ]
+  "battle_observation_version": 3
 }

@@ -17,7 +17,7 @@ from stoix.envs.number_grid import (
 
 
 def fixture(**overrides):
-    env = NumberGrid(map_config={**MAP, **overrides})
+    env = NumberGrid(map_config={**MAP, 'enemy_warrior_slots':[-1]*len(MAP['enemy_units']), **overrides})
     state, _ = env.reset(jax.random.PRNGKey(42))
     state = env._begin_battle(state.replace(enemy=jnp.int32(1)))
     # Explicit priorities make rule tests independent of random initiative ties.
@@ -59,7 +59,7 @@ def test_compact_observation_keeps_queue_status_and_old_checkpoints_supported():
     units = np.asarray(env.observation(state))[offset:offset+48].reshape(12,4)
     assert units[0,1] > 0 and units[1,1] < 0 and units[2,1] == 0
     assert units[3,3] == .5 and units[4,3] == 1 and units[4,1] == 0
-    legacy = NumberGrid(map_config={**MAP,'hero_warrior_slot':-1,'battle_observation_version':1})
+    legacy = NumberGrid(map_config={**MAP,'hero_warrior_slot':-1,'enemy_warrior_slots':[-1]*len(MAP['enemy_units']),'battle_observation_version':1})
     assert legacy.observation(state).shape == (250,)
     saved_map = json.loads((Path(__file__).resolve().parents[2] / 'maps/number_grid-24x24-v6-12-squads.json').read_text())
     for version, size in [(1,178), (2,118)]:

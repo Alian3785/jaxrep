@@ -32,7 +32,8 @@ def write_viewer(payload):
 
 def build(output=None):
     if output is None:
-        write_viewer({'map':MAP,'records':[],'result':None})
+        env = NumberGrid()
+        write_viewer({'map':MAP,'records':[],'result':None, 'construction':env.construction.metadata()})
         return
     output = Path(output)
     game_map = json.loads((output/'map.json').read_text())
@@ -69,6 +70,7 @@ def build(output=None):
         (initial,mask,max_hp),final,(states,actions,rewards,masks,max_hps)=jax.device_get(rollout(jnp.int32(seed),index==0))
         frames=[{'state':state_dict(initial),'action':None,'reward':0.,'total_reward':0.,
                  'action_mask':mask.tolist(),'max_hp':max_hp.tolist(),
+                 'building_status':np.asarray(env.construction.status(initial)).tolist(),
                  'unit_stats':np.asarray(env.unit_stats(initial)).tolist() if env.basic_combat else None}]
         total=0.
         for t in range(int(final.step_count)):
@@ -77,12 +79,14 @@ def build(output=None):
             state=jax.tree.map(lambda x,t=t:x[t],states)
             frames.append({'state':state_dict(state),'action':action,'reward':float(rewards[t]),
                            'total_reward':total,'action_mask':masks[t].tolist(),'max_hp':max_hps[t].tolist(),
+                           'building_status':np.asarray(env.construction.status(state)).tolist(),
                            'unit_stats':np.asarray(env.unit_stats(state)).tolist() if env.basic_combat else None})
         assert bool(final.done)
         outcome='победа' if bool(final.won) else 'поражение' if bool(final.lost) else 'лимит'
         records.append({'label':f'{"Argmax" if index==0 else "Выборка"} · {outcome} · {int(final.step_count)} шагов',
                         'seed':seed,'policy':'argmax' if index==0 else 'sample','frames':frames})
-    payload={'map':game_map,'records':records,'result':result,'source':'Restored PPO checkpoint; JAX rollouts'}
+    payload={'map':game_map,'records':records,'result':result,'source':'Restored PPO checkpoint; JAX rollouts',
+             'construction':env.construction.metadata()}
     (output/'trajectories.json').write_text(json.dumps(payload,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
     write_viewer(payload)
     print(json.dumps({'viewer':str(ROOT/'viewer.html'),'records':[r['label'] for r in records]},ensure_ascii=False),flush=True)

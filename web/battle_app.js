@@ -4,6 +4,7 @@
   const $=id=>document.getElementById(id), fmt=n=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:3}).format(n);
   const canvas=$('board'), ctx=canvas.getContext('2d');
   let mode='manual', session=null, manual=null, manualMap=null, busy=false, frame=0, recordIndex=0, timer=null, messages=[];
+  let manualConstruction=null, capitalOpen=false, capitalKey=null;
   const records=data.records||[];
   const archerCount=n=>n+' '+(n===1?'лучник':n>=2&&n<=4?'лучника':'лучников');
   const isMage=i=>i>=0&&i<6&&i===currentMap().hero_mage_slot;
@@ -14,6 +15,62 @@
   const unitName=i=>(i<6?'Ваш ':'Вражеский ')+role(i).toLowerCase()+' '+(i%6+1);
   function current(){return mode==='manual'?manual:records[recordIndex]?.frames[frame];}
   function currentMap(){return mode==='manual'?(manualMap||data.map):data.map;}
+  function construction(){return mode==='manual'?(manualConstruction||data.construction):data.construction;}
+  const branchNames={
+    empire:['Воины','Стрелки','Маги','Целители','Титаны'],
+    mountain_clans:['Воины','Стрелки','Маги','Великаны','Йети'],
+    undead_hordes:['Воины','Призраки','Маги','Драконы','Оборотни'],
+    legions:['Воины','Гаргульи','Маги','Демоны','Сатиры'],
+    elves:['Кентавры','Стрелки','Маги','Поддержка','Грифоны'],
+  };
+  const buildStatus=['Доступно для строительства','Построено','Ветка или здание заблокированы',
+    'Сначала постройте предшественника','Не хватает золота','Дождитесь следующего дня',
+    'Строительство недоступно во время боя','Эпизод завершён','Нет у этой фракции'];
+  function renderConstruction(snap){
+    const info=construction();if(!info)return;
+    const s=snap.state;
+    $('capital-title').textContent=info.name;
+    $('capital-day').textContent='День '+(Math.floor(s.map_steps/20)+1)+' · золото '+fmt(s.gold);
+    $('capital-status').textContent=s.done?'Эпизод завершён.':s.in_battle?'Строить можно после боя.':s.built_today?'Постройка этого дня использована. До нового дня: '+(20-s.map_steps%20)+' перемещений.':'В этом дне можно построить одно здание.';
+    if(!$('faction').options.length){
+      for(const faction of info.factions){const o=document.createElement('option');o.value=faction.id;o.textContent=faction.name;$('faction').append(o);}
+      $('faction').value=currentMap().faction||'legions';
+    }
+    $('faction').disabled=busy||mode!=='manual';
+    if(capitalKey!==info.faction){
+      capitalKey=info.faction;$('building-list').replaceChildren();
+      $('building-branch').replaceChildren();
+      const all=document.createElement('option');all.value='all';all.textContent='Все здания';$('building-branch').append(all);
+      for(const branch of [0,1,2,3,4,-1]){
+        const rows=info.buildings.filter(b=>b.branch===branch);if(!rows.length)continue;
+        const label=branch===-1?'Общие здания':branchNames[info.faction][branch];
+        const option=document.createElement('option');option.value=String(branch);option.textContent=label;$('building-branch').append(option);
+        const section=document.createElement('section');section.className='building-group';section.dataset.branch=branch;
+        const heading=document.createElement('h3');heading.textContent=label;section.append(heading);
+        const grid=document.createElement('div');grid.className='building-grid';section.append(grid);
+        for(const row of rows){
+          const card=document.createElement('article');card.className='building-card';card.dataset.building=row.action-18;
+          const name=document.createElement('h4');name.textContent=row.name;card.append(name);
+          const price=document.createElement('span');price.className='building-price';price.textContent=fmt(row.gold)+' золота';card.append(price);
+          const unit=document.createElement('p');unit.className='building-unit';unit.textContent=row.unit?'Ветка юнита: '+row.unit:row.name==='Храм'?'Храм столицы':'Магическая служба';card.append(unit);
+          const requirements=document.createElement('p');requirements.className='building-requires';requirements.textContent='Требует: '+(row.requires.join(', ')||'нет');card.append(requirements);
+          if(row.blocks.length){const excludes=document.createElement('p');excludes.className='building-excludes';excludes.textContent='Закроет: '+row.blocks.join(', ');card.append(excludes);}
+          const status=document.createElement('p');status.className='building-status';card.append(status);
+          const button=document.createElement('button');button.dataset.action=row.action;button.textContent='Построить';button.setAttribute('aria-label','Построить '+row.name+' за '+row.gold+' золота');button.onclick=()=>sendAction(row.action);card.append(button);
+          grid.append(card);
+        }
+        $('building-list').append(section);
+      }
+    }
+    document.querySelectorAll('[data-building]').forEach(card=>{
+      const i=Number(card.dataset.building),code=snap.building_status[i];
+      card.className='building-card'+(code===1?' is-built':code===2?' is-blocked':code===0?' is-ready':'');
+      card.querySelector('.building-status').textContent=buildStatus[code];
+      const button=card.querySelector('button');button.textContent=code===1?'Построено':'Построить';
+      button.disabled=mode!=='manual'||busy||!session||!snap.action_mask[Number(button.dataset.action)];
+    });
+    document.querySelectorAll('[data-branch]').forEach(group=>group.hidden=$('building-branch').value!=='all'&&group.dataset.branch!==$('building-branch').value);
+  }
   function stop(){if(timer)clearInterval(timer);timer=null;$('play').textContent='▶ Смотреть';}
   function roundRect(x,y,w,h,r,color){ctx.fillStyle=color;ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill();}
   function drawMap(s){
@@ -50,13 +107,17 @@
       case 9:return 'Ваш отряд погиб. Игра завершена.';
       case 10:return 'Отступление завершено. Отряд полностью восстановлен.';
       case 11:return 'Бой достиг лимита раундов. Эпизод завершён.';
+      case 12:{const b=construction()?.buildings[s.last_building];return b?'Построено: '+b.name+' (−'+b.gold+' золота).':null;}
       default:return null;
     }
   }
   function render(){
     const snap=current();if(!snap)return;const s=snap.state,mask=snap.action_mask,map=currentMap();
     $('version').textContent=map.name;
-    $('map-panel').hidden=s.in_battle;$('battle-panel').hidden=!s.in_battle;
+    $('map-panel').hidden=s.in_battle||capitalOpen;$('battle-panel').hidden=!s.in_battle||capitalOpen;
+    $('capital-panel').hidden=!capitalOpen;
+    $('world-view').setAttribute('aria-pressed',String(!capitalOpen));$('capital-view').setAttribute('aria-pressed',String(capitalOpen));
+    renderConstruction(snap);
     $('phase-label').textContent=s.in_battle?'Бой · отряд № '+(s.enemy+1):'Карта '+map.size+' × '+map.size;
     $('remaining').textContent=s.alive.filter(Boolean).length;
     $('wins').textContent=s.alive.filter(v=>!v).length;
@@ -80,7 +141,7 @@
     $('attack-hint').textContent=isMage(s.actor)?'Ход мага: нажмите на любого живого врага — заклинание поразит всех противников.':isWarrior(s.actor)?(mask.slice(8,14).some(Boolean)?'Ход воина: выберите подсвеченного врага для удара мечом.':'Воин не достаёт до врагов. Можно защищаться, ждать или отступить.'):'Нажмите на живого противника, чтобы выстрелить.';
     const message=s.won?'Победа! Карта очищена.':s.lost?'Ваш отряд погиб. Начните новую игру.':s.done?'Достигнут лимит. Начните новую игру.':s.in_battle?'Выбирайте цели и берегите свой отряд.':'Подойдите к любому вражескому отряду.';
     $('message').textContent=message;
-    $('map-controls').hidden=s.in_battle;$('battle-controls').hidden=!s.in_battle;
+    $('map-controls').hidden=s.in_battle||capitalOpen;$('battle-controls').hidden=!s.in_battle||capitalOpen;
     $('continue').hidden=!s.in_battle||!mask[17];
     document.querySelectorAll('[data-action]').forEach(b=>b.disabled=mode!=='manual'||busy||s.done||!session||!mask[Number(b.dataset.action)]);
     $('reset').disabled=busy;
@@ -117,7 +178,7 @@
   function showError(error){$('connection').textContent='Игра недоступна';$('message').textContent=error.message+' Для игры запустите open-numbergrid.cmd.';}
   async function resetGame(){
     if(busy)return;busy=true;render();
-    try{const result=await request('/api/reset',{seed:42});session=result.session;manualMap=result.map;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
+    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||data.map.faction||'legions'});session=result.session;manualMap=result.map;manualConstruction=result.construction;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
     catch(error){busy=false;render();showError(error);return;}
     busy=false;render();
   }
@@ -133,13 +194,15 @@
   function setMode(next){if(busy)return;stop();mode=next;messages=[];$('manual-tab').setAttribute('aria-selected',String(mode==='manual'));$('replay-tab').setAttribute('aria-selected',String(mode==='replay'));$('manual-controls').hidden=mode!=='manual';$('replay-controls').hidden=mode!=='replay';render();}
   function nextFrame(){const last=records[recordIndex].frames.length-1;if(frame<last){frame++;const text=eventText(current());if(text)messages.push(text);}if(frame>=last)stop();render();}
   $('manual-tab').onclick=()=>setMode('manual');$('replay-tab').onclick=()=>setMode('replay');$('replay-tab').disabled=!records.length;
+  $('world-view').onclick=()=>{capitalOpen=false;render();};$('capital-view').onclick=()=>{capitalOpen=true;render();};
+  $('building-branch').onchange=render;
   $('reset').onclick=resetGame;document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>sendAction(Number(b.dataset.action)));
   $('play').onclick=()=>{if(timer){stop();return;}if(frame===records[recordIndex].frames.length-1){frame=0;messages=[];}timer=setInterval(nextFrame,230);$('play').textContent='Ⅱ Пауза';};
   $('next').onclick=nextFrame;$('scrubber').oninput=()=>{stop();frame=Number($('scrubber').value);messages=[];render();};
   $('record').onchange=()=>{stop();recordIndex=Number($('record').value);frame=0;messages=[];render();};
   records.forEach((r,i)=>{const option=document.createElement('option');option.value=i;option.textContent=r.label;$('record').append(option);});
   const keys={ArrowUp:0,ArrowRight:2,ArrowDown:4,ArrowLeft:6,KeyW:0,KeyE:1,KeyD:2,KeyC:3,KeyX:4,KeyS:4,KeyZ:5,KeyA:6,KeyQ:7};
-  window.addEventListener('keydown',event=>{if(event.target.matches('select,input,textarea')||event.ctrlKey||event.metaKey||event.altKey)return;if(mode==='manual'&&!manual?.state.in_battle&&keys[event.code]!==undefined){event.preventDefault();sendAction(keys[event.code]);}});
+  window.addEventListener('keydown',event=>{if(event.target.matches('select,input,textarea')||event.ctrlKey||event.metaKey||event.altKey)return;if(mode==='manual'&&!capitalOpen&&!manual?.state.in_battle&&keys[event.code]!==undefined){event.preventDefault();sendAction(keys[event.code]);}});
   window.addEventListener('resize',()=>{const snap=current();if(snap&&!snap.state.in_battle)drawMap(snap.state);});
   document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});
   $('version').textContent=data.map.name;

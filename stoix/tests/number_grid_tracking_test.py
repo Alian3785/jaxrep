@@ -80,7 +80,7 @@ def test_million_step_summary_includes_all_episodes_with_weighted_means():
     for index, (episodes, wins, length) in enumerate(((1, 1, 10), (3, 0, 30), (0, 0, 0), (6, 2, 50))):
         summary = tracking.log_training(
             row(episodes, wins, (index + 1) * 250_000, mean_episode_length=length,
-                mean_episode_return=length / 10, battle_victory=10, battle_transition=100_000),
+                mean_episode_return=length / 10, battle_victory=10, battle_transition=100_000, building_constructed=index+1),
             250_000, 0.5, (index + 1) * 0.6)
         if index < 3:
             assert summary is None
@@ -94,6 +94,8 @@ def test_million_step_summary_includes_all_episodes_with_weighted_means():
     assert logged['episodes/length_mean'] == pytest.approx(40)
     assert logged['episodes/return_mean'] == pytest.approx(4)
     assert logged['battles/wins'] == 40
+    assert logged['construction/built'] == logged['construction/built_total'] == 10
+    assert 'ppo/building_constructed' not in logged
     assert logged['battles/transition_fraction'] == pytest.approx(0.4)
     assert logged['performance/steps_per_second'] == 500_000
 

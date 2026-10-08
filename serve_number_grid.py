@@ -18,66 +18,77 @@ import jax.numpy as jnp
 import numpy as np
 
 from stoix.envs.number_grid import MAP, NumberGrid, CONTINUE
+from stoix.envs.number_grid_buildings import DEFAULT_FACTION, FACTIONS
 
 ROOT = Path(__file__).resolve().parent
 
 
 class GameService:
     def __init__(self):
-        self.env = NumberGrid()
-        self.reset = jax.jit(self.env.reset)
-        self.advance = jax.jit(self.env.step)
+        self.environments = {}
         self.sessions = OrderedDict()
         self.lock = threading.Lock()
-        state, _ = self.reset(jax.random.PRNGKey(0))
-        jax.block_until_ready(self.advance(state, jnp.int32(2)))
+        self.env, reset, advance = self.environment(MAP.get('faction', DEFAULT_FACTION))
+        state, _ = reset(jax.random.PRNGKey(0))
+        jax.block_until_ready(advance(state, jnp.int32(2)))
 
-    def snapshot(self, state, total_reward):
+    def environment(self, faction):
+        if faction not in FACTIONS:
+            raise ValueError('Неизвестная фракция.')
+        if faction not in self.environments:
+            env = NumberGrid(map_config={**MAP, 'faction': faction})
+            self.environments[faction] = (env, jax.jit(env.reset), jax.jit(env.step))
+        return self.environments[faction]
+
+    def snapshot(self, env, state, total_reward):
         state = jax.device_get(state)
         values = {f.name: np.asarray(getattr(state, f.name)).tolist()
                   for f in dataclasses.fields(state) if f.name != 'battle_key'}
         return {'state': values, 'total_reward': total_reward,
-                'battle_max_rounds': self.env.max_rounds,
-                'max_steps': self.env.max_steps,
-                'action_mask': np.asarray(self.env.action_mask(state)).tolist(),
-                'max_hp': np.asarray(self.env.max_hp(state)).tolist(),
-                'unit_stats': (np.asarray(self.env.unit_stats(state)).tolist()
-                               if self.env.basic_combat else None)}
+                'battle_max_rounds': env.max_rounds,
+                'max_steps': env.max_steps,
+                'action_mask': np.asarray(env.action_mask(state)).tolist(),
+                'max_hp': np.asarray(env.max_hp(state)).tolist(),
+                'building_status': np.asarray(env.construction.status(state)).tolist(),
+                'unit_stats': (np.asarray(env.unit_stats(state)).tolist()
+                               if env.basic_combat else None)}
 
-    def create(self, seed):
+    def create(self, seed, faction=DEFAULT_FACTION):
         with self.lock:
-            state, _ = self.reset(jax.random.PRNGKey(seed))
+            env, reset, _ = self.environment(faction)
+            state, _ = reset(jax.random.PRNGKey(seed))
             token = secrets.token_urlsafe(24)
-            self.sessions[token] = (state, 0.)
+            self.sessions[token] = (faction, state, 0.)
             while len(self.sessions) > 64:
                 self.sessions.popitem(last=False)
-            return {'session': token, 'map': self.env.map_config,
-                    'snapshot': self.snapshot(state, 0.), 'events': []}
+            return {'session': token, 'map': env.map_config, 'construction': env.construction.metadata(),
+                    'snapshot': self.snapshot(env, state, 0.), 'events': []}
 
     def act(self, token, action):
         with self.lock:
             if token not in self.sessions:
                 raise KeyError('Сессия истекла. Начните новую игру.')
-            state, total = self.sessions[token]
+            faction, state, total = self.sessions[token]
+            env, _, advance = self.environment(faction)
             if bool(state.done):
                 raise ValueError('Игра завершена. Начните новую игру.')
-            if not (0 <= action < 18 and bool(self.env.action_mask(state)[action])):
+            if not (0 <= action < env.action_space().num_values and bool(env.action_mask(state)[action])):
                 raise ValueError('Сейчас это действие недоступно.')
             events = []
-            state, ts = self.advance(state, jnp.int32(action))
+            state, ts = advance(state, jnp.int32(action))
             total += float(ts.reward)
-            events.append(self.snapshot(state, total))
+            events.append(self.snapshot(env, state, total))
             # Only the human UI advances scripted turns automatically. The PPO
             # environment counts and observes every unit transition separately.
             for _ in range(32):
-                if bool(state.done) or not bool(state.in_battle) or not bool(self.env.action_mask(state)[CONTINUE]):
+                if bool(state.done) or not bool(state.in_battle) or not bool(env.action_mask(state)[CONTINUE]):
                     break
-                state, ts = self.advance(state, jnp.int32(CONTINUE))
+                state, ts = advance(state, jnp.int32(CONTINUE))
                 total += float(ts.reward)
-                events.append(self.snapshot(state, total))
-            self.sessions[token] = (state, total)
+                events.append(self.snapshot(env, state, total))
+            self.sessions[token] = (faction, state, total)
             self.sessions.move_to_end(token)
-            return {'session': token, 'snapshot': self.snapshot(state, total), 'events': events}
+            return {'session': token, 'snapshot': self.snapshot(env, state, total), 'events': events}
 
 
 def make_handler(service, port):
@@ -122,7 +133,10 @@ def make_handler(service, port):
                     seed = body.get('seed', 42)
                     if type(seed) is not int or not 0 <= seed < 2**32:
                         raise ValueError('Seed должен быть целым числом от 0 до 2³²−1.')
-                    result = service.create(seed)
+                    faction = body.get('faction', MAP.get('faction', DEFAULT_FACTION))
+                    if not isinstance(faction, str):
+                        raise ValueError('Фракция должна быть строкой.')
+                    result = service.create(seed, faction)
                 elif self.path == '/api/step':
                     action = body.get('action')
                     if type(action) is not int:

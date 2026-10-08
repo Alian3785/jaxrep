@@ -39,7 +39,7 @@ def attack(env, state, values, action=SHOOT):
 def test_default_stats_and_observation_are_individual_and_finite():
     env = NumberGrid()
     state, ts = env.reset(jax.random.PRNGKey(0))
-    assert ts.observation.shape == env.observation_space().shape == (240,)
+    assert ts.observation.shape == env.observation_space().shape == (271,)
     np.testing.assert_array_equal(env.unit_stats(state)[:, HP], env.max_hp(state))
     np.testing.assert_array_equal(env.unit_stats(state)[1], [100, 25, 80, 0, 50])
     np.testing.assert_array_equal(env.unit_stats(state)[5], [45, 20, 80, 0, 60])
@@ -200,7 +200,7 @@ def test_jitted_vmap_rollout_has_finite_observations_and_valid_wait_defend_masks
         return following, ts.observation
     final, obs = jax.jit(lambda s: jax.lax.scan(step, s, jax.random.split(jax.random.PRNGKey(8), 200)))(states)
     assert np.isfinite(obs).all() and np.all(final.hp >= 0)
-    assert obs.shape == (200, 16, 240)
+    assert obs.shape == (200, 16, 271)
 
 
 def test_current_map_has_a_winning_route_with_new_combat(monkeypatch):

@@ -190,15 +190,15 @@ def test_human_service_uses_identical_mask_and_rejects_unreachable_target():
     state, _ = env.reset(jax.random.PRNGKey(42))
     state = env._begin_battle(state.replace(enemy=jnp.int32(11)))
     state = state.replace(actor=jnp.int32(env.warrior_slot))
-    service.sessions[session] = (state, 0.)
-    snapshot = service.snapshot(state, 0.)
+    service.sessions[session] = (env.construction.faction, state, 0.)
+    snapshot = service.snapshot(env, state, 0.)
     np.testing.assert_array_equal(snapshot['action_mask'], env.action_mask(state))
     with pytest.raises(ValueError, match='недоступно'):
         service.act(session, SHOOT+3)
-    assert service.sessions[session][0] is state
+    assert service.sessions[session][1] is state
     direct, ts = env.step(state, jnp.int32(SHOOT))
     first = service.act(session, SHOOT)['events'][0]
-    assert first == service.snapshot(direct, float(ts.reward))
+    assert first == service.snapshot(env, direct, float(ts.reward))
 
 
 @pytest.mark.parametrize('overrides', [

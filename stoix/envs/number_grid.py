@@ -12,22 +12,32 @@ from flax import struct
 from stoix.envs.number_grid_combat import (
     HP, DAMAGE, ACCURACY, ARMOR, INITIATIVE, build_combat_tables, accuracy_hits,
 )
+from stoix.envs.number_grid_buildings import (
+    BuildingRules, BUILD_START, BUILD_SLOTS, DAY_MOVES, DAILY_GOLD,
+)
 from stoa import AddActionMaskWrapper, ArraySpace, DictSpace, DiscreteSpace
 from stoix.envs.number_grid_legacy import (
     DIRECTIONS, NumberGrid as NumericNumberGrid, NumberGridState,
 )
 
 MAP = json.loads((Path(__file__).resolve().parents[2] / 'number_grid_map.json').read_text())
-SHOOT, DEFEND, WAIT, RETREAT, CONTINUE, ACTIONS = 8, 14, 15, 16, 17, 18
+SHOOT, DEFEND, WAIT, RETREAT, CONTINUE = 8, 14, 15, 16, 17
+ACTIONS = BUILD_START + BUILD_SLOTS
 ACTION_NAMES = ('N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW') + tuple(
-    f'shoot_{i}' for i in range(6)) + ('defend', 'wait', 'retreat', 'continue')
+    f'shoot_{i}' for i in range(6)) + ('defend', 'wait', 'retreat', 'continue') + tuple(
+        f'build_{i}' for i in range(BUILD_SLOTS))
 MOVE, ENGAGE, HIT, MISS, GUARD, DELAY, FLEE, ESCAPE, VICTORY, DEFEAT, WITHDRAW, LIMIT = range(12)
+BUILD = 12
 
 
 @struct.dataclass
 class BattleState(NumberGridState):
     gold: jax.Array
     map_steps: jax.Array  # successful map movements, excluding combat/invalid actions
+    buildings: jax.Array  # uint32 bit set: one bit per construction action
+    blocked_buildings: jax.Array
+    built_today: jax.Array
+    last_building: jax.Array
     battle_key: jax.Array
     in_battle: jax.Array
     enemy: jax.Array
@@ -60,6 +70,9 @@ class NumberGrid(NumericNumberGrid):
         if type(self.combat_rules_version) is not int or self.combat_rules_version not in (1, 2):
             raise ValueError('Unsupported combat_rules_version')
         self.basic_combat = self.combat_rules_version == 2
+        self.num_actions = ACTIONS if self.basic_combat else BUILD_START
+        if self.basic_combat:
+            self.construction = BuildingRules(game_map)
         self.random_size = 36 if self.basic_combat else 13
         self.mask_walls = True
         self.hero_count = int(game_map.get('hero_units', 6))
@@ -132,13 +145,13 @@ class NumberGrid(NumericNumberGrid):
             self.hero_full = self.stats_table[0, :6, HP].astype(jnp.int32)
         self.restored_hp = jnp.concatenate((self.hero_full, jnp.zeros(6, jnp.int32)))
         self.observation_version = int(game_map.get('battle_observation_version', 1))
-        if self.basic_combat and self.observation_version != 5:
-            raise ValueError('Combat rules version 2 requires observation version 5')
-        if not self.basic_combat and self.observation_version in (4, 5):
-            raise ValueError('Observation version 5 requires combat rules version 2')
-        if (self.warrior_slot >= 0 or self.has_enemy_warriors) and self.observation_version not in (3, 5):
-            raise ValueError('Warrior maps require battle_observation_version 3')
-        self.observation_size = (4 + 5 * self.num_opponents + (110 if self.basic_combat else 48) + 6 if self.observation_version in (2, 3, 5)
+        if self.basic_combat and self.observation_version != 6:
+            raise ValueError('Combat rules version 2 requires observation version 6')
+        if not self.basic_combat and self.observation_version in (4, 5, 6):
+            raise ValueError('Observation version 6 requires combat rules version 2')
+        if (self.warrior_slot >= 0 or self.has_enemy_warriors) and self.observation_version not in (3, 6):
+            raise ValueError('Warrior maps require battle_observation_version 3 or 6')
+        self.observation_size = (4 + 5 * self.num_opponents + (141 if self.basic_combat else 48) + 6 if self.observation_version in (2, 3, 6)
                                  else self.observation_size + 2 * self.num_opponents + 12 * 8 + 6)
 
     def reset(self, rng_key, env_params=None):
@@ -162,6 +175,9 @@ class NumberGrid(NumericNumberGrid):
             last_target=jnp.int32(-1), last_damage=zero, battle_steps=zero,
             player_turns=zero, enemy_turns=zero,
             gold=zero, map_steps=zero,
+            buildings=jnp.uint32(0),
+            blocked_buildings=(self.construction.initial_blocked if self.basic_combat else jnp.uint32(0)),
+            built_today=jnp.bool_(False), last_building=jnp.int32(-1),
         )
         return state, self._timestep(state, jnp.float32(0), first=True)
 
@@ -186,9 +202,9 @@ class NumberGrid(NumericNumberGrid):
             state.origin[0] / (self.size - 1), state.origin[1] / (self.size - 1)
         ], jnp.float32)
         if self.basic_combat:
-            context = jnp.concatenate((context, jnp.asarray(
-                [state.gold / 1000., (state.map_steps % 20) / 20.], jnp.float32)))
-        if self.observation_version in (2, 3, 5):
+            context = jnp.concatenate((context, self.construction.observation(state), jnp.asarray(
+                [state.gold / 1000., (state.map_steps % DAY_MOVES) / DAY_MOVES], jnp.float32)))
+        if self.observation_version in (2, 3, 6):
             # No duplicate max-HP arrays or obsolete numeric battle strengths.
             # Signed queue priority contains both order and waiting/acted status.
             world = jnp.stack((self.opponent_positions[:,0] / (self.size-1),
@@ -197,7 +213,7 @@ class NumberGrid(NumericNumberGrid):
             active = (state.hp > 0) & ~state.escaped
             queue = jnp.where(active & (state.turn_phase == 0), state.priority,
                              jnp.where(active & (state.turn_phase == 1), -state.priority, 0.))
-            hp_scale = (jnp.maximum(self.max_hp(state), 1) if self.observation_version in (3, 5)
+            hp_scale = (jnp.maximum(self.max_hp(state), 1) if self.observation_version in (3, 6)
                         else self.hero_hp)
             if self.basic_combat:
                 queue /= self.priority_scale
@@ -263,7 +279,9 @@ class NumberGrid(NumericNumberGrid):
         mask = jnp.concatenate((movement, targets, jnp.asarray([
             controlled, controlled & (state.turn_phase[state.actor] == 0),
             controlled, state.in_battle & ~controlled])))
-        return jnp.where(state.done, jnp.arange(ACTIONS) == CONTINUE, mask)
+        if self.basic_combat:
+            mask = jnp.concatenate((mask, self.construction.available(state)))
+        return jnp.where(state.done, jnp.arange(self.num_actions) == CONTINUE, mask)
 
     def _timestep(self, state, reward, first=False):
         ts = super()._timestep(state, reward, first)
@@ -271,7 +289,8 @@ class NumberGrid(NumericNumberGrid):
             ts = ts.replace(extras={**ts.extras, 'battle_transition': jnp.bool_(False),
                                     'player_battle_transition': jnp.bool_(False),
                                     'enemy_battle_transition': jnp.bool_(False),
-                                    'battle_victory': jnp.bool_(False)})
+                                    'battle_victory': jnp.bool_(False),
+                                    'building_constructed': jnp.bool_(False)})
         return ts
 
     def _begin_battle(self, state, key=None, random_values=None):
@@ -301,18 +320,32 @@ class NumberGrid(NumericNumberGrid):
         engage = moved & jnp.any(nearby)
         enemy = jnp.argmax(nearby).astype(jnp.int32)
         map_steps = state.map_steps + moved.astype(jnp.int32)
-        gold = state.gold + jnp.where(moved & (map_steps % 20 == 0), 100, 0)
+        new_day = moved & (map_steps % DAY_MOVES == 0)
+        gold = state.gold + jnp.where(new_day, DAILY_GOLD, 0)
         next_state = state.replace(position=position, origin=state.position,
                                    gold=gold, map_steps=map_steps,
                                    enemy=jnp.where(engage, enemy, state.enemy),
                                    last_event=jnp.int32(MOVE), last_actor=jnp.int32(-1),
                                    last_target=jnp.int32(-1), last_damage=jnp.int32(0))
         bonus = jnp.float32(0)
+        if self.basic_combat:
+            building = jnp.clip(action - BUILD_START, 0, BUILD_SLOTS - 1)
+            building_action = (action >= BUILD_START) & (action < ACTIONS)
+            next_state = next_state.replace(
+                gold=gold-jnp.where(building_action, self.construction.costs[building], 0),
+                buildings=state.buildings | jnp.where(building_action, self.construction.bits[building], jnp.uint32(0)),
+                blocked_buildings=state.blocked_buildings | jnp.where(
+                    building_action, self.construction.blocks[building], jnp.uint32(0)),
+                built_today=jnp.where(new_day, False, state.built_today | building_action),
+                last_building=jnp.where(building_action, building, -1),
+                last_event=jnp.where(building_action, BUILD, MOVE),
+            )
+            bonus += jnp.where(building_action, jnp.float32(self.construction.reward), 0.)
         if self.exploration_bonus:
             cell = position[0] * self.size + position[1]
             word, bit = cell // 32, jnp.left_shift(jnp.uint32(1), (cell % 32).astype(jnp.uint32))
             first = (state.visited[word] & bit) == 0
-            bonus = jnp.where(first & moved, jnp.float32(self.exploration_bonus), 0.)
+            bonus += jnp.where(first & moved, jnp.float32(self.exploration_bonus), 0.)
             next_state = next_state.replace(visited=state.visited.at[word].set(state.visited[word] | bit))
         next_state = jax.lax.cond(engage, lambda s: self._begin_battle(s, key, random_values), lambda s: s, next_state)
         return next_state, bonus
@@ -439,6 +472,10 @@ class NumberGrid(NumericNumberGrid):
         world_valid = ((action >= 0) & (action < 8)
                        & jnp.all((destination > 0) & (destination < self.size - 1))
                        & ~jnp.any(state.alive & jnp.all(self.opponent_positions == destination, axis=1)))
+        if self.basic_combat:
+            building = jnp.clip(action - BUILD_START, 0, BUILD_SLOTS-1)
+            world_valid |= ((action >= BUILD_START) & (action < ACTIONS)
+                            & self.construction.available(state, building))
         controlled = (state.actor < 6) & ~state.retreating[state.actor]
         target = jnp.clip(action - SHOOT, 0, 5) + 6
         attack_valid = ((action >= SHOOT) & (action < DEFEND)
@@ -465,11 +502,12 @@ class NumberGrid(NumericNumberGrid):
         ts = ts.replace(extras={**ts.extras, 'battle_transition': combat,
                                 'player_battle_transition': combat & (state.actor < 6) & ~state.retreating[state.actor],
                                 'enemy_battle_transition': combat & (state.actor >= 6),
-                                'battle_victory': combat & (next_state.last_event == VICTORY)})
+                                'battle_victory': combat & (next_state.last_event == VICTORY),
+                                'building_constructed': valid & ~state.in_battle & (action >= BUILD_START)})
         return next_state, ts
 
     def action_space(self, env_params=None):
-        return DiscreteSpace(ACTIONS if self.battle_mode else 8, dtype=jnp.int32)
+        return DiscreteSpace(self.num_actions if self.battle_mode else 8, dtype=jnp.int32)
 
     def state_space(self, env_params=None):
         if not self.battle_mode:

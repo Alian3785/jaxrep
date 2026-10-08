@@ -56,6 +56,7 @@ class ProgressionRules:
                    zip(game_map['enemy_rosters'], enemy_overrides)]
         levels = [r['level'] for r in rows]
         self.rows = rows
+        self.sizes = jnp.array([0]+[r.get('size', 1) for r in rows[1:]], jnp.int32)
         self.base_levels = jnp.array(levels, jnp.int32)
         self.initial_ids = jnp.array(hero+[0]*6, jnp.int32)
         self.initial_levels = self.base_levels[self.initial_ids]
@@ -173,7 +174,7 @@ class ProgressionRules:
             self.metadata.append(None if i == 0 else dict(
                 name=row['name'], key=row['key'], faction=row['faction'], level=row['level'],
                 hero=row.get('hero', False), level_bonuses=row.get('level_bonuses', []),
-                role=row['role'], attack_type=row['attack_type'],
+                role=row['role'], size=row.get('size', 1), attack_type=row['attack_type'],
                 immunities=_protection_mask(row['immunities']),
                 protections=_protection_mask(row['protections']), upgrades=options,
                 exp_required=row['exp_required'], exp_kill=row['exp_kill']))

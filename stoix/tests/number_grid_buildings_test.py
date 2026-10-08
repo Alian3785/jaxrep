@@ -169,12 +169,13 @@ def test_training_autoreset_retains_final_build_in_terminal_observation():
     assert jnp.all(ts.truncated())
     chex.assert_trees_all_equal(state.buildings, jnp.zeros(2, jnp.uint32))
     chex.assert_trees_all_equal(state.built_today, jnp.zeros(2, jnp.bool_))
-    final_obs = ts.extras['next_obs']['observation']
+    # Observation v10 appends twelve size features after the economy context.
+    final_obs = ts.extras['next_obs']['observation'][:, :-12]
     np.testing.assert_array_equal(final_obs[:, -27], [1, 1])
     np.testing.assert_array_equal(final_obs[:, -28], [1, 1])
     expected = np.zeros((2, 26))
     expected[:, np.array([5,6,8,9,11])+1] = -1  # unavailable special-ability branches
-    np.testing.assert_array_equal(ts.observation['observation'][:, -28:-2], expected)
+    np.testing.assert_array_equal(ts.observation['observation'][:, -40:-14], expected)
 
 
 def test_human_sessions_build_with_shared_actions_and_isolate_factions():

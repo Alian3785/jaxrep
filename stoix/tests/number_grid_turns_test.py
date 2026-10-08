@@ -138,8 +138,8 @@ def test_training_autoreset_rest_keeps_terminal_income_and_new_turn_observation(
     chex.assert_trees_all_equal(state.day, jnp.ones(2, jnp.int32))
     chex.assert_trees_all_equal(state.movement_points, jnp.full(2, 20, jnp.int32))
     chex.assert_trees_all_equal(ts.reward, jnp.zeros(2))
-    chex.assert_trees_all_close(ts.extras['next_obs']['observation'][:, -2:], jnp.array([[.1, 1.], [.1, 1.]]))
-    chex.assert_trees_all_equal(ts.observation['observation'][:, -2:], jnp.array([[0., 1.], [0., 1.]]))
+    chex.assert_trees_all_close(ts.extras['next_obs']['observation'][:, -14:-12], jnp.array([[.1, 1.], [.1, 1.]]))
+    chex.assert_trees_all_equal(ts.observation['observation'][:, -14:-12], jnp.array([[0., 1.], [0., 1.]]))
     assert jnp.all(ts.observation['action_mask'][:, REST])
 
 

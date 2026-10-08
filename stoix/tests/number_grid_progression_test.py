@@ -38,8 +38,8 @@ def test_initial_experience_and_observation_contract(env):
     enemy = battle(env, 11)
     chex.assert_trees_all_equal(env.unit_experience(enemy)[6:],
         jnp.array([[1,20,70,0],[1,20,80,0]]+[[1,20,70,0]]*4))
-    assert ts.observation.shape == (379,) and env.observation_size == 379
-    encoded = ts.observation[280:340].reshape(12,5)
+    assert ts.observation.shape == (406,) and env.observation_size == 406
+    encoded = ts.observation[160+5*env.num_opponents:220+5*env.num_opponents].reshape(12,5)
     chex.assert_trees_all_close(encoded[:5,2], jnp.array([.025,.06,.025,.02,.02]))
     chex.assert_trees_all_equal(encoded[5:], jnp.zeros((7,5)))
 
@@ -257,7 +257,7 @@ def test_duke_levelups_need_no_building_heal_once_and_raise_threshold(env, duke_
     chex.assert_trees_all_equal(xp[:,1,2], jnp.array([duke_reference[l]['exp_required'] for l in levels+[1]]))
     # A subsequent battle needs 650, not the initial 150 XP.
     raised = jax.tree.map(lambda x:x[0],out)
-    begun = env._begin_battle(raised.replace(enemy=jnp.int32(1))).replace(actor=jnp.int32(1))
+    begun = env._begin_battle(raised.replace(enemy=jnp.int32(2))).replace(actor=jnp.int32(1))
     begun = begun.replace(unit_xp=begun.unit_xp.at[1].set(150),
         hp=begun.hp.at[:6].set(0).at[1].set(10).at[6:].set(0).at[6].set(1))
     won = jax.tree.map(lambda x:x[0],win(env,stack(begun)))

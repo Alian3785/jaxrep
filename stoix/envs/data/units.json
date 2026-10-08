@@ -1184,5 +1184,456 @@
         "rounding": "half_up"
       }
     ]
+  },
+  "titan": {
+    "name": "Титан",
+    "game_id": "g000uu0018",
+    "faction": "empire",
+    "level": 1,
+    "role": "melee",
+    "size": 2,
+    "max_hp": 250,
+    "damage": 60,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 50,
+    "attack_type": "weapon",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 120,
+    "exp_required": 475,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        25,
+        6,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        15,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 12,
+      "kill_late": 6
+    }
+  },
+  "acolyte": {
+    "name": "Служка",
+    "game_id": "g000uu0011",
+    "faction": "empire",
+    "level": 1,
+    "role": "healer",
+    "size": 1,
+    "max_hp": 50,
+    "damage": 20,
+    "accuracy": 100,
+    "armor": 0,
+    "initiative": 10,
+    "attack_type": "life",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 20,
+    "exp_required": 80,
+    "exp_current": 0,
+    "upgrades": [
+      "priest",
+      "cleric"
+    ],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        5,
+        2,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        1,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 2,
+      "kill_late": 1
+    }
+  },
+  "priest": {
+    "name": "Жрец",
+    "game_id": "g000uu0012",
+    "faction": "empire",
+    "level": 2,
+    "role": "healer",
+    "size": 1,
+    "max_hp": 75,
+    "damage": 40,
+    "accuracy": 100,
+    "armor": 0,
+    "initiative": 10,
+    "attack_type": "life",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 60,
+    "exp_required": 475,
+    "exp_current": 0,
+    "upgrades": [
+      "hierophant"
+    ],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        4,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        2,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 6,
+      "kill_late": 3
+    }
+  },
+  "cleric": {
+    "name": "Клирик",
+    "game_id": "g000uu0016",
+    "faction": "empire",
+    "level": 2,
+    "role": "healer",
+    "size": 1,
+    "max_hp": 75,
+    "damage": 20,
+    "accuracy": 100,
+    "armor": 0,
+    "initiative": 10,
+    "attack_type": "life",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 55,
+    "exp_required": 425,
+    "exp_current": 0,
+    "upgrades": [
+      "abbess"
+    ],
+    "upgrade_unavailable_reason": "Массовое лечение пока не реализовано",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        2,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        1,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 5,
+      "kill_late": 3
+    }
+  },
+  "hierophant": {
+    "name": "Священник",
+    "game_id": "g000uu0013",
+    "faction": "empire",
+    "level": 3,
+    "role": "healer",
+    "size": 1,
+    "max_hp": 100,
+    "damage": 80,
+    "accuracy": 100,
+    "armor": 0,
+    "initiative": 10,
+    "attack_type": "life",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 160,
+    "exp_required": 1275,
+    "exp_current": 0,
+    "upgrades": [
+      "patriarch"
+    ],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        8,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        4,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 16,
+      "kill_late": 8
+    }
+  },
+  "abbess": {
+    "name": "Аббатиса",
+    "game_id": "g000uu0017",
+    "faction": "empire",
+    "level": 3,
+    "role": "healer",
+    "size": 1,
+    "max_hp": 100,
+    "damage": 40,
+    "accuracy": 100,
+    "armor": 0,
+    "initiative": 10,
+    "attack_type": "life",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 140,
+    "exp_required": 1125,
+    "exp_current": 0,
+    "upgrades": [
+      "prophetess"
+    ],
+    "upgrade_unavailable_reason": "Массовое лечение пока не реализовано",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        4,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        2,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 14,
+      "kill_late": 7
+    }
+  },
+  "patriarch": {
+    "name": "Патриарх",
+    "game_id": "g000uu0150",
+    "faction": "empire",
+    "level": 4,
+    "role": "healer",
+    "size": 1,
+    "max_hp": 125,
+    "damage": 120,
+    "accuracy": 100,
+    "armor": 0,
+    "initiative": 10,
+    "attack_type": "life",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 300,
+    "exp_required": 2000,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "Воскрешение Патриархом пока не реализовано",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        15,
+        12,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        6,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 30,
+      "kill_late": 15
+    }
+  },
+  "prophetess": {
+    "name": "Прорицательница",
+    "game_id": "g000uu0151",
+    "faction": "empire",
+    "level": 4,
+    "role": "healer",
+    "size": 1,
+    "max_hp": 125,
+    "damage": 70,
+    "accuracy": 100,
+    "armor": 0,
+    "initiative": 10,
+    "attack_type": "life",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 305,
+    "exp_required": 2050,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "Массовое лечение пока не реализовано",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        15,
+        7,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        4,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 31,
+      "kill_late": 15
+    }
+  },
+  "orc": {
+    "name": "Орк",
+    "game_id": "g000uu5013",
+    "faction": "neutral",
+    "level": 1,
+    "role": "melee",
+    "size": 1,
+    "max_hp": 200,
+    "damage": 55,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "weapon",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 90,
+    "exp_required": 700,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        20,
+        6,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        10,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 9,
+      "kill_late": 4
+    }
+  },
+  "goblin": {
+    "name": "Гоблин",
+    "game_id": "g000uu5017",
+    "faction": "neutral",
+    "level": 1,
+    "role": "melee",
+    "size": 1,
+    "max_hp": 50,
+    "damage": 15,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 30,
+    "attack_type": "weapon",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 5,
+    "exp_required": 50,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        5,
+        2,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        3,
+        1,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 1,
+      "kill_late": 1
+    }
+  },
+  "goblin_archer": {
+    "name": "Гоблин лучник",
+    "game_id": "g000uu5018",
+    "faction": "neutral",
+    "level": 1,
+    "role": "ranged",
+    "size": 1,
+    "max_hp": 40,
+    "damage": 15,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 50,
+    "attack_type": "weapon",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 10,
+    "exp_required": 75,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        5,
+        2,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        2,
+        1,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 1,
+      "kill_late": 1
+    }
   }
 }

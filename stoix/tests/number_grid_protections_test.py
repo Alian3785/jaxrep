@@ -18,7 +18,7 @@ def test_named_armies_exactly_match_python_reference_level_one_profiles():
     env = current()
     state, ts = jax.jit(env.reset)(jax.random.PRNGKey(42))
     chex.assert_trees_all_equal(state.hp[:6], jnp.array([120, 150, 120, 45, 45, 0]))
-    assert ts.observation.shape == (379,) and env.observation_size == 379
+    assert ts.observation.shape == (406,) and env.observation_size == 406
     assert env.action_space().num_values == 44 and env.hero_count == 5
     expected = dict(duke=(150, 50, 80, 0, 50, 'weapon'), possessed=(120, 25, 80, 0, 50, 'weapon'), cultist=(45, 15, 80, 0, 40, 'fire'),
                     squire=(100, 25, 80, 0, 50, 'weapon'), archer=(45, 25, 80, 0, 60, 'weapon'))
@@ -28,10 +28,7 @@ def test_named_armies_exactly_match_python_reference_level_one_profiles():
         assert unit['level'] == 1 and not unit['immunities'] and not unit['protections']
     for index, (row, count) in enumerate(zip(env.combat_info['enemies'], MAP['enemy_units'])):
         assert sum(u is not None for u in row) == count
-        assert sum(u is not None and u['name'] == 'Скваер' for u in row) == 1
-        slot = 0 if count == 1 else 1
-        assert row[slot]['role'] == 'melee' and env.stats_table[index, 6+slot, 0] == 100
-        assert all(u is None or u['name'] in ('Скваер', 'Лучник') for u in row)
+        assert sum(u['size'] for u in row if u) <= 6
     chex.assert_trees_all_equal(env.combat_traits[0, :6, 0], jnp.array([MELEE]*3+[AREA]*2+[0], jnp.uint32))
 
 
@@ -39,7 +36,8 @@ def source_cases(immunity=False):
     hero = [dict(protections=list(ATTACK_TYPES), immunities=list(ATTACK_TYPES) if immunity else [])]+[{}]*4
     enemies = [[dict(attack_type=ATTACK_TYPES[i % 9], role='ranged')]+[{}]*(n-1)
                for i, n in enumerate(MAP['enemy_units'])]
-    env = current(hero_combat_stats=hero, enemy_combat_stats=enemies)
+    env = current(hero_combat_stats=hero, enemy_combat_stats=enemies,
+        enemy_rosters=[['squire']+['archer']*(n-1)+[None]*(6-n) for n in MAP['enemy_units']])
     world, _ = env.reset(jax.random.PRNGKey(7))
     def battle(index):
         state = env._begin_battle(world.replace(enemy=index))
@@ -109,7 +107,7 @@ def test_area_attack_checks_each_target_and_both_cultists_use_fire():
     assert jnp.all(traits[:, 7, 3] == 0) and jnp.all(traits[:, 6, 3] == 4)
     # Compact observation includes remaining, not just innate, protection bits.
     obs = jax.jit(jax.vmap(env.observation))(result)
-    encoded = obs[:, 232:280].reshape(2, 12, 4)
+    encoded = obs[:, 112+5*env.num_opponents:160+5*env.num_opponents].reshape(2, 12, 4)
     chex.assert_trees_all_close(encoded[:, :, 3], traits[:, :, 3] / 511.)
 
 
@@ -132,7 +130,7 @@ def test_each_front_melee_unit_uses_its_own_reach_and_empty_slot_never_acts():
 
 
 @pytest.mark.parametrize('change', [dict(attack_type='unknown'), dict(attack_type=None),
-    dict(immunities='fire'), dict(protections=['unknown']), dict(role='healer')])
+    dict(immunities='fire'), dict(protections=['unknown']), dict(role='unknown')])
 def test_invalid_profiles_fail_before_training(change):
     with pytest.raises(ValueError):
         current(hero_combat_stats=[change]+[{}]*4)
@@ -159,7 +157,7 @@ def test_human_api_reports_named_units_sources_and_current_ward_state():
 
 def test_real_rng_can_defeat_every_current_squad_size_without_changing_stats():
     env = current()
-    enemies = jnp.repeat(jnp.array([0, 1, 3, 5, 7, 9], jnp.int32), 1024)
+    enemies = jnp.repeat(jnp.array([0, 2, 3, 6, 7, 11], jnp.int32), 1024)
     states, _ = jax.vmap(env.reset)(jax.random.split(jax.random.PRNGKey(875), len(enemies)))
     states = states.replace(enemy=enemies)
     states = jax.vmap(env._begin_battle)(states)

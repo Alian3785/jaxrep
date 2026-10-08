@@ -12,7 +12,7 @@ from numbergrid_config import make_config
 from stoix.utils.make_env import make
 from stoix.envs.number_grid import (
     MAP, NumberGrid, wrap_wall_action_mask, SHOOT, DEFEND, WAIT, RETREAT, CONTINUE,
-    ENGAGE, HIT, MISS, VICTORY, DEFEAT, WITHDRAW, LIMIT,
+    ENGAGE, HIT, MISS, VICTORY, DEFEAT, WITHDRAW, LIMIT, REST, MOVE_COST,
 )
 
 
@@ -113,10 +113,12 @@ def test_fixed_map_has_a_playable_full_route_with_archer_battles():
             masks = jax.vmap(env.action_mask)(states)
             targets = jnp.argmin(jnp.where(masks[:,SHOOT:DEFEND],states.hp[:,6:],10000),axis=-1)
             attacks = jnp.where(jnp.any(masks[:,SHOOT:DEFEND],axis=-1),SHOOT+targets,DEFEND)
+            moves = route[jnp.minimum(index,len(route)-1)]
+            if env.basic_combat:
+                moves = jnp.where(states.movement_points < MOVE_COST, REST, moves)
             actions = jnp.where(states.in_battle,
-                                jnp.where(states.actor<6,attacks,CONTINUE),
-                                route[jnp.minimum(index,len(route)-1)])
-            index += (~states.in_battle & ~states.done).astype(jnp.int32)
+                                jnp.where(states.actor<6,attacks,CONTINUE), moves)
+            index += (~states.in_battle & ~states.done & (actions < 8)).astype(jnp.int32)
             states,_ = jax.vmap(env.step)(states,actions)
             return states,index
         return jax.lax.while_loop(condition,step,(states,jnp.zeros(64,jnp.int32)))
@@ -396,7 +398,8 @@ def test_cached_autoreset_changes_rng_and_preserves_final_observation():
     assert not np.array_equal(original,state.battle_key)
     assert np.all(ts.extras['next_obs']['observation'][:,3] == 1)
     assert np.all(ts.observation['observation'][:,3] == 0)
-    np.testing.assert_array_equal(ts.observation['action_mask'][:,8:],False)
+    np.testing.assert_array_equal(ts.observation['action_mask'][:,8:REST],False)
+    assert np.all(ts.observation['action_mask'][:, REST])
     again, _ = advance(state,jnp.array([7,3]))
     assert not np.array_equal(state.battle_key,again.battle_key)
 

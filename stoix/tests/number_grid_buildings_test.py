@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from numbergrid_config import make_config
-from stoix.envs.number_grid import NumberGrid, MAP, BUILD, ACTIONS, BUILD_START
+from stoix.envs.number_grid import NumberGrid, MAP, BUILD, ACTIONS, BUILD_START, REST
 from stoix.envs.number_grid_buildings import FACTIONS, BuildingRules
 from stoix.utils.make_env import make
 
@@ -34,11 +34,12 @@ def test_every_faction_building_cost_requirements_and_exclusions(env):
                          'legions': 25, 'elves': 23}[env.construction.faction]
     initial, ts = env.reset(jax.random.PRNGKey(42))
     assert initial.gold == initial.buildings == 0 and not initial.built_today
-    assert ts.observation.shape == (271,) and env.action_space().num_values == ACTIONS == 43
+    assert ts.observation.shape == (271,) and env.action_space().num_values == ACTIONS == 44
     # Supply precisely the prerequisites and exact gold for each of all 122
     # buildings. This covers each shared action slot, including service buildings.
     states = [initial.replace(buildings=jnp.uint32(sum(1 << j for j in ancestors(rows, i))),
-                              gold=jnp.int32(row['gold'])) for i, row in enumerate(rows)]
+                              gold=jnp.int32(row['gold']), movement_points=jnp.int32(0))
+              for i, row in enumerate(rows)]
     batched = jax.tree.map(lambda *xs: jnp.stack(xs), *states)
     actions = jnp.arange(len(rows), dtype=jnp.int32)+BUILD_START
     masks = jax.jit(jax.vmap(env.action_mask))(batched)
@@ -46,6 +47,8 @@ def test_every_faction_building_cost_requirements_and_exclusions(env):
     following, ts = jax.jit(jax.vmap(env.step))(batched, actions)
     chex.assert_trees_all_equal(following.gold, jnp.zeros(len(rows), jnp.int32))
     chex.assert_trees_all_equal(following.map_steps, batched.map_steps)
+    chex.assert_trees_all_equal(following.movement_points, batched.movement_points)
+    chex.assert_trees_all_equal(following.day, batched.day)
     chex.assert_trees_all_equal(following.hp, batched.hp)
     chex.assert_trees_all_equal(following.position, batched.position)
     chex.assert_trees_all_equal(following.battle_key, batched.battle_key)
@@ -83,34 +86,38 @@ def test_build_mask_and_step_reject_every_restriction_and_unused_slot(env):
     mask = jax.jit(jax.vmap(env.action_mask))(batched)
     assert not jnp.any(mask[jnp.arange(len(actions)), actions])
     following, ts = jax.jit(jax.vmap(env.step))(batched, actions)
-    for field in ('gold', 'buildings', 'blocked_buildings', 'built_today', 'map_steps', 'hp', 'battle_key'):
+    for field in ('gold', 'buildings', 'blocked_buildings', 'built_today', 'map_steps', 'movement_points', 'day', 'hp', 'battle_key'):
         chex.assert_trees_all_equal(getattr(following, field), getattr(batched, field))
     assert jnp.all(ts.reward <= 0)
     assert not jnp.any(ts.extras['building_constructed'])
 
 
-def test_one_build_per_day_clock_income_and_branch_lock():
+def test_one_build_per_turn_until_explicit_rest_and_branch_lock():
     env = NumberGrid()
     state, _ = env.reset(jax.random.PRNGKey(7))
-    state = state.replace(map_steps=jnp.int32(19), gold=jnp.int32(2000))
+    state = state.replace(movement_points=jnp.int32(2), gold=jnp.int32(2000))
     step = jax.jit(env.step)
-    # Abbey excludes Palace of Vice and all its descendants permanently.
     built, _ = step(state, jnp.int32(BUILD_START+4))
-    assert built.map_steps == 19 and built.gold == 1800 and built.built_today
-    assert not jnp.any(env.action_mask(built)[BUILD_START:])
-    next_day, _ = step(built, jnp.int32(2))
-    assert next_day.map_steps == 20 and next_day.gold == 1900 and not next_day.built_today
+    assert built.movement_points == 2 and built.gold == 1800 and built.built_today
+    assert not jnp.any(env.action_mask(built)[BUILD_START:REST]) and env.action_mask(built)[REST]
+    exhausted, _ = step(built, jnp.int32(2))
+    assert exhausted.movement_points == 0 and exhausted.built_today and exhausted.day == 1
+    assert exhausted.gold == 1800
+    next_day, ts = step(exhausted, jnp.int32(REST))
+    assert next_day.map_steps == 1 and next_day.gold == 1900 and not next_day.built_today
+    assert next_day.day == 2 and ts.reward == 0
     for index in (5, 8, 11):
         assert next_day.blocked_buildings & (1 << index)
     assert not env.action_mask(next_day)[BUILD_START+5]
     shrine, _ = step(next_day, jnp.int32(BUILD_START+7))
-    assert shrine.gold == 1400 and shrine.map_steps == 20 and shrine.built_today
+    assert shrine.gold == 1400 and shrine.movement_points == 20 and shrine.built_today
     assert shrine.buildings == (1 << 4) | (1 << 7)
-    # Ordinary movements do not prematurely release the daily lock.
-    tomorrow, _ = jax.jit(lambda s: jax.lax.scan(
+    exhausted, _ = jax.jit(lambda s: jax.lax.scan(
         lambda s, a: (step(s, a)[0], None), s,
-        jnp.tile(jnp.array([6, 2], jnp.int32), 10)))(shrine)
-    assert tomorrow.map_steps == 40 and tomorrow.gold == 1500 and not tomorrow.built_today
+        jnp.tile(jnp.array([6, 2], jnp.int32), 5)))(shrine)
+    assert exhausted.movement_points == 0 and exhausted.gold == 1400 and exhausted.built_today
+    tomorrow, _ = step(exhausted, jnp.int32(REST))
+    assert tomorrow.gold == 1500 and not tomorrow.built_today and tomorrow.day == 3
     assert tomorrow.buildings == shrine.buildings
     assert tomorrow.blocked_buildings == shrine.blocked_buildings
 
@@ -120,7 +127,7 @@ def test_scenario_locks_close_descendants_and_bad_settings_fail():
                                 'max_building_level': 3})
     state, _ = env.reset(jax.random.PRNGKey(42))
     state = state.replace(gold=jnp.int32(100_000))
-    mask = jax.jit(env.action_mask)(state)[BUILD_START:]
+    mask = jax.jit(env.action_mask)(state)[BUILD_START:REST]
     for i in (0, 1, 2, 3, 9, 10, 11, 12, 17, 18, 19, 20, 21):
         assert not mask[i] and state.blocked_buildings & (1 << i)
     assert mask[4] and mask[22] and mask[23] and mask[24]
@@ -151,12 +158,12 @@ def test_capital_survives_battle_recovery_and_resets_on_new_episode():
 
 def test_training_autoreset_retains_final_build_in_terminal_observation():
     config = make_config()
-    config.env.kwargs.max_steps = 41
+    config.env.kwargs.max_steps = 3
     training, _ = make(config)
     state, _ = training.reset(jax.random.split(jax.random.PRNGKey(7), 2))
     advance = jax.jit(training.step)
-    for index in range(40):
-        state, _ = advance(state, jnp.full(2, 2 if index % 2 == 0 else 6, jnp.int32))
+    for _ in range(2):
+        state, _ = advance(state, jnp.full(2, REST, jnp.int32))
     state, ts = advance(state, jnp.full(2, BUILD_START, jnp.int32))
     assert jnp.all(ts.truncated())
     chex.assert_trees_all_equal(state.buildings, jnp.zeros(2, jnp.uint32))
@@ -177,7 +184,7 @@ def test_human_sessions_build_with_shared_actions_and_isolate_factions():
         sessions.append(token)
         assert game['construction']['buildings'][0]['name'] == first_building
         assert game['map']['faction'] == faction
-        assert len(game['snapshot']['action_mask']) == 43
+        assert len(game['snapshot']['action_mask']) == 44
         stored_faction, state, total = service.sessions[token]
         assert stored_faction == faction and state.gold == state.buildings == 0
         service.sessions[token] = (faction, state.replace(gold=jnp.int32(200)), total)
@@ -185,6 +192,12 @@ def test_human_sessions_build_with_shared_actions_and_isolate_factions():
         assert built['state']['gold'] == 0 and built['state']['buildings'] == 1
         assert built['building_status'][0] == 1
         assert built['total_reward'] == pytest.approx(.05-service.env.step_cost)
+        rested = service.act(token, REST)
+        assert rested['snapshot']['state']['day'] == 2
+        assert rested['snapshot']['state']['gold'] == 100
+        assert not rested['snapshot']['state']['built_today']
+        assert rested['snapshot']['rest_penalty'] == pytest.approx(.02)
+        assert rested['events'][0]['reward'] == pytest.approx(-.02)
         with pytest.raises(ValueError, match='недоступно'):
             service.act(token, BUILD_START)
     assert service.sessions[sessions[0]][0] == 'legions'

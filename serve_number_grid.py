@@ -50,6 +50,7 @@ class GameService:
                 'action_mask': np.asarray(env.action_mask(state)).tolist(),
                 'max_hp': np.asarray(env.max_hp(state)).tolist(),
                 'building_status': np.asarray(env.construction.status(state)).tolist(),
+                'rest_penalty': float(env.rest_penalty(state)),
                 'unit_stats': (np.asarray(env.unit_stats(state)).tolist()
                                if env.basic_combat else None)}
 
@@ -62,6 +63,7 @@ class GameService:
             while len(self.sessions) > 64:
                 self.sessions.popitem(last=False)
             return {'session': token, 'map': env.map_config, 'construction': env.construction.metadata(),
+                    'turn_rules': env.turn_metadata(),
                     'snapshot': self.snapshot(env, state, 0.), 'events': []}
 
     def act(self, token, action):
@@ -77,7 +79,7 @@ class GameService:
             events = []
             state, ts = advance(state, jnp.int32(action))
             total += float(ts.reward)
-            events.append(self.snapshot(env, state, total))
+            events.append({**self.snapshot(env, state, total), 'reward': float(ts.reward)})
             # Only the human UI advances scripted turns automatically. The PPO
             # environment counts and observes every unit transition separately.
             for _ in range(32):
@@ -85,7 +87,7 @@ class GameService:
                     break
                 state, ts = advance(state, jnp.int32(CONTINUE))
                 total += float(ts.reward)
-                events.append(self.snapshot(env, state, total))
+                events.append({**self.snapshot(env, state, total), 'reward': float(ts.reward)})
             self.sessions[token] = (faction, state, total)
             self.sessions.move_to_end(token)
             return {'session': token, 'snapshot': self.snapshot(env, state, total), 'events': events}

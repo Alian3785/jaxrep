@@ -54,7 +54,7 @@ class CombatTransformsTest(chex.TestCase):
         keys = jax.random.split(jax.random.PRNGKey(7), 4)
         states, ts = self.variant(jax.vmap(env.reset))(keys)
         masks = self.variant(jax.vmap(env.action_mask))(states)
-        chex.assert_shape(masks, (4, 43))
+        chex.assert_shape(masks, (4, 44))
         chex.assert_type(masks, jnp.bool_)
         chex.assert_tree_all_finite((states, ts))
         for index, key in enumerate(keys):

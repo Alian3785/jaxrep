@@ -36,7 +36,7 @@ def write_viewer(payload):
 def build(output=None):
     if output is None:
         env = NumberGrid()
-        write_viewer({'map':MAP,'records':[],'result':None, 'construction':env.construction.metadata(), 'turn_rules':env.turn_metadata(), 'combat':env.combat_info, 'capital':env.capital.metadata()})
+        write_viewer({'map':MAP,'records':[],'result':None, 'construction':env.construction.metadata(), 'turn_rules':env.turn_metadata(), 'combat':env.combat_info, 'capital':env.capital.metadata(), 'potions':env.potion_rules.metadata()})
         return
     output = Path(output)
     game_map = json.loads((output/'map.json').read_text())
@@ -73,19 +73,21 @@ def build(output=None):
         # frame back to JAX for four small calculations during JSON export.
         return jax.vmap(lambda state: (env.construction.status(state),
             env.rest_penalty(state), env.unit_experience(state),
-            env.unit_stats(state), env.capital.quotes(state, env.max_hp(state))))(states)
+            env.unit_stats(state), env.capital.quotes(state, env.max_hp(state)),
+            env.potion_rules.quotes(state, env.max_hp(state))))(states)
 
     records=[]
     for index in range(3):
         seed=42+index
         device_rollout = rollout(jnp.int32(seed),index==0)
         (initial,mask,max_hp),final,(states,actions,rewards,masks,max_hps)=jax.device_get(device_rollout)
-        statuses,penalties,experiences,stats,quotes=jax.device_get(snapshot_fields(device_rollout[2][0]))
+        statuses,penalties,experiences,stats,quotes,potion_quotes=jax.device_get(snapshot_fields(device_rollout[2][0]))
         frames=[{'state':state_dict(initial),'action':None,'reward':0.,'total_reward':0.,
                  'action_mask':mask.tolist(),'max_hp':max_hp.tolist(),
                  'building_status':np.asarray(env.construction.status(initial)).tolist(),
                  'rest_penalty':float(env.rest_penalty(initial)),
                   'capital_quotes':np.asarray(env.capital.quotes(initial, env.max_hp(initial))).tolist(),
+                  'potion_quotes':np.asarray(env.potion_rules.quotes(initial, env.max_hp(initial))).tolist(),
                  'unit_experience':np.asarray(env.unit_experience(initial)).tolist(),
                  'unit_stats':np.asarray(env.unit_stats(initial)).tolist() if env.basic_combat else None}]
         total=0.
@@ -98,6 +100,7 @@ def build(output=None):
                            'building_status':statuses[t].tolist(),
                            'rest_penalty':float(penalties[t]),
                             'capital_quotes':quotes[t].tolist(),
+                            'potion_quotes':potion_quotes[t].tolist(),
                            'unit_experience':experiences[t].tolist(),
                            'unit_stats':stats[t].tolist() if env.basic_combat else None})
         assert bool(final.done)
@@ -105,7 +108,7 @@ def build(output=None):
         records.append({'label':f'{"Argmax" if index==0 else "Выборка"} · {outcome} · {int(final.step_count)} шагов',
                         'seed':seed,'policy':'argmax' if index==0 else 'sample','frames':frames})
     payload={'map':game_map,'records':records,'result':result,'source':'Restored PPO checkpoint; JAX rollouts',
-             'construction':env.construction.metadata(), 'turn_rules':env.turn_metadata(), 'combat':env.combat_info, 'capital':env.capital.metadata()}
+             'construction':env.construction.metadata(), 'turn_rules':env.turn_metadata(), 'combat':env.combat_info, 'capital':env.capital.metadata(), 'potions':env.potion_rules.metadata()}
     (output/'trajectories.json').write_text(json.dumps(payload,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
     write_viewer(payload)
     print(json.dumps({'viewer':str(ROOT/'viewer.html'),'records':[r['label'] for r in records]},ensure_ascii=False),flush=True)

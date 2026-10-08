@@ -46,7 +46,7 @@ def test_27_squads_and_reference_profiles(env):
             if key and UNITS[key].get('size', 1) == 2:
                 assert slot < 3 and roster[slot+3] is None
     initial, ts = jax.jit(env.reset)(jax.random.PRNGKey(1))
-    assert ts.observation.shape == (423,) and env.num_actions == 56
+    assert ts.observation.shape == (427,) and env.num_actions == 80
     chex.assert_trees_all_equal(ts.observation[-12:], jnp.array([.5]*5+[0]*7))
     state = battle(env, 21)
     obs = jax.jit(env.observation)(state)

@@ -188,7 +188,7 @@ def test_human_sessions_build_with_shared_actions_and_isolate_factions():
         sessions.append(token)
         assert game['construction']['buildings'][0]['name'] == first_building
         assert game['map']['faction'] == faction
-        assert len(game['snapshot']['action_mask']) == ACTIONS == 56
+        assert len(game['snapshot']['action_mask']) == ACTIONS == 80
         stored_faction, state, total = service.sessions[token]
         assert stored_faction == faction and state.gold == state.buildings == 0
         service.sessions[token] = (faction, state.replace(gold=jnp.int32(200)), total)

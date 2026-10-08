@@ -4,7 +4,7 @@
   const $=id=>document.getElementById(id), fmt=n=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:3}).format(n);
   const canvas=$('board'), ctx=canvas.getContext('2d');
   let mode='manual', session=null, manual=null, manualMap=null, busy=false, frame=0, recordIndex=0, timer=null, messages=[];
-  let manualConstruction=null, manualTurnRules=null, manualCombat=null, manualCapital=null, capitalOpen=false, capitalKey=null;
+  let manualConstruction=null, manualTurnRules=null, manualCombat=null, manualCapital=null, manualPotions=null, capitalOpen=false, potionsOpen=false, selectedPotion=0, capitalKey=null;
   const records=data.records||[];
   const combatInfo=()=>mode==='manual'?(manualCombat||data.combat):data.combat;
   const profile=i=>i>=0&&i<12?(combatInfo()?.catalogue?.[current()?.state.unit_ids?.[i]]??(i<6?combatInfo()?.heroes[i]:combatInfo()?.enemies[current()?.state.enemy]?.[i-6])):null;
@@ -22,6 +22,7 @@
   function currentMap(){return mode==='manual'?(manualMap||data.map):data.map;}
   function construction(){return mode==='manual'?(manualConstruction||data.construction):data.construction;}
   function turnRules(){return mode==='manual'?(manualTurnRules||data.turn_rules):data.turn_rules;}
+  const potionInfo=()=>mode==='manual'?(manualPotions||data.potions):data.potions;
   const capitalInfo=()=>mode==='manual'?(manualCapital||data.capital):data.capital;
   const branchNames={
     empire:['Воины','Стрелки','Маги','Целители','Титаны'],
@@ -101,6 +102,30 @@
       cards.push(card);
     }
     $('recovery-list').replaceChildren(...cards);
+  }
+  function renderPotions(snap){
+    const items=potionInfo()||[],s=snap.state;
+    $('potion-status').textContent=s.done?'Эпизод завершён.':s.in_battle?'Зелья можно использовать после завершения боя.':'Доступны на любой клетке карты, даже без очков перемещения. Выберите зелье и бойца.';
+    $('potion-stock').replaceChildren(...items.map((item,i)=>{
+      const button=document.createElement('button');button.className='potion-choice';
+      button.setAttribute('aria-pressed',String(selectedPotion===i));
+      button.textContent=item.name+' · '+(item.effect==='revive'?'1 HP':item.amount+' HP')+' · '+s.potions[i]+' шт.';
+      button.onclick=()=>{selectedPotion=i;render();};return button;
+    }));
+    const item=items[selectedPotion];if(!item)return;
+    $('potion-detail').textContent=item.effect==='revive'?'Воскрешает одного погибшего бойца с 1 HP.':'Восстанавливает до '+item.amount+' HP одному живому раненому бойцу. Здоровье не превышает максимум.';
+    const cards=[];
+    for(let i=0;i<6;i++){
+      if(!snap.max_hp[i])continue;
+      const card=document.createElement('article');card.className='recovery-card'+(!s.hp[i]?' fallen':'');
+      const name=document.createElement('h3');name.textContent=role(i)+' '+(i+1);card.append(name);
+      const hp=document.createElement('p');hp.className='recovery-health';hp.textContent=s.hp[i]+' / '+snap.max_hp[i]+' HP'+(!s.hp[i]?' · погиб':'');card.append(hp);
+      const button=document.createElement('button'),amount=snap.potion_quotes?.[selectedPotion]?.[i]||0;
+      button.dataset.action=item.action_start+i;
+      button.textContent=!s.potions[selectedPotion]?'Зелья закончились':item.effect==='revive'?(s.hp[i]?'Боец жив':'Воскресить · 1 бутылка'):!s.hp[i]?'Сначала воскресите бойца':!amount?'Здоровье полное':'Лечить +'+amount+' HP · 1 бутылка';
+      button.onclick=()=>sendAction(item.action_start+i);card.append(button);cards.push(card);
+    }
+    $('potion-targets').replaceChildren(...cards);
   }
   function drawMap(s){
     const map=currentMap();
@@ -192,6 +217,8 @@
       case 16:return a+': лечение — '+t.toLowerCase()+' (+'+s.last_damage+' HP).';
       case 17:return 'Храм: '+t.toLowerCase()+' восстановил '+s.last_damage+' HP за '+s.last_service_cost+' золота.';
       case 18:return 'Храм: '+t.toLowerCase()+' воскрешён с 1 HP за '+s.last_service_cost+' золота.';
+      case 19:return potionInfo()?.[s.last_potion]?.name+': '+t.toLowerCase()+' восстановил '+s.last_damage+' HP. Осталось: '+s.potions[s.last_potion]+'.';
+      case 20:return 'Зелье воскрешения: '+t.toLowerCase()+' вернулся с 1 HP. Осталось: '+s.potions[s.last_potion]+'.';
       case 15:return 'Атака поглощена защитой.'+blockText(s);
       default:return null;
     }
@@ -199,11 +226,12 @@
   function render(){
     const snap=current();if(!snap)return;const s=snap.state,mask=snap.action_mask,map=currentMap();
     $('version').textContent=map.name;
-    $('map-panel').hidden=s.in_battle||capitalOpen;$('battle-panel').hidden=!s.in_battle||capitalOpen;
-    $('capital-panel').hidden=!capitalOpen;
-    $('world-view').setAttribute('aria-pressed',String(!capitalOpen));$('capital-view').setAttribute('aria-pressed',String(capitalOpen));
+    $('map-panel').hidden=s.in_battle||capitalOpen||potionsOpen;$('battle-panel').hidden=!s.in_battle||capitalOpen||potionsOpen;
+    $('capital-panel').hidden=!capitalOpen;$('potions-panel').hidden=!potionsOpen;
+    $('world-view').setAttribute('aria-pressed',String(!capitalOpen&&!potionsOpen));$('capital-view').setAttribute('aria-pressed',String(capitalOpen));$('potions-view').setAttribute('aria-pressed',String(potionsOpen));
     renderConstruction(snap);
     renderCapitalServices(snap);
+    renderPotions(snap);
     $('phase-label').textContent=s.in_battle?'Бой · отряд № '+(s.enemy+1):'Карта '+map.size+' × '+map.size;
     $('remaining').textContent=s.alive.filter(Boolean).length;
     $('wins').textContent=s.alive.filter(v=>!v).length;
@@ -229,7 +257,7 @@
     $('attack-hint').textContent=isHealer(s.actor)?'Лечение: выберите живого союзника.':isMage(s.actor)?'Массовая атака: выберите любого живого врага.':isWarrior(s.actor)?(mask.slice(8,14).some(Boolean)?'Ход воина: выберите подсвеченного врага для удара мечом.':'Воин не достаёт до врагов. Можно защищаться, ждать или отступить.'):'Нажмите на живого противника, чтобы выстрелить.';
     const message=s.won?'Победа! Карта очищена.':s.lost?'Ваш отряд погиб. Начните новую игру.':s.done?'Достигнут лимит. Начните новую игру.':s.in_battle?'Выбирайте цели и берегите свой отряд.':s.movement_points<turns.move_cost?'Очки перемещения закончились. Можно построить здание или отдохнуть.':'Подойдите к любому вражескому отряду.';
     $('message').textContent=message;
-    $('map-controls').hidden=s.in_battle||capitalOpen;$('battle-controls').hidden=!s.in_battle||capitalOpen;
+    $('map-controls').hidden=s.in_battle||capitalOpen||potionsOpen;$('battle-controls').hidden=!s.in_battle||capitalOpen||potionsOpen;
     $('continue').hidden=!s.in_battle||!mask[17];
     document.querySelectorAll('[data-action]').forEach(b=>b.disabled=mode!=='manual'||busy||s.done||!session||!mask[Number(b.dataset.action)]);
     $('reset').disabled=busy;
@@ -271,7 +299,7 @@
   function showError(error){$('connection').textContent='Игра недоступна';$('message').textContent=error.message+' Для игры запустите open-numbergrid.cmd.';}
   async function resetGame(){
     if(busy)return;busy=true;render();
-    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||data.map.faction||'legions'});session=result.session;manualMap=result.map;manualConstruction=result.construction;manualTurnRules=result.turn_rules;manualCombat=result.combat;manualCapital=result.capital;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
+    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||data.map.faction||'legions'});session=result.session;manualMap=result.map;manualConstruction=result.construction;manualTurnRules=result.turn_rules;manualCombat=result.combat;manualCapital=result.capital;manualPotions=result.potions;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
     catch(error){busy=false;render();showError(error);return;}
     busy=false;render();
   }
@@ -287,7 +315,8 @@
   function setMode(next){if(busy)return;stop();mode=next;messages=[];$('manual-tab').setAttribute('aria-selected',String(mode==='manual'));$('replay-tab').setAttribute('aria-selected',String(mode==='replay'));$('manual-controls').hidden=mode!=='manual';$('replay-controls').hidden=mode!=='replay';render();}
   function nextFrame(){const last=records[recordIndex].frames.length-1;if(frame<last){frame++;const text=eventText(current());if(text)messages.push(text);}if(frame>=last)stop();render();}
   $('manual-tab').onclick=()=>setMode('manual');$('replay-tab').onclick=()=>setMode('replay');$('replay-tab').disabled=!records.length;
-  $('world-view').onclick=()=>{capitalOpen=false;render();};$('capital-view').onclick=()=>{capitalOpen=true;render();};
+  $('world-view').onclick=()=>{capitalOpen=false;potionsOpen=false;render();};$('capital-view').onclick=()=>{capitalOpen=true;potionsOpen=false;render();};
+  $('potions-view').onclick=()=>{capitalOpen=false;potionsOpen=true;render();};
   $('building-branch').onchange=render;
   $('reset').onclick=resetGame;document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>sendAction(Number(b.dataset.action)));
   $('play').onclick=()=>{if(timer){stop();return;}if(frame===records[recordIndex].frames.length-1){frame=0;messages=[];}timer=setInterval(nextFrame,230);$('play').textContent='Ⅱ Пауза';};
@@ -295,7 +324,7 @@
   $('record').onchange=()=>{stop();recordIndex=Number($('record').value);frame=0;messages=[];render();};
   records.forEach((r,i)=>{const option=document.createElement('option');option.value=i;option.textContent=r.label;$('record').append(option);});
   const keys={ArrowUp:0,ArrowRight:2,ArrowDown:4,ArrowLeft:6,KeyW:0,KeyE:1,KeyD:2,KeyC:3,KeyX:4,KeyS:4,KeyZ:5,KeyA:6,KeyQ:7};
-  window.addEventListener('keydown',event=>{if(event.target.matches('select,input,textarea')||event.ctrlKey||event.metaKey||event.altKey)return;if(mode==='manual'&&!capitalOpen&&!manual?.state.in_battle&&keys[event.code]!==undefined){event.preventDefault();sendAction(keys[event.code]);}});
+  window.addEventListener('keydown',event=>{if(event.target.matches('select,input,textarea')||event.ctrlKey||event.metaKey||event.altKey)return;if(mode==='manual'&&!capitalOpen&&!potionsOpen&&!manual?.state.in_battle&&keys[event.code]!==undefined){event.preventDefault();sendAction(keys[event.code]);}});
   window.addEventListener('resize',()=>{const snap=current();if(snap&&!snap.state.in_battle)drawMap(snap.state);});
   document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});
   $('version').textContent=data.map.name;

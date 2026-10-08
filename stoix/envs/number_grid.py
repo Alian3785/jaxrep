@@ -14,6 +14,7 @@ from stoix.envs.number_grid_combat import (
     HP, DAMAGE, ACCURACY, ARMOR, INITIATIVE, MELEE, AREA, HEALER, build_combat_tables, accuracy_hits,
 )
 from stoix.envs.number_grid_capital import CapitalRules, HEAL_START, REVIVE_START, CAPITAL_ACTIONS
+from stoix.envs.number_grid_potions import PotionRules, POTION_START, POTION_ACTIONS
 from stoix.envs.number_grid_progression import ProgressionRules
 from stoix.envs.number_grid_buildings import (
     BuildingRules, BUILD_START, BUILD_SLOTS, DAILY_GOLD,
@@ -26,18 +27,21 @@ from stoix.envs.number_grid_legacy import (
 MAP = json.loads((Path(__file__).resolve().parents[2] / 'number_grid_map.json').read_text())
 SHOOT, DEFEND, WAIT, RETREAT, CONTINUE = 8, 14, 15, 16, 17
 REST = BUILD_START + BUILD_SLOTS
-BASE_ACTIONS, ACTIONS = REST + 1, CAPITAL_ACTIONS
+BASE_ACTIONS, ACTIONS = REST + 1, POTION_START + POTION_ACTIONS
 MAX_MOVEMENT_POINTS, MOVE_COST = 20, 2
 ACTION_NAMES = ('N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW') + tuple(
     f'shoot_{i}' for i in range(6)) + ('defend', 'wait', 'retreat', 'continue') + tuple(
         f'build_{i}' for i in range(BUILD_SLOTS)) + ('rest',) + tuple(
-            f'heal_{i}' for i in range(6)) + tuple(f'revive_{i}' for i in range(6))
+            f'heal_{i}' for i in range(6)) + tuple(f'revive_{i}' for i in range(6)) + tuple(
+                f'potion_{kind}_{slot}' for kind in range(4) for slot in range(6))
 MOVE, ENGAGE, HIT, MISS, GUARD, DELAY, FLEE, ESCAPE, VICTORY, DEFEAT, WITHDRAW, LIMIT = range(12)
 BUILD, RESTED, IMMUNE, WARD, HEAL = 12, 13, 14, 15, 16
 
 
 @struct.dataclass
 class BattleState(NumberGridState):
+    potions: jax.Array  # shared party inventory: heal 50/100/200, revive
+    last_potion: jax.Array
     recovery_balance: jax.Array  # victory-funded HP/kill allowances; debt is retained
     last_service_cost: jax.Array
     gold: jax.Array
@@ -96,7 +100,13 @@ class NumberGrid(NumericNumberGrid):
         self.capital_enabled = bool(game_map.get('capital_services', False))
         if self.capital_enabled and not self.progression_enabled:
             raise ValueError('Capital services require named units and progression')
-        self.num_actions = ACTIONS if self.capital_enabled else BASE_ACTIONS if self.basic_combat else BUILD_START
+        self.potions_enabled = 'initial_potions' in game_map
+        if self.potions_enabled and not self.capital_enabled:
+            raise ValueError('Map potions require the current capital/progression environment')
+        if self.potions_enabled:
+            self.potion_rules = PotionRules(game_map['initial_potions'])
+        self.num_actions = (ACTIONS if self.potions_enabled else CAPITAL_ACTIONS if self.capital_enabled
+                            else BASE_ACTIONS if self.basic_combat else BUILD_START)
         if self.basic_combat:
             self.construction = BuildingRules(game_map)
             penalty = game_map.get("rest_penalty_per_point", .001)
@@ -192,27 +202,31 @@ class NumberGrid(NumericNumberGrid):
         # User-defined prototype rule: ceil(10% max HP) once per strategic rest.
         self.rest_healing = jnp.concatenate(((self.hero_full + 9) // 10, jnp.zeros(6, jnp.int32)))
         self.observation_version = int(game_map.get('battle_observation_version', 1))
-        if self.basic_combat and self.observation_version not in (7, 8, 9, 10, 11):
-            raise ValueError('Combat rules version 2 requires observation version 7, 8, 9, 10 or 11')
-        if not self.basic_combat and self.observation_version in (4, 5, 6, 7, 8, 9, 10, 11):
-            raise ValueError('Observation versions 7–11 require combat rules version 2')
-        if (self.warrior_slot >= 0 or self.has_enemy_warriors) and self.observation_version not in (3, 7, 8, 9, 10, 11):
-            raise ValueError('Warrior maps require battle_observation_version 3, 7, 8, 9, 10 or 11')
-        self.observation_size = (4 + 5 * self.num_opponents + (141 if self.basic_combat else 48) + 6 if self.observation_version in (2, 3, 7, 8, 9, 10, 11)
+        if self.basic_combat and self.observation_version not in (7, 8, 9, 10, 11, 12):
+            raise ValueError('Combat rules version 2 requires observation version 7, 8, 9, 10, 11 or 12')
+        if not self.basic_combat and self.observation_version in (4, 5, 6, 7, 8, 9, 10, 11, 12):
+            raise ValueError('Observation versions 7–12 require combat rules version 2')
+        if (self.warrior_slot >= 0 or self.has_enemy_warriors) and self.observation_version not in (3, 7, 8, 9, 10, 11, 12):
+            raise ValueError('Warrior maps require battle_observation_version 3, 7, 8, 9, 10, 11 or 12')
+        self.observation_size = (4 + 5 * self.num_opponents + (141 if self.basic_combat else 48) + 6 if self.observation_version in (2, 3, 7, 8, 9, 10, 11, 12)
                                  else self.observation_size + 2 * self.num_opponents + 12 * 8 + 6)
 
-        if self.observation_version in (8, 9, 10, 11):
+        if self.observation_version in (8, 9, 10, 11, 12):
             self.observation_size += 48
-        if self.progression_enabled != (self.observation_version in (9, 10, 11)):
-            raise ValueError('Unit progression requires observation version 9, 10 or 11')
+        if self.progression_enabled != (self.observation_version in (9, 10, 11, 12)):
+            raise ValueError('Unit progression requires observation version 9, 10, 11 or 12')
         if self.progression_enabled:
             self.observation_size += 60
         if self.observation_version >= 10:
             self.observation_size += 12
-        if self.capital_enabled != (self.observation_version == 11):
-            raise ValueError("Capital services require observation version 11")
+        if self.capital_enabled != (self.observation_version in (11, 12)):
+            raise ValueError("Capital services require observation version 11 or 12")
         if self.capital_enabled:
             self.observation_size += 17
+        if self.potions_enabled != (self.observation_version == 12):
+            raise ValueError("Map potions require observation version 12")
+        if self.potions_enabled:
+            self.observation_size += 4
 
     def reset(self, rng_key, env_params=None):
         if not self.battle_mode:
@@ -240,7 +254,8 @@ class NumberGrid(NumericNumberGrid):
             unit_xp=(self.progression.initial_xp if self.progression_enabled else jnp.zeros(0, jnp.int32)),
             enemy_progress=(self.progression.initial_enemies if self.progression_enabled else jnp.zeros((0, 6, 2), jnp.int32)),
             battle_xp=jnp.zeros(2, jnp.int32), last_xp=jnp.zeros(12, jnp.int32), last_promoted=jnp.uint32(0),
-            recovery_balance=jnp.zeros(2, jnp.int32), last_service_cost=zero,
+            potions=(self.potion_rules.initial_counts if self.potions_enabled else jnp.zeros(4, jnp.int32)),
+            last_potion=jnp.int32(-1), recovery_balance=jnp.zeros(2, jnp.int32), last_service_cost=zero,
             gold=zero, map_steps=zero,
             movement_points=jnp.int32(MAX_MOVEMENT_POINTS), day=jnp.int32(1),
             buildings=jnp.uint32(0),
@@ -312,7 +327,7 @@ class NumberGrid(NumericNumberGrid):
         if self.basic_combat:
             context = jnp.concatenate((context, self.construction.observation(state), jnp.asarray(
                 [state.gold / 1000., state.movement_points / MAX_MOVEMENT_POINTS], jnp.float32)))
-        if self.observation_version in (2, 3, 7, 8, 9, 10, 11):
+        if self.observation_version in (2, 3, 7, 8, 9, 10, 11, 12):
             # No duplicate max-HP arrays or obsolete numeric battle strengths.
             # Signed queue priority contains both order and waiting/acted status.
             world = jnp.stack((self.opponent_positions[:,0] / (self.size-1),
@@ -321,7 +336,7 @@ class NumberGrid(NumericNumberGrid):
             active = (state.hp > 0) & ~state.escaped
             queue = jnp.where(active & (state.turn_phase == 0), state.priority,
                              jnp.where(active & (state.turn_phase == 1), -state.priority, 0.))
-            hp_scale = (jnp.maximum(self.max_hp(state), 1) if self.observation_version in (3, 7, 8, 9, 10, 11)
+            hp_scale = (jnp.maximum(self.max_hp(state), 1) if self.observation_version in (3, 7, 8, 9, 10, 11, 12)
                         else self.hero_hp)
             if self.basic_combat:
                 queue /= self.priority_scale
@@ -330,6 +345,8 @@ class NumberGrid(NumericNumberGrid):
             if self.basic_combat:
                 units = jnp.concatenate((units, self.unit_stats(state) /
                                          jnp.asarray([100., 300., 100., 100., 100.])), axis=1)
+            if self.potions_enabled:
+                context = jnp.concatenate((self.potion_rules.observation(state), context))
             if self.capital_enabled:
                 context = jnp.concatenate((self.capital.observation(state, self.size), context))
             if self.progression_enabled:
@@ -338,7 +355,7 @@ class NumberGrid(NumericNumberGrid):
                 growth = jnp.stack((ids / (len(self.progression.rows)-1), xp[:, 0]/100.,
                                    xp[:, 1]/1000., xp[:, 2]/10000., xp[:, 3]/jnp.maximum(xp[:, 2], 1)), axis=1)
                 context = jnp.concatenate((growth.reshape(-1), context))
-            if self.observation_version in (8, 9, 10, 11):
+            if self.observation_version in (8, 9, 10, 11, 12):
                 # Compact exact source/bitset encoding; keeps the GPU policy input small.
                 context = jnp.concatenate((self.unit_traits(state).reshape(-1) /
                                            jnp.tile(jnp.array([4. if self.observation_version >= 10 else 3., 9., 511., 511.]), 12), context))
@@ -423,6 +440,8 @@ class NumberGrid(NumericNumberGrid):
         if self.capital_enabled:
             heal, revive = self.capital.available(state, self.max_hp(state))
             mask = jnp.concatenate((mask, heal, revive))
+        if self.potions_enabled:
+            mask = jnp.concatenate((mask, self.potion_rules.available(state, self.max_hp(state)).reshape(-1)))
         return jnp.where(state.done, jnp.arange(self.num_actions) == CONTINUE, mask)
 
     def _timestep(self, state, reward, first=False):
@@ -506,6 +525,8 @@ class NumberGrid(NumericNumberGrid):
         if self.capital_enabled:
             next_state, recovery_bonus = self.capital.apply(next_state, action, rest_max)
             bonus += recovery_bonus
+        if self.potions_enabled:
+            next_state = self.potion_rules.apply(next_state, action, rest_max)
         if self.exploration_bonus:
             cell = position[0] * self.size + position[1]
             word, bit = cell // 32, jnp.left_shift(jnp.uint32(1), (cell % 32).astype(jnp.uint32))
@@ -711,7 +732,11 @@ class NumberGrid(NumericNumberGrid):
             slot = jnp.clip(jnp.where(action < REVIVE_START, action-HEAL_START, action-REVIVE_START), 0, 5)
             heal, revive = self.capital.available(state, self.max_hp(state), slot)
             world_valid |= ((action >= HEAL_START) & (action < REVIVE_START) & heal
-                            | (action >= REVIVE_START) & (action < ACTIONS) & revive)
+                            | (action >= REVIVE_START) & (action < CAPITAL_ACTIONS) & revive)
+        if self.potions_enabled:
+            index = jnp.clip(action-POTION_START, 0, POTION_ACTIONS-1)
+            available = self.potion_rules.available(state, self.max_hp(state), index // 6, index % 6)
+            world_valid |= (action >= POTION_START) & (action < ACTIONS) & available
         controlled = (state.actor < 6) & ~state.retreating[state.actor]
         target_slot = jnp.clip(action - SHOOT, 0, 5)
         own_target = self._actor_is_healer(state) if self.basic_combat and self.has_healers else jnp.bool_(False)

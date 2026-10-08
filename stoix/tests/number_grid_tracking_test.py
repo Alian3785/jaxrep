@@ -1,4 +1,4 @@
-"""Regression checks for the meaning of the episode charts (no GPU required)."""
+"""Reporting regressions included in the project's GPU-only test session."""
 from argparse import Namespace
 from unittest.mock import Mock
 

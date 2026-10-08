@@ -1,4 +1,4 @@
-name: NumberGrid tests and lint
+name: Ruff
 
 on:
   pull_request:
@@ -10,14 +10,10 @@ permissions:
   contents: read
 
 jobs:
-  tests-and-linters:
-    name: Python 3.12 / CPU
+  lint:
+    name: Ruff
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      JAX_PLATFORMS: cpu
-      PYTHONPATH: .:stoa-src
-      MPLBACKEND: Agg
+    timeout-minutes: 5
 
     steps:
       - uses: actions/checkout@v4
@@ -27,28 +23,17 @@ jobs:
         with:
           python-version: '3.12'
           cache-dependency-glob: |
-            numbergrid-runtime.txt
-            runtime-constraints.txt
             pyproject.toml
 
-      - name: Install pinned runtime without CUDA packages
+      - name: Install lint dependencies
         run: |
           python - <<'PY'
           from pathlib import Path
           import subprocess
           import tomllib
-          requirements = []
-          for line in Path('numbergrid-runtime.txt').read_text().splitlines():
-              line = line.strip()
-              if line and not line.startswith(('#', 'nvidia-')):
-                  requirements.append(line.replace('jax[cuda13]', 'jax'))
           dev = tomllib.loads(Path('pyproject.toml').read_text())['project']['optional-dependencies']['dev']
-          subprocess.run(['uv', 'pip', 'install', '--python', '.venv/bin/python', '--constraint',
-                          'runtime-constraints.txt', *requirements, *dev], check=True)
+          subprocess.run(['uv', 'pip', 'install', '--python', '.venv/bin/python', *dev], check=True)
           PY
 
       - name: Run Ruff
         run: .venv/bin/python -m ruff check .
-
-      - name: Run NumberGrid and Chex tests
-        run: .venv/bin/python -m pytest -q --junitxml=test-results.xml

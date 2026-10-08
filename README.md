@@ -92,6 +92,8 @@ node verify_number_grid_viewer.cjs
 
 Для JAX-проверок используется [Chex](https://github.com/google-deepmind/chex) 0.1.92, уже закреплённый в `numbergrid-runtime.txt` и `runtime-constraints.txt`. Проверки сравнивают обычный и `jit`/`vmap` вызовы среды, контролируют формы, типы, конечность значений и лишние трассировки. Они выполняются отдельно от learner и не добавляют накладных расходов в обучение. План использования тестов Python-референса: [docs/TESTING.md](docs/TESTING.md).
 
+Тесты запускаются только на GPU; pytest отклоняет CPU-backend и отсутствие CUDA. Полный прогон должен укладываться в 10 минут, включая фикстуры и JAX-компиляцию. GitHub Actions выполняет только Ruff; отдельного CPU-прогона тестов нет.
+
 Запуск из PowerShell:
 
 ```powershell

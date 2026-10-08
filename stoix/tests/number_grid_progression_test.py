@@ -38,7 +38,7 @@ def test_initial_experience_and_observation_contract(env):
     enemy = battle(env, 11)
     chex.assert_trees_all_equal(env.unit_experience(enemy)[6:],
         jnp.array([[1,20,70,0],[1,20,80,0]]+[[1,20,70,0]]*4))
-    assert ts.observation.shape == (406,) and env.observation_size == 406
+    assert ts.observation.shape == (423,) and env.observation_size == 423
     encoded = ts.observation[160+5*env.num_opponents:220+5*env.num_opponents].reshape(12,5)
     chex.assert_trees_all_close(encoded[:5,2], jnp.array([.025,.06,.025,.02,.02]))
     chex.assert_trees_all_equal(encoded[5:], jnp.zeros((7,5)))
@@ -52,7 +52,7 @@ def test_xp_is_awarded_once_only_to_surviving_non_escaped_winners(env):
     assert won.last_event == VICTORY
     chex.assert_trees_all_equal(won.unit_xp[:6], jnp.array([7,0,0,7,7,0]))
     chex.assert_trees_all_equal(won.last_xp[:6], jnp.array([7,0,0,7,7,0]))
-    assert won.hp[1] == 1  # resurrection is after XP eligibility
+    assert won.hp[1] == 0  # dead units neither earn XP nor revive automatically
     rested, _ = jax.jit(env.step)(won, jnp.int32(REST))
     chex.assert_trees_all_equal(rested.unit_xp, won.unit_xp)
     assert not jnp.any(rested.last_xp)

@@ -4,7 +4,7 @@
   const $=id=>document.getElementById(id), fmt=n=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:3}).format(n);
   const canvas=$('board'), ctx=canvas.getContext('2d');
   let mode='manual', session=null, manual=null, manualMap=null, busy=false, frame=0, recordIndex=0, timer=null, messages=[];
-  let manualConstruction=null, manualTurnRules=null, manualCombat=null, capitalOpen=false, capitalKey=null;
+  let manualConstruction=null, manualTurnRules=null, manualCombat=null, manualCapital=null, capitalOpen=false, capitalKey=null;
   const records=data.records||[];
   const combatInfo=()=>mode==='manual'?(manualCombat||data.combat):data.combat;
   const profile=i=>i>=0&&i<12?(combatInfo()?.catalogue?.[current()?.state.unit_ids?.[i]]??(i<6?combatInfo()?.heroes[i]:combatInfo()?.enemies[current()?.state.enemy]?.[i-6])):null;
@@ -22,6 +22,7 @@
   function currentMap(){return mode==='manual'?(manualMap||data.map):data.map;}
   function construction(){return mode==='manual'?(manualConstruction||data.construction):data.construction;}
   function turnRules(){return mode==='manual'?(manualTurnRules||data.turn_rules):data.turn_rules;}
+  const capitalInfo=()=>mode==='manual'?(manualCapital||data.capital):data.capital;
   const branchNames={
     empire:['Воины','Стрелки','Маги','Целители','Титаны'],
     mountain_clans:['Воины','Стрелки','Маги','Великаны','Йети'],
@@ -79,6 +80,28 @@
   }
   function stop(){if(timer)clearInterval(timer);timer=null;$('play').textContent='▶ Смотреть';}
   function roundRect(x,y,w,h,r,color){ctx.fillStyle=color;ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill();}
+  function renderCapitalServices(snap){
+    const info=capitalInfo(),section=$('capital-services');section.hidden=!info;if(!info)return;
+    const s=snap.state,atCapital=s.position.every((n,i)=>n===info.position[i]);
+    const temple=snap.building_status?.[info.temple_action-18]===1;
+    $('capital-location').textContent='Столица · клетка '+info.position.join(', ')+' · без стража';
+    $('service-status').textContent=s.done?'Эпизод завершён.':s.in_battle?'Услуги доступны после боя.':!atCapital?'Вернитесь на золотую клетку столицы, чтобы лечить и воскрешать бойцов.':!temple?'Вы в столице. Постройте Храм за 300 золота, чтобы открыть лечение и воскрешение.':'Вы в столице. Храм открыт; услуги не расходуют очки перемещения и не завершают ход.';
+    const cards=[];
+    for(let i=0;i<6;i++){
+      if(!snap.max_hp[i])continue;
+      const q=snap.capital_quotes?.[i];if(!q)continue;
+      const card=document.createElement('article');card.className='recovery-card'+(!s.hp[i]?' fallen':'');
+      const name=document.createElement('h3');name.textContent=role(i)+' '+(i+1);card.append(name);
+      const hp=document.createElement('p');hp.className='recovery-health';hp.textContent=s.hp[i]+' / '+snap.max_hp[i]+' HP'+(!s.hp[i]?' · погиб':'');card.append(hp);
+      const prices=document.createElement('p');prices.className='recovery-price';prices.textContent='Лечение: '+q[0]+' золото / HP · воскрешение: '+q[4]+' золота';card.append(prices);
+      const action=(!s.hp[i]?info.revive_start:info.heal_start)+i;
+      const button=document.createElement('button');button.dataset.action=action;
+      button.textContent=!s.hp[i]?'Воскресить · '+q[4]+' золота':q[1]===0?'Здоровье полное':q[2]>0?'Лечить +'+q[2]+' HP · '+q[3]+' золота':'Не хватает золота';
+      button.onclick=()=>sendAction(action);card.append(button);
+      cards.push(card);
+    }
+    $('recovery-list').replaceChildren(...cards);
+  }
   function drawMap(s){
     const map=currentMap();
     const width=canvas.clientWidth;if(!width)return;
@@ -91,7 +114,13 @@
     }
     const token=(p,n,hero)=>{roundRect(p[1]*cell+cell*.09,p[0]*cell+cell*.09,cell*.82,cell*.82,cell*.2,hero?'#a5d6ad':'#d5c0e8');ctx.fillStyle=hero?'#244c30':'#654777';ctx.font='650 '+Math.round(cell*.55)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n,(p[1]+.5)*cell,(p[0]+.52)*cell);};
     map.opponent_positions.forEach((p,i)=>{if(s.alive[i])token(p,map.enemy_units[i],false);});
+    const capital=capitalInfo()?.position;
+    if(capital){
+      roundRect(capital[1]*cell+1,capital[0]*cell+1,cell-2,cell-2,cell*.15,'#dfb963');
+      ctx.fillStyle='#604515';ctx.font='650 '+Math.round(cell*.62)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('♜',(capital[1]+.5)*cell,(capital[0]+.52)*cell);
+    }
     token(s.position,s.hp.slice(0,6).filter(h=>h>0).length,true);
+    if(capital){ctx.strokeStyle='#aa7623';ctx.lineWidth=2;ctx.strokeRect(capital[1]*cell+1,capital[0]*cell+1,cell-2,cell-2);}
   }
   const slots=[3,0,4,1,5,2,6,9,7,10,8,11];
   for(const i of slots){
@@ -153,14 +182,16 @@
       case 5:return a+' ждёт конца раунда.';
       case 6:return a+' готовится отступить.';
       case 7:return a+' покинул бой.';
-      case 8:return 'Победа! Погибшие воскрешены с 1 HP.'+xpSummary(snapshot);
+      case 8:return 'Победа! Ранения и потери сохранены.'+xpSummary(snapshot);
       case 9:return 'Ваш отряд погиб. Игра завершена.';
-      case 10:return 'Отступление завершено. Ранения сохранены, погибшие воскрешены с 1 HP.';
+      case 10:return 'Отступление завершено. Ранения и потери сохранены.';
       case 11:return 'Бой достиг лимита раундов. Эпизод завершён.';
       case 12:{const b=construction()?.buildings[s.last_building];return b?'Построено: '+b.name+' (−'+b.gold+' золота).':null;}
       case 13:return 'Отдых. Начался ход '+s.day+', +'+turnRules().income+' золота; очки перемещения восстановлены, живые бойцы получили регенерацию 10% HP. Штраф: '+fmt(Math.max(0,-snapshot.reward))+'.';
       case 14:return 'Атака заблокирована иммунитетом.'+blockText(s);
       case 16:return a+': лечение — '+t.toLowerCase()+' (+'+s.last_damage+' HP).';
+      case 17:return 'Храм: '+t.toLowerCase()+' восстановил '+s.last_damage+' HP за '+s.last_service_cost+' золота.';
+      case 18:return 'Храм: '+t.toLowerCase()+' воскрешён с 1 HP за '+s.last_service_cost+' золота.';
       case 15:return 'Атака поглощена защитой.'+blockText(s);
       default:return null;
     }
@@ -172,6 +203,7 @@
     $('capital-panel').hidden=!capitalOpen;
     $('world-view').setAttribute('aria-pressed',String(!capitalOpen));$('capital-view').setAttribute('aria-pressed',String(capitalOpen));
     renderConstruction(snap);
+    renderCapitalServices(snap);
     $('phase-label').textContent=s.in_battle?'Бой · отряд № '+(s.enemy+1):'Карта '+map.size+' × '+map.size;
     $('remaining').textContent=s.alive.filter(Boolean).length;
     $('wins').textContent=s.alive.filter(v=>!v).length;
@@ -239,7 +271,7 @@
   function showError(error){$('connection').textContent='Игра недоступна';$('message').textContent=error.message+' Для игры запустите open-numbergrid.cmd.';}
   async function resetGame(){
     if(busy)return;busy=true;render();
-    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||data.map.faction||'legions'});session=result.session;manualMap=result.map;manualConstruction=result.construction;manualTurnRules=result.turn_rules;manualCombat=result.combat;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
+    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||data.map.faction||'legions'});session=result.session;manualMap=result.map;manualConstruction=result.construction;manualTurnRules=result.turn_rules;manualCombat=result.combat;manualCapital=result.capital;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
     catch(error){busy=false;render();showError(error);return;}
     busy=false;render();
   }

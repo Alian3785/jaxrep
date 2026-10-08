@@ -35,7 +35,7 @@ def test_every_faction_building_cost_requirements_and_exclusions(env):
                          'legions': 25, 'elves': 23}[env.construction.faction]
     initial, ts = env.reset(jax.random.PRNGKey(42))
     assert initial.gold == initial.buildings == 0 and not initial.built_today
-    assert ts.observation.shape == (271,) and env.action_space().num_values == ACTIONS == 44
+    assert ts.observation.shape == (271,) and env.action_space().num_values == 44
     # Supply precisely the prerequisites and exact gold for each of all 122
     # buildings. This covers each shared action slot, including service buildings.
     states = [initial.replace(buildings=jnp.uint32(sum(1 << j for j in ancestors(rows, i))),
@@ -188,7 +188,7 @@ def test_human_sessions_build_with_shared_actions_and_isolate_factions():
         sessions.append(token)
         assert game['construction']['buildings'][0]['name'] == first_building
         assert game['map']['faction'] == faction
-        assert len(game['snapshot']['action_mask']) == 44
+        assert len(game['snapshot']['action_mask']) == ACTIONS == 56
         stored_faction, state, total = service.sessions[token]
         assert stored_faction == faction and state.gold == state.buildings == 0
         service.sessions[token] = (faction, state.replace(gold=jnp.int32(200)), total)

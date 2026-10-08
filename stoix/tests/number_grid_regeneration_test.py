@@ -1,4 +1,4 @@
-"""Persistent wounds, automatic revival and strategic rest on JAX/CUDA."""
+"""Persistent wounds, persistent casualties and strategic rest on JAX/CUDA."""
 import chex
 import jax
 import jax.numpy as jnp
@@ -15,7 +15,7 @@ def env():
     return NumberGrid(map_config=MAP)
 
 
-def test_victory_and_withdrawal_revive_dead_units_without_healing_survivors(env):
+def test_victory_and_withdrawal_preserve_dead_and_wounded_units(env):
     state, _ = env.reset(jax.random.PRNGKey(42))
     state = env._begin_battle(state.replace(enemy=jnp.int32(0))).replace(actor=jnp.int32(0))
     wounded = jnp.array([12, 0, 44, 0, 1, 20], jnp.int32)
@@ -26,7 +26,7 @@ def test_victory_and_withdrawal_revive_dead_units_without_healing_survivors(env)
     batch = jax.tree.map(lambda *xs: jnp.stack(xs), victory, fleeing)
     result, _ = jax.jit(jax.vmap(env._battle_step, in_axes=(0, 0, 0, None)))(
         batch, jnp.array([SHOOT, CONTINUE], jnp.int32), batch.battle_key, jnp.zeros(36))
-    expected = jnp.array([12, 1, 44, 1, 1, 20, 0, 0, 0, 0, 0, 0], jnp.int32)
+    expected = jnp.array([12, 0, 44, 0, 1, 20, 0, 0, 0, 0, 0, 0], jnp.int32)
     chex.assert_trees_all_equal(result.hp, jnp.stack((expected, expected)))
     chex.assert_trees_all_equal(result.last_event, jnp.array([VICTORY, WITHDRAW], jnp.int32))
     assert not jnp.any(result.in_battle | result.done | result.lost)
@@ -34,9 +34,9 @@ def test_victory_and_withdrawal_revive_dead_units_without_healing_survivors(env)
     begun = jax.jit(jax.vmap(env._begin_battle))(result)
     chex.assert_trees_all_equal(begun.hp[:, :6], result.hp[:, :6])
     chex.assert_trees_all_equal(begun.hp[:, 6:], jnp.tile(jnp.array([20, 0, 0, 0, 0, 0]), (2, 1)))
-    # The restored warrior has 1 HP, not a full-HP observation at battle entry.
+    # The dead warrior remains at 0 HP when the next battle starts.
     units = env.observation(jax.tree.map(lambda x: x[0], begun))[124:232].reshape(12, 9)
-    assert float(units[1, 0]) == pytest.approx(.01)
+    assert float(units[1, 0]) == pytest.approx(0.)
 
 
 def test_rest_heals_living_units_once_caps_hp_and_never_revives(env):
@@ -70,7 +70,7 @@ def test_regeneration_uses_individual_max_hp_and_leaves_empty_slots_empty():
     battle = env._begin_battle(state.replace(enemy=jnp.int32(0))).replace(actor=jnp.int32(4))
     battle = battle.replace(hp=battle.hp.at[:4].set(0).at[6:].set(0).at[6].set(1))
     won, _ = jax.jit(env._battle_step)(battle, jnp.int32(SHOOT), battle.battle_key, jnp.zeros(36))
-    chex.assert_trees_all_equal(won.hp[:6], jnp.array([1, 1, 1, 1, 1, 0]))
+    chex.assert_trees_all_equal(won.hp[:6], jnp.array([0, 0, 0, 0, 1, 0]))
 
 
 def test_movement_building_invalid_and_battle_rest_do_not_heal(env):
@@ -108,7 +108,7 @@ def test_human_service_uses_the_same_regeneration_and_reports_current_health():
     session, env = created['session'], service.env
     assert created['turn_rules']['regeneration_percent'] == 10
     assert created['turn_rules']['regeneration_rounding'] == 'ceil'
-    assert created['turn_rules']['revive_hp'] == 1
+    assert created['turn_rules']['automatic_revive'] is False
     faction, state, reward = service.sessions[session]
     state = state.replace(hp=state.hp.at[:6].set(jnp.array([1, 50, 44, 0, 45, 0])))
     service.sessions[session] = (faction, state, reward)

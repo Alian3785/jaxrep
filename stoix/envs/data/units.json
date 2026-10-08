@@ -38,7 +38,9 @@
       ],
       "kill_early": 2,
       "kill_late": 1
-    }
+    },
+    "heal_gold_per_hp": 1,
+    "revive_gold": 50
   },
   "cultist": {
     "name": "Сектант",
@@ -80,7 +82,9 @@
       ],
       "kill_early": 2,
       "kill_late": 1
-    }
+    },
+    "heal_gold_per_hp": 1,
+    "revive_gold": 50
   },
   "squire": {
     "name": "Скваер",
@@ -122,7 +126,9 @@
       ],
       "kill_early": 2,
       "kill_late": 1
-    }
+    },
+    "heal_gold_per_hp": 1,
+    "revive_gold": 50
   },
   "archer": {
     "name": "Лучник",
@@ -163,7 +169,9 @@
       ],
       "kill_early": 2,
       "kill_late": 1
-    }
+    },
+    "heal_gold_per_hp": 1,
+    "revive_gold": 50
   },
   "berserker": {
     "name": "Берсерк",
@@ -204,7 +212,9 @@
       ],
       "kill_early": 7,
       "kill_late": 3
-    }
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 200
   },
   "dark_paladin": {
     "name": "Темный паладин",
@@ -245,7 +255,9 @@
       ],
       "kill_early": 13,
       "kill_late": 7
-    }
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400
   },
   "infernal_knight": {
     "name": "Адский рыцарь",
@@ -284,7 +296,9 @@
       ],
       "kill_early": 22,
       "kill_late": 11
-    }
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 600
   },
   "warlock": {
     "name": "Колдун",
@@ -326,7 +340,9 @@
       ],
       "kill_early": 6,
       "kill_late": 3
-    }
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 200
   },
   "witch": {
     "name": "Ведьма",
@@ -367,7 +383,9 @@
       ],
       "kill_early": 3,
       "kill_late": 2
-    }
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 200
   },
   "doppelganger": {
     "name": "Двойник",
@@ -406,7 +424,9 @@
       ],
       "kill_early": 12,
       "kill_late": 6
-    }
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400
   },
   "demonologist": {
     "name": "Демонолог",
@@ -448,7 +468,9 @@
       ],
       "kill_early": 13,
       "kill_late": 7
-    }
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400
   },
   "sorceress": {
     "name": "Колдунья",
@@ -489,7 +511,9 @@
       ],
       "kill_early": 5,
       "kill_late": 2
-    }
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400
   },
   "incubus": {
     "name": "Инкуб",
@@ -528,7 +552,9 @@
       ],
       "kill_early": 9,
       "kill_late": 5
-    }
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 600
   },
   "pandemoneus": {
     "name": "Пандемонеус",
@@ -569,7 +595,9 @@
       ],
       "kill_early": 23,
       "kill_late": 11
-    }
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 600
   },
   "succubus": {
     "name": "Суккуб",
@@ -608,7 +636,9 @@
       ],
       "kill_early": 8,
       "kill_late": 4
-    }
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 600
   },
   "modeus": {
     "name": "Модеус",
@@ -649,7 +679,9 @@
       ],
       "kill_early": 39,
       "kill_late": 19
-    }
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 1000
   },
   "knight": {
     "name": "Рыцарь",
@@ -690,7 +722,9 @@
       ],
       "kill_early": 6,
       "kill_late": 3
-    }
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 200
   },
   "witch_hunter": {
     "name": "Охотник на ведьм",
@@ -733,7 +767,9 @@
       ],
       "kill_early": 5,
       "kill_late": 3
-    }
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 200
   },
   "imperial_knight": {
     "name": "Имперский рыцарь",
@@ -775,7 +811,9 @@
       ],
       "kill_early": 12,
       "kill_late": 6
-    }
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400
   },
   "inquisitor": {
     "name": "Инквизитор",
@@ -818,7 +856,9 @@
       ],
       "kill_early": 9,
       "kill_late": 5
-    }
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400
   },
   "angel": {
     "name": "Ангел",
@@ -857,7 +897,9 @@
       ],
       "kill_early": 23,
       "kill_late": 11
-    }
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 600
   },
   "paladin": {
     "name": "Паладин",
@@ -899,7 +941,9 @@
       ],
       "kill_early": 20,
       "kill_late": 10
-    }
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 600
   },
   "defender_of_faith": {
     "name": "Защитник Веры",
@@ -938,7 +982,9 @@
       ],
       "kill_early": 32,
       "kill_late": 16
-    }
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 800
   },
   "blade_master": {
     "name": "Мастер клинка",
@@ -977,7 +1023,9 @@
       ],
       "kill_early": 30,
       "kill_late": 15
-    }
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 800
   },
   "grand_inquisitor": {
     "name": "Великий инквизитор",
@@ -1020,7 +1068,9 @@
       ],
       "kill_early": 16,
       "kill_late": 8
-    }
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 600
   },
   "marksman": {
     "name": "Стрелок",
@@ -1061,7 +1111,9 @@
       ],
       "kill_early": 6,
       "kill_late": 3
-    }
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 200
   },
   "imperial_assassin": {
     "name": "Имперский ассасин",
@@ -1100,7 +1152,9 @@
       ],
       "kill_early": 14,
       "kill_late": 7
-    }
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400
   },
   "duke": {
     "name": "Герцог",
@@ -1183,7 +1237,9 @@
         "bonus": 20,
         "rounding": "half_up"
       }
-    ]
+    ],
+    "heal_gold_per_hp": 1,
+    "revive_gold": 200
   },
   "titan": {
     "name": "Титан",
@@ -1223,7 +1279,9 @@
       ],
       "kill_early": 12,
       "kill_late": 6
-    }
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 200
   },
   "acolyte": {
     "name": "Служка",
@@ -1266,7 +1324,9 @@
       ],
       "kill_early": 2,
       "kill_late": 1
-    }
+    },
+    "heal_gold_per_hp": 1,
+    "revive_gold": 50
   },
   "priest": {
     "name": "Жрец",
@@ -1308,7 +1368,9 @@
       ],
       "kill_early": 6,
       "kill_late": 3
-    }
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 200
   },
   "cleric": {
     "name": "Клирик",
@@ -1350,7 +1412,9 @@
       ],
       "kill_early": 5,
       "kill_late": 3
-    }
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 200
   },
   "hierophant": {
     "name": "Священник",
@@ -1392,7 +1456,9 @@
       ],
       "kill_early": 16,
       "kill_late": 8
-    }
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400
   },
   "abbess": {
     "name": "Аббатиса",
@@ -1434,7 +1500,9 @@
       ],
       "kill_early": 14,
       "kill_late": 7
-    }
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400
   },
   "patriarch": {
     "name": "Патриарх",
@@ -1474,7 +1542,9 @@
       ],
       "kill_early": 30,
       "kill_late": 15
-    }
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 600
   },
   "prophetess": {
     "name": "Прорицательница",
@@ -1514,7 +1584,9 @@
       ],
       "kill_early": 31,
       "kill_late": 15
-    }
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 600
   },
   "orc": {
     "name": "Орк",
@@ -1554,7 +1626,9 @@
       ],
       "kill_early": 9,
       "kill_late": 4
-    }
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 200
   },
   "goblin": {
     "name": "Гоблин",
@@ -1594,7 +1668,9 @@
       ],
       "kill_early": 1,
       "kill_late": 1
-    }
+    },
+    "heal_gold_per_hp": 1,
+    "revive_gold": 50
   },
   "goblin_archer": {
     "name": "Гоблин лучник",
@@ -1634,6 +1710,8 @@
       ],
       "kill_early": 1,
       "kill_late": 1
-    }
+    },
+    "heal_gold_per_hp": 1,
+    "revive_gold": 50
   }
 }

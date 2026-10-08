@@ -8,7 +8,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from stoix.envs.number_grid import MAP, NumberGrid, SHOOT, DEFEND, CONTINUE, HIT, MISS, GUARD
+from stoix.tests.number_grid_fixtures import MAP
+from stoix.envs.number_grid import NumberGrid, SHOOT, DEFEND, CONTINUE, HIT, MISS, GUARD
 
 
 # These regressions retain the saved v10 combat contract. Version 2 has its own tests.

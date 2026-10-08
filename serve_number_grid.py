@@ -63,7 +63,7 @@ class GameService:
             while len(self.sessions) > 64:
                 self.sessions.popitem(last=False)
             return {'session': token, 'map': env.map_config, 'construction': env.construction.metadata(),
-                    'turn_rules': env.turn_metadata(),
+                    'turn_rules': env.turn_metadata(), 'combat': env.combat_info,
                     'snapshot': self.snapshot(env, state, 0.), 'events': []}
 
     def act(self, token, action):

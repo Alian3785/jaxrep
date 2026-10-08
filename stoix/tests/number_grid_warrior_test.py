@@ -8,8 +8,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from stoix.tests.number_grid_fixtures import MAP
 from stoix.envs.number_grid import (
-    MAP, NumberGrid, wrap_wall_action_mask, SHOOT, DEFEND, WAIT, RETREAT,
+    NumberGrid, wrap_wall_action_mask, SHOOT, DEFEND, WAIT, RETREAT,
     CONTINUE, HIT, MISS, VICTORY, WITHDRAW,
 )
 from stoix.networks.base import FeedForwardActor
@@ -189,7 +190,7 @@ def test_human_service_uses_identical_mask_and_rejects_unreachable_target():
     env = service.env
     state, _ = env.reset(jax.random.PRNGKey(42))
     state = env._begin_battle(state.replace(enemy=jnp.int32(11)))
-    state = state.replace(actor=jnp.int32(env.warrior_slot))
+    state = state.replace(actor=jnp.int32(0))
     service.sessions[session] = (env.construction.faction, state, 0.)
     snapshot = service.snapshot(env, state, 0.)
     np.testing.assert_array_equal(snapshot['action_mask'], env.action_mask(state))

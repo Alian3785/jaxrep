@@ -5,13 +5,14 @@ import jax.numpy as jnp
 import pytest
 
 from numbergrid_config import make_config
-from stoix.envs.number_grid import NumberGrid, MAP, SHOOT, DEFEND, CONTINUE, REST, RESTED
+from stoix.tests.number_grid_fixtures import MAP
+from stoix.envs.number_grid import NumberGrid, SHOOT, DEFEND, CONTINUE, REST, RESTED
 from stoix.utils.make_env import make
 
 
 @pytest.fixture(scope='module')
 def env():
-    return NumberGrid()
+    return NumberGrid(map_config=MAP)
 
 
 def test_ten_moves_exhaust_budget_without_income_or_automatic_turn(env):

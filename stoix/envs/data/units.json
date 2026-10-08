@@ -1,0 +1,54 @@
+{
+  "possessed": {
+    "name": "Одержимый",
+    "level": 1,
+    "role": "melee",
+    "max_hp": 120,
+    "damage": 25,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 50,
+    "attack_type": "weapon",
+    "immunities": [],
+    "protections": []
+  },
+  "cultist": {
+    "name": "Сектант",
+    "level": 1,
+    "role": "area",
+    "max_hp": 45,
+    "damage": 15,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "fire",
+    "immunities": [],
+    "protections": []
+  },
+  "squire": {
+    "name": "Скваер",
+    "level": 1,
+    "role": "melee",
+    "max_hp": 100,
+    "damage": 25,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 50,
+    "attack_type": "weapon",
+    "immunities": [],
+    "protections": []
+  },
+  "archer": {
+    "name": "Лучник",
+    "level": 1,
+    "role": "ranged",
+    "max_hp": 45,
+    "damage": 25,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 60,
+    "attack_type": "weapon",
+    "immunities": [],
+    "protections": []
+  }
+}

@@ -74,16 +74,17 @@ def build(output=None):
         return jax.vmap(lambda state: (env.construction.status(state),
             env.rest_penalty(state), env.unit_experience(state),
             env.unit_stats(state), env.capital.quotes(state, env.max_hp(state)),
-            env.potion_rules.quotes(state, env.max_hp(state))))(states)
+            env.potion_rules.quotes(state, env.max_hp(state)), env.map_commands(state)))(states)
 
     records=[]
     for index in range(3):
         seed=42+index
         device_rollout = rollout(jnp.int32(seed),index==0)
         (initial,mask,max_hp),final,(states,actions,rewards,masks,max_hps)=jax.device_get(device_rollout)
-        statuses,penalties,experiences,stats,quotes,potion_quotes=jax.device_get(snapshot_fields(device_rollout[2][0]))
+        statuses,penalties,experiences,stats,quotes,potion_quotes,commands=jax.device_get(snapshot_fields(device_rollout[2][0]))
         frames=[{'state':state_dict(initial),'action':None,'reward':0.,'total_reward':0.,
                  'action_mask':mask.tolist(),'max_hp':max_hp.tolist(),
+                  'map_commands':np.asarray(env.map_commands(initial)).tolist(),
                  'building_status':np.asarray(env.construction.status(initial)).tolist(),
                  'rest_penalty':float(env.rest_penalty(initial)),
                   'capital_quotes':np.asarray(env.capital.quotes(initial, env.max_hp(initial))).tolist(),
@@ -101,6 +102,7 @@ def build(output=None):
                            'rest_penalty':float(penalties[t]),
                             'capital_quotes':quotes[t].tolist(),
                             'potion_quotes':potion_quotes[t].tolist(),
+                            'map_commands':commands[t].tolist(),
                            'unit_experience':experiences[t].tolist(),
                            'unit_stats':stats[t].tolist() if env.basic_combat else None})
         assert bool(final.done)

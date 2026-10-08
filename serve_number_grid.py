@@ -48,6 +48,7 @@ class GameService:
                 'battle_max_rounds': env.max_rounds,
                 'max_steps': env.max_steps,
                 'action_mask': np.asarray(env.action_mask(state)).tolist(),
+                'map_commands': np.asarray(env.map_commands(state)).tolist(),
                 'max_hp': np.asarray(env.max_hp(state)).tolist(),
                 'building_status': np.asarray(env.construction.status(state)).tolist(),
                 'rest_penalty': float(env.rest_penalty(state)),

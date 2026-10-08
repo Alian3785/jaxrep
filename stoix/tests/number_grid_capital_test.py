@@ -12,12 +12,11 @@ from stoix.envs.number_grid_buildings import BuildingRules, FACTIONS
 
 
 @pytest.fixture(scope='module')
-def game():
-    env = NumberGrid()
-    state, _ = env.reset(jax.random.PRNGKey(42))
+def game(current_game):
+    env, state, advance, battle_step = current_game
     state = state.replace(buildings=env.capital.temple_bit, gold=jnp.int32(1000),
                           recovery_balance=jnp.array([100, 2], jnp.int32))
-    return env, state, jax.jit(env.step), jax.jit(env._battle_step)
+    return env, state, advance, battle_step
 
 
 def test_reference_prices_and_faction_temple_mapping(game):

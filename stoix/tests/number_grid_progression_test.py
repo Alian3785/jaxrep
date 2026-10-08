@@ -13,8 +13,8 @@ from stoix.envs.number_grid_combat import UNITS
 
 
 @pytest.fixture(scope='module')
-def env():
-    return NumberGrid()
+def env(current_game):
+    return current_game[0]
 
 
 def battle(env, enemy=0):

@@ -14,10 +14,8 @@ from stoix.utils.make_env import make
 
 
 @pytest.fixture(scope='module')
-def game():
-    env = NumberGrid()
-    state, _ = env.reset(jax.random.PRNGKey(42))
-    return env, state, jax.jit(env.step)
+def game(current_game):
+    return current_game[:3]
 
 
 def test_starting_stock_observation_and_input_validation(game):

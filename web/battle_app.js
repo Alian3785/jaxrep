@@ -127,6 +127,20 @@
     }
     $('potion-targets').replaceChildren(...cards);
   }
+  function renderMapCommands(snap){
+    const attacks=[];
+    for(const [action,command] of (snap.map_commands||[]).entries()){
+      const [enemy,cost]=command, direction=document.querySelector('.dpad [data-action="'+action+'"]');
+      direction.classList.toggle('attack-direction',enemy>=0);
+      direction.title=enemy>=0?'Атаковать отряд № '+(enemy+1)+' · '+cost+' очков':'Перемещение · '+cost+' очка';
+      if(enemy<0)continue;
+      const button=document.createElement('button');button.dataset.action=action;
+      button.textContent='Атаковать отряд № '+(enemy+1)+' · '+enemyParty(currentMap(),enemy)+' · '+cost+' очков';
+      button.onclick=()=>sendAction(action);attacks.push(button);
+    }
+    $('map-targets').replaceChildren(...attacks);
+    $('map-targets').hidden=!attacks.length;
+  }
   function drawMap(s){
     const map=currentMap();
     const width=canvas.clientWidth;if(!width)return;
@@ -200,7 +214,7 @@
   function eventText(snapshot){
     const s=snapshot.state,a=unitName(s.last_actor),t=unitName(s.last_target);
     switch(s.last_event){
-      case 1:return 'Начался бой с отрядом № '+(s.enemy+1)+'.';
+      case 1:return 'Атака отряда № '+(s.enemy+1)+'. Отряд остаётся на своей клетке; очков перемещения: '+s.movement_points+'.';
       case 2:return isMage(s.last_actor)?a+': заклинание по всем противникам (суммарный урон '+s.last_damage+').'+blockText(s):a+(isWarrior(s.last_actor)?': удар мечом по ':': попадание в ')+t.toLowerCase()+' (−'+s.last_damage+').'+blockText(s);
       case 3:return a+': промах.';
       case 4:return a+' встал в защиту.';
@@ -232,6 +246,7 @@
     renderConstruction(snap);
     renderCapitalServices(snap);
     renderPotions(snap);
+    renderMapCommands(snap);
     $('phase-label').textContent=s.in_battle?'Бой · отряд № '+(s.enemy+1):'Карта '+map.size+' × '+map.size;
     $('remaining').textContent=s.alive.filter(Boolean).length;
     $('wins').textContent=s.alive.filter(v=>!v).length;
@@ -255,7 +270,7 @@
     $('mage-rule').innerHTML='<b>Массовая атака.</b> Маг атакует всех живых противников. Попадание, прибавка к урону, иммунитет и защита проверяются отдельно для каждой цели.';
     $('battle-hint').textContent='Источник атаки, иммунитеты и оставшиеся защиты указаны на карточках. Точность 80% соответствует фактическому шансу попадания 92,2%. Броня и действие защиты уменьшают прошедший урон. Титан занимает обе клетки линии. Служка лечит одного живого союзника на 20 HP.';
     $('attack-hint').textContent=isHealer(s.actor)?'Лечение: выберите живого союзника.':isMage(s.actor)?'Массовая атака: выберите любого живого врага.':isWarrior(s.actor)?(mask.slice(8,14).some(Boolean)?'Ход воина: выберите подсвеченного врага для удара мечом.':'Воин не достаёт до врагов. Можно защищаться, ждать или отступить.'):'Нажмите на живого противника, чтобы выстрелить.';
-    const message=s.won?'Победа! Карта очищена.':s.lost?'Ваш отряд погиб. Начните новую игру.':s.done?'Достигнут лимит. Начните новую игру.':s.in_battle?'Выбирайте цели и берегите свой отряд.':s.movement_points<turns.move_cost?'Очки перемещения закончились. Можно построить здание или отдохнуть.':'Подойдите к любому вражескому отряду.';
+    const message=s.won?'Победа! Карта очищена.':s.lost?'Ваш отряд погиб. Начните новую игру.':s.done?'Достигнут лимит. Начните новую игру.':s.in_battle?'Выбирайте цели и берегите свой отряд.':!s.movement_points?'Очки перемещения закончились. Можно использовать зелья, строить или отдохнуть.':'Шаг на клетку врага — атака. Рядом с отрядом можно пройти без боя.';
     $('message').textContent=message;
     $('map-controls').hidden=s.in_battle||capitalOpen||potionsOpen;$('battle-controls').hidden=!s.in_battle||capitalOpen||potionsOpen;
     $('continue').hidden=!s.in_battle||!mask[17];
@@ -314,6 +329,15 @@
   }
   function setMode(next){if(busy)return;stop();mode=next;messages=[];$('manual-tab').setAttribute('aria-selected',String(mode==='manual'));$('replay-tab').setAttribute('aria-selected',String(mode==='replay'));$('manual-controls').hidden=mode!=='manual';$('replay-controls').hidden=mode!=='replay';render();}
   function nextFrame(){const last=records[recordIndex].frames.length-1;if(frame<last){frame++;const text=eventText(current());if(text)messages.push(text);}if(frame>=last)stop();render();}
+  canvas.ondblclick=event=>{
+    const snap=current();if(mode!=='manual'||!snap||snap.state.in_battle||busy||snap.state.done)return;
+    const rect=canvas.getBoundingClientRect(),map=currentMap();
+    const row=Math.floor((event.clientY-rect.top)/rect.height*map.size),col=Math.floor((event.clientX-rect.left)/rect.width*map.size);
+    const enemy=map.opponent_positions.findIndex((p,i)=>snap.state.alive[i]&&p[0]===row&&p[1]===col);
+    if(enemy<0)return;
+    const action=(snap.map_commands||[]).findIndex(command=>command[0]===enemy);
+    if(action>=0&&snap.action_mask[action])sendAction(action);
+  };
   $('manual-tab').onclick=()=>setMode('manual');$('replay-tab').onclick=()=>setMode('replay');$('replay-tab').disabled=!records.length;
   $('world-view').onclick=()=>{capitalOpen=false;potionsOpen=false;render();};$('capital-view').onclick=()=>{capitalOpen=true;potionsOpen=false;render();};
   $('potions-view').onclick=()=>{capitalOpen=false;potionsOpen=true;render();};

@@ -29,6 +29,7 @@ SHOOT, DEFEND, WAIT, RETREAT, CONTINUE = 8, 14, 15, 16, 17
 REST = BUILD_START + BUILD_SLOTS
 BASE_ACTIONS, ACTIONS = REST + 1, POTION_START + POTION_ACTIONS
 MAX_MOVEMENT_POINTS, MOVE_COST = 20, 2
+BATTLE_ENTRY_COST = (MAX_MOVEMENT_POINTS + 1) // 2
 ACTION_NAMES = ('N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW') + tuple(
     f'shoot_{i}' for i in range(6)) + ('defend', 'wait', 'retreat', 'continue') + tuple(
         f'build_{i}' for i in range(BUILD_SLOTS)) + ('rest',) + tuple(
@@ -266,8 +267,19 @@ class NumberGrid(NumericNumberGrid):
 
     def turn_metadata(self):
         return {"movement_points": MAX_MOVEMENT_POINTS, "move_cost": MOVE_COST,
+                "battle_entry_cost": BATTLE_ENTRY_COST, "attack_requires_points": 1,
                 "income": DAILY_GOLD, "rest_action": REST,
                 "regeneration_percent": 10, "regeneration_rounding": "ceil", "automatic_revive": False}
+
+    def map_commands(self, state):
+        """UI/export quotes: exact target stack (-1 for a move) and point cost."""
+        destinations = state.position[None] + self.directions
+        matches = state.alive[None, :] & jnp.all(
+            destinations[:, None, :] == self.opponent_positions[None, :, :], axis=-1)
+        attacking = jnp.any(matches, axis=1)
+        targets = jnp.where(attacking, jnp.argmax(matches, axis=1), -1)
+        costs = jnp.where(attacking, jnp.minimum(state.movement_points, BATTLE_ENTRY_COST), MOVE_COST)
+        return jnp.stack((targets, costs), axis=1)
 
     def rest_penalty(self, state):
         return state.movement_points * jnp.float32(self.rest_penalty_per_point)
@@ -419,9 +431,9 @@ class NumberGrid(NumericNumberGrid):
         destination = state.position[None] + self.directions
         occupied = jnp.any(state.alive[None, :] & jnp.all(
             destination[:, None, :] == self.opponent_positions[None, :, :], axis=-1), axis=1)
-        movement = super().action_mask(state) & ~occupied & ~state.in_battle
+        movement = super().action_mask(state) & ~state.in_battle
         if self.basic_combat:
-            movement &= state.movement_points >= MOVE_COST
+            movement &= state.movement_points >= jnp.where(occupied, 1, MOVE_COST)
         controlled = state.in_battle & (state.actor < 6) & ~state.retreating[state.actor]
         targets = (state.hp[6:] > 0) & ~state.escaped[6:] & controlled
         if self.basic_combat:
@@ -485,11 +497,13 @@ class NumberGrid(NumericNumberGrid):
 
     def _world_step(self, state, action, key, random_values):
         destination = state.position + self.directions[jnp.clip(action, 0, 7)]
-        moved = action < 8  # step() checks the complete legality mask.
+        # A directional command aimed at an occupied tile attacks that exact stack.
+        # The attacker stays on its own tile, including after victory/retreat.
+        targeted = state.alive & jnp.all(self.opponent_positions == destination, axis=1)
+        engage = (action < 8) & jnp.any(targeted)
+        moved = (action < 8) & ~engage  # step() checks bounds and movement points.
         position = jnp.where(moved, destination, state.position)
-        nearby = state.alive & (jnp.max(jnp.abs(self.opponent_positions - position), axis=1) == 1)
-        engage = moved & jnp.any(nearby)
-        enemy = jnp.argmax(nearby).astype(jnp.int32)
+        enemy = jnp.argmax(targeted).astype(jnp.int32)
         map_steps = state.map_steps + moved.astype(jnp.int32)
         resting = (action == REST) if self.basic_combat else jnp.bool_(False)
         gold = state.gold + jnp.where(resting, DAILY_GOLD, 0)
@@ -513,7 +527,8 @@ class NumberGrid(NumericNumberGrid):
                     building_action, self.construction.blocks[building], jnp.uint32(0)),
                 built_today=~resting & (state.built_today | building_action),
                 movement_points=jnp.where(resting, MAX_MOVEMENT_POINTS,
-                                          state.movement_points - moved.astype(jnp.int32) * MOVE_COST),
+                                          jnp.maximum(0, state.movement_points - jnp.where(
+                                              engage, BATTLE_ENTRY_COST, moved.astype(jnp.int32) * MOVE_COST))),
                 day=state.day + resting.astype(jnp.int32),
                 hp=jnp.where(resting & (state.hp > 0),
                              jnp.minimum(state.hp + rest_healing, rest_max), state.hp),
@@ -532,7 +547,7 @@ class NumberGrid(NumericNumberGrid):
             word, bit = cell // 32, jnp.left_shift(jnp.uint32(1), (cell % 32).astype(jnp.uint32))
             first = (state.visited[word] & bit) == 0
             bonus += jnp.where(first & moved, jnp.float32(self.exploration_bonus), 0.)
-            next_state = next_state.replace(visited=state.visited.at[word].set(state.visited[word] | bit))
+            next_state = next_state.replace(visited=state.visited.at[word].set(state.visited[word] | jnp.where(moved, bit, jnp.uint32(0))))
         next_state = jax.lax.cond(engage, lambda s: self._begin_battle(s, key, random_values), lambda s: s, next_state)
         return next_state, bonus
 
@@ -720,12 +735,12 @@ class NumberGrid(NumericNumberGrid):
         # Validate only the selected move/target here. The full action mask is
         # generated once for the next observation, not twice per transition.
         destination = state.position + self.directions[jnp.clip(action, 0, 7)]
+        occupied = jnp.any(state.alive & jnp.all(self.opponent_positions == destination, axis=1))
         world_valid = ((action >= 0) & (action < 8)
-                       & jnp.all((destination > 0) & (destination < self.size - 1))
-                       & ~jnp.any(state.alive & jnp.all(self.opponent_positions == destination, axis=1)))
+                       & jnp.all((destination > 0) & (destination < self.size - 1)))
         if self.basic_combat:
             building = jnp.clip(action - BUILD_START, 0, BUILD_SLOTS-1)
-            world_valid &= state.movement_points >= MOVE_COST
+            world_valid &= state.movement_points >= jnp.where(occupied, 1, MOVE_COST)
             world_valid |= ((action >= BUILD_START) & (action < REST)
                             & self.construction.available(state, building)) | (action == REST)
         if self.capital_enabled:

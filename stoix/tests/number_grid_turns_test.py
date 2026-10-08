@@ -79,7 +79,7 @@ def test_invalid_actions_battle_and_terminal_states_cannot_advance_the_day(env):
     battle = env._begin_battle(world.replace(enemy=jnp.int32(11))).replace(actor=jnp.int32(0))
     states = (
         world.replace(position=jnp.array([1, 1], jnp.int32)),
-        world.replace(position=jnp.array([3, 7], jnp.int32)),
+        world.replace(position=jnp.array([3, 7], jnp.int32), movement_points=jnp.int32(0)),
         world, world, world.replace(done=jnp.bool_(True)),
         battle, battle, battle.replace(actor=jnp.int32(6)), battle,
     )
@@ -94,9 +94,9 @@ def test_invalid_actions_battle_and_terminal_states_cannot_advance_the_day(env):
     chex.assert_trees_all_equal(following.battle_key[-1], battle.battle_key)
 
 
-def test_last_move_engages_battle_and_recovery_does_not_restore_movement(env):
+def test_last_points_can_attack_and_recovery_does_not_restore_movement(env):
     state, _ = env.reset(jax.random.PRNGKey(42))
-    state = state.replace(position=jnp.array([2, 6], jnp.int32), movement_points=jnp.int32(2))
+    state = state.replace(position=jnp.array([3, 7], jnp.int32), movement_points=jnp.int32(2))
     state, _ = jax.jit(env.step)(state, jnp.int32(2))
     assert state.in_battle and state.gold == 0 and state.movement_points == 0
     state = state.replace(actor=jnp.int32(0))
@@ -104,7 +104,7 @@ def test_last_move_engages_battle_and_recovery_does_not_restore_movement(env):
     escaping = state.replace(hp=state.hp.at[1:6].set(0), retreating=state.retreating.at[0].set(True))
     escaped, _ = jax.jit(env._battle_step)(escaping, jnp.int32(CONTINUE), escaping.battle_key, jnp.zeros(36))
     for recovered in (won, escaped):
-        assert not recovered.in_battle and recovered.day == 1 and recovered.map_steps == 1
+        assert not recovered.in_battle and recovered.day == 1 and recovered.map_steps == 0
         assert recovered.movement_points == recovered.gold == 0
         assert not jnp.any(env.action_mask(recovered)[:8]) and env.action_mask(recovered)[REST]
 

@@ -157,18 +157,30 @@ def test_shortest_path_matches_jax_and_reward_six():
     assert len(actions) == 17
 
 
+def gpu_reference_sequence(env, actions):
+    """Keep every transition, but transfer the GPU trace once rather than per step."""
+    initial = reset(env)
+    def advance(state, action):
+        following, ts = env.step(state, action)
+        carry = jax.tree.map(lambda start, value: jnp.where(following.done, start, value),
+                             initial, following)
+        return carry, (following, ts.reward)
+    _, trace = jax.jit(lambda start, moves: jax.lax.scan(advance, start, moves))(
+        initial, jnp.asarray(actions, jnp.int32))
+    return jax.device_get(trace)
+
+
 def test_random_transitions_against_independent_reference():
-    env = NumberGrid()
-    state = reset(env)
+    actions = np.random.default_rng(17).integers(-1, 9, size=2048)
+    states, rewards = gpu_reference_sequence(NumberGrid(), actions)
     ref = initial_state()
-    compiled = jax.jit(env.step)
-    for action in np.random.default_rng(17).integers(-1, 9, size=2048):
-        state, ts = compiled(state, jnp.int32(action))
+    for index, action in enumerate(actions):
         ref, reward = reference_step(ref, int(action))
+        state = jax.tree.map(lambda value, index=index: value[index], states)
         assert plain(state) == ref
-        assert float(ts.reward) == reward
+        assert float(rewards[index]) == reward
         if ref['done']:
-            state, ref = reset(env), initial_state()
+            ref = initial_state()
 
 
 def test_vmap_and_jit_run_on_selected_device():
@@ -242,17 +254,16 @@ def test_current_grid_vmap_scan_on_gpu():
 
 
 def test_current_grid_against_reference():
-    env = CurrentNumberGrid()
-    state = reset(env)
+    actions = np.random.default_rng(23).integers(-1,9,size=1024)
+    states, rewards = gpu_reference_sequence(CurrentNumberGrid(), actions)
     ref = reference.initial_state(MAP)
-    compiled = jax.jit(env.step)
-    for action in np.random.default_rng(23).integers(-1,9,size=1024):
-        state, ts = compiled(state, jnp.int32(action))
+    for index, action in enumerate(actions):
         ref, reward = reference.step(ref, int(action), MAP)
+        state = jax.tree.map(lambda value, index=index: value[index], states)
         assert plain(state) == ref
-        assert float(ts.reward) == pytest.approx(reward, abs=1e-6)
+        assert float(rewards[index]) == pytest.approx(reward, abs=1e-6)
         if ref['done']:
-            state, ref = reset(env), reference.initial_state(MAP)
+            ref = reference.initial_state(MAP)
 
 
 @pytest.mark.parametrize('enemy', range(12))

@@ -1,5 +1,5 @@
 {
-  "name": "NumberGrid-24x24-v21-map-potions",
+  "name": "NumberGrid-24x24-v22-targeted-engagement",
   "size": 24,
   "agent_position": [
     2,
@@ -455,5 +455,6 @@
     5,
     5,
     10
-  ]
+  ],
+  "battle_engagement": "A directional command targeting a living enemy stack starts combat from the current tile. Passing beside a stack is safe. Entry costs ceil(half the full movement allowance), capped at remaining points; zero points forbids attack. Victory and retreat keep the attacker on its original tile."
 }

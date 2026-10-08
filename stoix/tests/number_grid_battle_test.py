@@ -85,16 +85,15 @@ def test_fixed_map_has_a_playable_full_route_with_archer_battles():
     route = []
     while alive:
         queue, seen, found = deque([(position, [])]), {position}, None
-        occupied = {opponents[i] for i in alive}
+        occupied = {opponents[i]: i for i in alive}
         while queue and found is None:
             pos, path = queue.popleft()
             for action, (dr,dc) in enumerate(DIRECTIONS):
                 dest = (pos[0]+dr,pos[1]+dc)
-                if not all(0 < x < MAP['size']-1 for x in dest) or dest in occupied:
+                if not all(0 < x < MAP['size']-1 for x in dest):
                     continue
-                nearby = [i for i in sorted(alive) if max(abs(opponents[i][0]-dest[0]),abs(opponents[i][1]-dest[1])) == 1]
-                if nearby:
-                    found = (dest, path+[action], nearby[0])
+                if dest in occupied:
+                    found = (pos, path+[action], occupied[dest])
                     break
                 if dest not in seen:
                     seen.add(dest)
@@ -151,21 +150,26 @@ def test_invalid_enemy_strength_rejected(count, hp):
         NumberGrid(map_config={**MAP, 'enemy_units':counts, 'enemy_hp':health})
 
 
-def test_diagonal_contact_ignores_numbers_and_selects_one_enemy():
+def test_diagonal_attack_ignores_numbers_and_targets_the_occupied_cell():
     positions = [[4,4], [4,5]] + MAP['opponent_positions'][2:]
     env = NumberGrid(map_config={**MAP, 'opponent_positions':positions,
                                 'opponent_numbers':[12]*len(positions)})
     state, _ = env.reset(jax.random.PRNGKey(0))
-    next_state, ts = jax.jit(env.step)(state, jnp.int32(3))  # [2,2] -> [3,3]
+    advance = jax.jit(env.step)
+    near, ts = advance(state, jnp.int32(3))  # [2,2] -> [3,3], safely beside enemy
+    assert not near.in_battle and float(ts.reward) == pytest.approx(.009)
+    np.testing.assert_array_equal(near.position, [3,3])
+    next_state, ts = advance(near, jnp.int32(3))  # target [4,4], stay at [3,3]
     assert next_state.in_battle and not next_state.lost
     assert next_state.enemy == 0 and next_state.last_event == ENGAGE
     assert np.all(next_state.alive) and next_state.number == state.number
     assert next_state.hp[6] == 20 and np.sum(next_state.hp[6:] > 0) == 1
-    assert float(ts.reward) == pytest.approx(.009)
-    np.testing.assert_array_equal(next_state.origin, [2,2])
-    # Occupied destinations are masked before movement.
+    assert float(ts.reward) == pytest.approx(-env.step_cost)
+    np.testing.assert_array_equal(next_state.origin, [3,3])
+    np.testing.assert_array_equal(next_state.position, [3,3])
+    # Occupied destinations are attack commands in the same directional mask.
     near = state.replace(position=jnp.array([3,4]))
-    assert not env.action_mask(near)[4]
+    assert env.action_mask(near)[4] and env.action_mask(near)[3]
 
 
 def test_jitted_reset_and_initiative_are_seeded():

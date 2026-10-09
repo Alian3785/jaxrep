@@ -25,8 +25,8 @@ def potion_columns(env,state):
 def test_starting_stock_observation_and_input_validation(game):
     env, state, _ = game
     assert state.potions.tolist() == [5,5,5,10]
-    assert env.num_actions == 81 and env.observation_size == 983
-    assert env.observation(state).shape == (983,)
+    assert env.num_actions == 87 and env.observation_size == 1031
+    assert env.observation(state).shape == (1031,)
     chex.assert_trees_all_equal(env.observation(state)[potion_columns(env,state)], jnp.ones(4))
     used = state.replace(potions=jnp.array([4,3,0,9]))
     chex.assert_trees_all_close(env.observation(used)[potion_columns(env,state)], jnp.array([.8,.6,0.,.9]))

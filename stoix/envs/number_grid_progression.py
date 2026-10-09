@@ -67,6 +67,18 @@ class ProgressionRules:
                    zip(game_map['enemy_rosters'], enemy_overrides)]
         levels = [r['level'] for r in rows]
         self.rows = rows
+        self.doppelgangers = jnp.array([r.get('unit_type') == 'Doppelganger' for r in rows])
+        self.copy_forbidden = jnp.array([r.get('game_data', {}).get('UNIT_CAT') == '8'
+            or r.get('name') in ('Драллиаан','Лаклаан','Drulliaan','Laclaan') for r in rows])
+        self.imp_copy_id = next(i for i,r in enumerate(rows) if r.get('game_id') == 'g000uu5034')
+        self.fenrir_copy_id = self.ids.get('g000uu0190', next(i for i,r in enumerate(rows) if r.get('game_id') == 'g000uu0190'))
+        summon_types = {'Summoner':1, 'Occultmaster':2, 'Lyf':2, 'Laclaan':2}
+        self.summon_modes = jnp.array([summon_types.get(r.get('unit_type'),0) for r in rows],jnp.int32)
+        self.immediate_dragons = jnp.array([r.get('unit_type') == 'Laclaan' for r in rows])
+        self.summon_small = jnp.array([( [self.ids[k] for k in r.get('summon_pool',[])
+            if UNITS[k].get('size',1) == 1]+[0]*8)[:8] for r in rows],jnp.int32)
+        self.summon_large = jnp.array([( [self.ids[k] for k in r.get('summon_pool',[])
+            if UNITS[k].get('size',1) == 2]+[0]*8)[:8] for r in rows],jnp.int32)
         self.hermits = jnp.array([r.get('unit_type') == 'Hermit' for r in rows])
         self.alchemists = jnp.array([r.get('unit_type') == 'Alchemist' for r in rows])
         self.patriarchs = jnp.array([r.get('unit_type') == 'Patriach' for r in rows])
@@ -102,12 +114,25 @@ class ProgressionRules:
         # roster; follow supported forms before eliminating the effect at jit.
         pending, reached = list(hero), set(hero)
         while pending:
-            for target in rows[pending.pop()]['upgrades']:
+            row = rows[pending.pop()]
+            for target in row['upgrades']:
                 target_id = self.ids.get(target)
                 if target_id is not None and target_id not in reached:
                     reached.add(target_id)
                     pending.append(target_id)
         used_ids |= reached
+        # Enemy forms never promote, but their summons can introduce additional
+        # combat behavior. Follow those pools without enabling enemy upgrades.
+        pending = list(used_ids)
+        while pending:
+            for target in rows[pending.pop()].get('summon_pool',[]):
+                target_id = self.ids[target]
+                if target_id not in used_ids:
+                    used_ids.add(target_id)
+                    pending.append(target_id)
+        self.has_healers = any(rows[i]['role'] == 'healer' for i in used_ids)
+        self.has_copies = any(rows[i].get('unit_type') == 'Doppelganger' for i in used_ids)
+        self.has_summons = any(rows[i].get('unit_type') in summon_types for i in used_ids)
         self.has_hermits = any(rows[i].get('unit_type') == 'Hermit' for i in used_ids)
         self.has_alchemists = any(rows[i].get('unit_type') == 'Alchemist' for i in used_ids)
         self.has_patriarchs = any(rows[i].get('unit_type') == 'Patriach' for i in used_ids)
@@ -126,7 +151,7 @@ class ProgressionRules:
         self.has_weakening = any(rows[i].get('unit_type') == 'Tiamat' for i in used_ids)
         self.secondary_paralysis_modes = jnp.array([1 if (r.get('game_id') in ('g000uu5026','g000uu5126') or r.get('unit_type') == 'Abyss Devil') else 2 if r.get('unit_type') in ('Betrezen','Uter','Uter Demon','Abyss Devil') else 0 for r in rows],jnp.int32)
         self.has_secondary_paralysis = any(rows[i].get('unit_type') in ('Betrezen','Uter','Uter Demon','Abyss Devil') for i in used_ids)
-        self.ghost_modes = jnp.array([2 if r.get('game_id') == 'g000uu8044' else 1 if r.get('unit_type') in ('Ghost','Shadow','Incub') else 0 for r in rows],jnp.int32)
+        self.ghost_modes = jnp.array([2 if r.get('game_id') in ('g000uu8044','g000uu8144') else 1 if r.get('unit_type') in ('Ghost','Shadow','Incub') else 0 for r in rows],jnp.int32)
         self.has_paralysis = self.has_fear or self.has_secondary_paralysis or any(rows[i].get('unit_type') in ('Ghost','Shadow','Incub') for i in used_ids)
         self.leech_modes = jnp.array([2 if r.get('unit_type') in ('Bone Lord','Highvampire') else 1 if r.get('unit_type') in ('Dregazul','Vampire') else 0 for r in rows],jnp.int32)
         self.has_leech = any(rows[i].get('unit_type') in ('Bone Lord','Dregazul','Vampire','Highvampire') for i in used_ids)
@@ -304,6 +329,7 @@ class ProgressionRules:
         ended = victory | lost | withdrawal
         winners = (jnp.arange(12) < 6) == victory
         recipients = (hp > 0) & ~escaped & winners & ended & (state.unit_ids != 0)
+        recipients &= self.required[state.unit_ids] > 0
         count = jnp.maximum(jnp.sum(recipients), 1)
         total = jnp.where(victory, bank[1], bank[0])
         # floor(total/count + .5), exact integer arithmetic, not bankers' round.

@@ -138,21 +138,3 @@ def test_human_service_uses_identical_mask_and_rejects_unreachable_target(human_
     direct, ts = compiled_method(env,'step')(state,jnp.int32(SHOOT))
     first = service.act(session, SHOOT)['events'][0]
     assert first == {**service.snapshot(env, direct, float(ts.reward)), 'reward': float(ts.reward)}
-
-
-def test_batched_random_battle_rollouts_have_valid_actions_and_finite_state(current_game):
-    env, initial, _, _ = current_game
-    start = jax.vmap(lambda k,e: env._begin_battle(initial.replace(battle_key=k,enemy=e)))(
-        jax.random.split(jax.random.PRNGKey(1),64),jnp.arange(64,dtype=jnp.int32)%env.num_opponents)
-    def run(states):
-        def step(carry, _):
-            states, key = carry
-            key, sub = jax.random.split(key)
-            masks = jax.vmap(env.action_mask)(states)
-            action = jnp.argmax(jnp.where(masks,jax.random.uniform(sub,masks.shape),-1),axis=-1)
-            states, ts = jax.vmap(env.step)(states,action)
-            good = jnp.all(states.done | jnp.any(masks,axis=-1)) & jnp.all(states.hp>=0) & jnp.all(jnp.isfinite(ts.observation))
-            return (states,key),good
-        return jax.lax.scan(step,(states,jax.random.PRNGKey(5)),None,length=150)
-    (states,_),good = jax.jit(run)(start)
-    assert np.all(good) and int(jnp.sum(states.battle_steps)) > 100

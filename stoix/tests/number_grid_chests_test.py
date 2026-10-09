@@ -16,7 +16,7 @@ from stoix.envs.number_grid_potions import POTION_START
 
 def test_chest_configuration_observation_and_invalid_loot(current_game):
     env, state, _, _ = current_game
-    assert env.observation_version == 27 and env.observation_size == 983 and env.num_actions == 81
+    assert env.observation_version == 28 and env.observation_size == 1031 and env.num_actions == 87
     assert state.chest_alive.tolist() == [True]*5 and state.potions.tolist() == [5,5,5,10]
     positions = [tuple(c['position']) for c in MAP['chests']]
     assert len(set(positions)) == 5

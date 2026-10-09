@@ -20,8 +20,8 @@ def test_named_armies_exactly_match_python_reference_level_one_profiles(current_
     env = current_game[0]
     state, ts = compiled_method(env,'reset')(jax.random.PRNGKey(42))
     chex.assert_trees_all_equal(state.hp[:6], jnp.array([120, 150, 120, 45, 45, 0]))
-    assert ts.observation.shape == (983,) and env.observation_size == 983
-    assert env.action_space().num_values == 81 and env.hero_count == 5
+    assert ts.observation.shape == (1031,) and env.observation_size == 1031
+    assert env.action_space().num_values == 87 and env.hero_count == 5
     expected = dict(duke=(150, 50, 80, 0, 50, 'weapon'), possessed=(120, 25, 80, 0, 50, 'weapon'), cultist=(45, 15, 80, 0, 40, 'fire'),
                     squire=(100, 25, 80, 0, 50, 'weapon'), archer=(45, 25, 80, 0, 60, 'weapon'))
     for name, values in expected.items():
@@ -61,9 +61,10 @@ def source_cases(target=1):
 def attack_batch(env, states, values=None, action=CONTINUE):
     if values is None:
         values = jnp.zeros(env.random_size)
-    if not hasattr(env,'_test_source_attacks'):
-        env._test_source_attacks = jax.jit(jax.vmap(env._battle_step,in_axes=(0,None,0,None)))
-    return env._test_source_attacks(states,jnp.int32(action),states.battle_key,values)[0]
+    attack = compiled_method(env,'_battle_step')
+    results = [attack(jax.tree.map(lambda x,i=i:x[i],states),jnp.int32(action),states.battle_key[i],values)[0]
+               for i in range(states.hp.shape[0])]
+    return jax.tree.map(lambda *xs:jnp.stack(xs),*results)
 
 
 def test_all_nine_immunities_block_repeated_hits_before_consuming_wards():
@@ -102,19 +103,18 @@ def test_all_nine_wards_absorb_one_hit_misses_do_not_consume_and_rounds_do_not_r
     chex.assert_trees_all_equal(restored.hp[:, :6], second.hp[:, :6])
 
 
-def test_area_attack_checks_each_target_and_both_cultists_use_fire():
-    overrides = [[{} for _ in range(n)] for n in MAP['enemy_units']]
-    overrides[11] = [dict(immunities=['FiRe'], protections=['fire']), dict(protections=['FIRE', 'fire'])]+[{}]*4
-    env = current(enemy_combat_stats=overrides)
-    world, _ = env.reset(jax.random.PRNGKey(42))
+def test_area_attack_checks_each_target_and_both_cultists_use_fire(elemental_attack_game):
+    from stoix.tests.number_grid_fixtures import hero_roster_state
+    env, world, _ = elemental_attack_game
+    world = hero_roster_state(env,world,MAP['hero_roster'])
     state = env._begin_battle(world.replace(enemy=jnp.int32(11)))
+    state = state.replace(unit_ids=state.unit_ids.at[6:8].set(env.progression.enemy_ids[2,:2]))
     state = state.replace(hp=state.hp.at[6:].set(jnp.array([45, 100, 0, 45, 45, 45])),
                           escaped=state.escaped.at[9].set(True))
     states = jax.tree.map(lambda x: jnp.broadcast_to(x, (2,)+x.shape), state)
     states = states.replace(actor=jnp.array([3, 4], jnp.int32))
     rolls = jnp.zeros(env.random_size).at[16].set(.999).at[22].set(.999)  # target slot 4 misses
-    result, _ = jax.jit(jax.vmap(env._battle_step, in_axes=(0, None, 0, None)))(
-        states, jnp.int32(SHOOT), states.battle_key, rolls)
+    result = attack_batch(env,states,rolls,SHOOT)
     chex.assert_trees_all_equal(result.hp[:, 6:], jnp.tile(jnp.array([45, 100, 0, 45, 45, 30]), (2, 1)))
     chex.assert_trees_all_equal(result.last_damage, jnp.full(2, 15, jnp.int32))
     chex.assert_trees_all_equal(result.last_immune, jnp.full(2, 1 << 6, jnp.uint32))

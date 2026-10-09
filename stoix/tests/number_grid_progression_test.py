@@ -42,7 +42,7 @@ def test_initial_experience_and_observation_contract(env):
     enemy = battle(env, 11)
     chex.assert_trees_all_equal(env.unit_experience(enemy)[6:],
         jnp.array([[1,20,70,0],[1,20,80,0]]+[[1,20,70,0]]*4))
-    assert ts.observation.shape == (983,) and env.observation_size == 983
+    assert ts.observation.shape == (1031,) and env.observation_size == 1031
     encoded = ts.observation[160+5*env.num_opponents:220+5*env.num_opponents].reshape(12,5)
     chex.assert_trees_all_close(encoded[:5,2], jnp.array([.025,.06,.025,.02,.02]))
     chex.assert_trees_all_equal(encoded[5:], jnp.zeros((7,5)))
@@ -177,16 +177,19 @@ def test_dynamic_armor_damage_retains_python_rounding(env):
     chex.assert_trees_all_equal(damage,jnp.array(expected))
 
 
-def test_unsupported_forms_and_foreign_buildings_do_not_fake_promotions():
+def test_foreign_buildings_do_not_fake_promotions():
     game_map = copy.deepcopy(MAP)
     game_map['faction'] = 'empire'
     env = NumberGrid(map_config=game_map)
     s = battle(env).replace(actor=jnp.int32(0))
     s = s.replace(buildings=jnp.uint32(1), unit_xp=s.unit_xp.at[0].set(94), hp=s.hp.at[6].set(1))
-    out = jax.tree.map(lambda x:x[0],win(env,stack(s)))
-    assert out.unit_xp[0] == 94 and out.unit_ids[0] == s.unit_ids[0]
-    with pytest.raises(ValueError,match='пока не реализован'):
-        NumberGrid(map_config={**MAP,'hero_roster':['possessed']*3+['doppelganger','cultist',None]})
+    # The cross-faction rule belongs to finish(); victory integration is tested
+    # above with the shared current environment, without another combat graph.
+    ids, _, xp, *_ = jax.jit(env.progression.finish)(s,s.hp,s.escaped,
+        jnp.bool_(True),jnp.bool_(False),jnp.bool_(False),jnp.array([0,25],jnp.int32))
+    assert xp[0] == 94 and ids[0] == s.unit_ids[0]
+    copier = NumberGrid(map_config={**MAP,'hero_roster':['possessed']*3+['doppelganger','cultist',None]})
+    assert copier.has_copies
 
 
 def test_human_snapshot_reports_current_form_and_xp(env, human_service):
@@ -203,22 +206,17 @@ def test_human_snapshot_reports_current_form_and_xp(env, human_service):
     assert snap['max_hp'][0] == 170
 
 
-def test_unimplemented_branches_are_masked_and_rejected_by_step(env):
+def test_doppelganger_branch_is_available_after_prerequisites(env):
     s, _ = env.reset(jax.random.PRNGKey(42))
     s = s.replace(gold=jnp.int32(10000))
     unavailable = {u['name'] for u in UNITS.values() if u.get('upgrade_unavailable_reason')}
     blocked_slots = [i for i, row in enumerate(env.construction.rows) if row['unit'] in unavailable]
-    assert 6 in blocked_slots  # Doppelganger is explicitly excluded from the task.
-    slots = jnp.array(blocked_slots,jnp.int32)
-    assert jnp.all(env.construction.status(s)[slots] == 2)
-    assert not jnp.any(env.action_mask(s)[18+slots])
-    states = jax.tree.map(lambda x:jnp.broadcast_to(x,(len(blocked_slots),)+x.shape),s)
-    following, _ = compiled_method(env,'step',batched=True)(states,18+slots)
-    chex.assert_trees_all_equal(following.gold,states.gold)
-    chex.assert_trees_all_equal(following.buildings,states.buildings)
-    chex.assert_trees_all_equal(following.unit_xp,states.unit_xp)
-    for slot in blocked_slots:
-        assert env.construction.metadata()['buildings'][slot]['unavailable_reason']
+    assert not blocked_slots
+    assert not env.construction.metadata()['buildings'][6]['unavailable_reason']
+    s = s.replace(buildings=jnp.uint32(1 << 4))
+    assert env.action_mask(s)[18+6]
+    following,_ = compiled_method(env,'step')(s,jnp.int32(18+6))
+    assert following.buildings & (1 << 6) and following.gold < s.gold
 
 
 @pytest.mark.parametrize('override',[dict(exp_kill=-1),dict(exp_required=1.5),dict(exp_current=95)])

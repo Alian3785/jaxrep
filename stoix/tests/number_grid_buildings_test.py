@@ -31,7 +31,11 @@ def env(request):
 
 def compiled_build_step(env):
     if not hasattr(env, '_test_build_step'):
-        env._test_build_step = compiled_method(env,'step',batched=True)
+        # These faction cases are all on the map. A static world-mode input
+        # removes the unused battle branch; Legions retain full mode validation.
+        env._test_build_step = (compiled_method(env,'step',batched=True)
+            if env.construction.faction == 'legions' else
+            jax.jit(jax.vmap(lambda state,action:env.step(state.replace(in_battle=jnp.bool_(False)),action))))
     return env._test_build_step
 
 def step_build_cases(env, states, actions):
@@ -211,7 +215,7 @@ def test_human_sessions_build_with_shared_actions_and_isolate_factions(human_ser
         sessions.append(token)
         assert game['construction']['buildings'][0]['name'] == first_building
         assert game['map']['faction'] == faction
-        assert len(game['snapshot']['action_mask']) == ACTIONS == 81
+        assert len(game['snapshot']['action_mask']) == ACTIONS == 87
         stored_faction, state, total = service.sessions[token]
         assert stored_faction == faction and state.gold == state.buildings == 0
         if faction == 'elves':

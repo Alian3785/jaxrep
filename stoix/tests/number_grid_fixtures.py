@@ -28,16 +28,22 @@ def compiled_method(env, name, batched=False):
     if key not in env._test_jit_methods:
         method = getattr(env,name)
         compiled = jax.jit(jax.vmap(method) if batched else method)
+        import jax.numpy as jnp
+        def invoke(*args):
+            # jnp.full(..., .99) is weakly typed while jnp.zeros(...) is not.
+            # Normalize inputs so equivalent float32/int32 scenarios reuse the
+            # same CUDA executable instead of recompiling the entire battle.
+            args = jax.tree.map(lambda x:jnp.asarray(x,dtype=jnp.asarray(x).dtype),args)
+            return compiled(*args)
         if batched and name in ('step','_battle_step'):
-            import jax.numpy as jnp
             def shared_batch(*args):
                 count = jax.tree.leaves(args)[0].shape[0]
                 capacity = max(64,1 << (count-1).bit_length())
                 padded = jax.tree.map(lambda x:jnp.concatenate((x,jnp.repeat(x[:1],capacity-count,axis=0))),args)
-                return jax.tree.map(lambda x:x[:count],compiled(*padded))
+                return jax.tree.map(lambda x:x[:count],invoke(*padded))
             env._test_jit_methods[key] = shared_batch
         else:
-            env._test_jit_methods[key] = compiled
+            env._test_jit_methods[key] = invoke
     return env._test_jit_methods[key]
 
 

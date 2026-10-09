@@ -32,10 +32,17 @@ def test_scenario_actions_only_include_obtainable_potions(current_game):
     rules=PotionRules(dict(initial_potions={'speed':0},chests=[dict(potions={'celerity':5})]))
     assert rules.keys==('celerity',) and rules.action_count==6
     assert rules.metadata()[0]['action_start']==POTION_START
+    assert rules.initial_counts.tolist()==[0]
     assert PotionRules(dict(initial_potions={},chests=[])).count==0
     for value in ([],{'unknown':1},{'healing':-1},{'healing':True},{'healing':2**31}):
         with pytest.raises(ValueError,match='initial_potions'):
             PotionRules(dict(initial_potions=value))
+
+
+def test_chest_potions_without_initial_inventory_start_at_zero():
+    rules=PotionRules(dict(chests=[dict(potions={'healing':2,'celerity':5})]))
+    assert rules.keys==('healing','celerity') and rules.action_count==12
+    assert rules.initial_counts.tolist()==[0,0]
 
 
 def test_catalogue_matches_installed_original_records():

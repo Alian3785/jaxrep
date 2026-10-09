@@ -317,7 +317,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             profiles = [self.combat_info['heroes']+squad for squad in self.combat_info['enemies']]
             self.size_table = jnp.array([[p['size'] if p else 0 for p in squad] for squad in profiles], jnp.int32)
             self.mass_healers = jnp.array([[bool(p and p['unit_type'] in ('Profit','Deva roshi')) for p in squad] for squad in profiles])
-            self.mass_cures = jnp.array([[bool(p and p['unit_type'] == 'Profit' and p['name'] in ('РђР±Р±Р°С‚РёСЃР°','РџСЂРѕСЂРёС†Р°С‚РµР»СЊРЅРёС†Р°','Matriarch','Prophetess')) for p in squad] for squad in profiles])
+            self.mass_cures = jnp.array([[bool(p and p['unit_type'] == 'Profit' and p['name'] in ('Аббатиса','Прорицательница','Matriarch','Prophetess')) for p in squad] for squad in profiles])
             power_types = {'Travnitsa':1.25,'Novice':1.5,'Dwarfdruid':1.75,'Arhidruid':2.}
             self.power_factors = jnp.array([[power_types.get(p['unit_type'],0.) if p else 0. for p in squad] for squad in profiles])
             self.power_cures = jnp.array([[bool(p and p['unit_type'] in ('Dwarfdruid','Arhidruid')) for p in squad] for squad in profiles])
@@ -333,7 +333,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             self.has_healer_wards = any(p and p['unit_type'] in ward_types for squad in profiles for p in squad)
             self.has_protections |= self.has_healer_wards
             self.has_healers = any(p and p['role'] == 'healer' for squad in profiles for p in squad)
-            self.has_cures = any(p and (p['unit_type'] in ('Patriach','Dwarfdruid','Arhidruid') or (p['unit_type'] == 'Profit' and p['name'] in ('РђР±Р±Р°С‚РёСЃР°','РџСЂРѕСЂРёС†Р°С‚РµР»СЊРЅРёС†Р°','Matriarch','Prophetess'))) for squad in profiles for p in squad)
+            self.has_cures = any(p and (p['unit_type'] in ('Patriach','Dwarfdruid','Arhidruid') or (p['unit_type'] == 'Profit' and p['name'] in ('Аббатиса','Прорицательница','Matriarch','Prophetess'))) for squad in profiles for p in squad)
             if not self.progression_enabled and any(p and p['unit_type'] == 'Wight' for squad in profiles for p in squad):
                 raise ValueError('Wight requires named unit progression for its temporary forms')
             self.aoe_accuracy_falloff = jnp.array([[bool(p and p['aoe_accuracy_falloff']) for p in squad]
@@ -349,9 +349,9 @@ class NumberGrid(Summoning, NumericNumberGrid):
             self.has_centaurs = any(p and p['unit_type'] == 'Centaur Savage' for squad in profiles for p in squad)
             self.double_strike = jnp.array([[bool(p and p['unit_type'] in ('Demon', 'Elfarcher')) for p in squad] for squad in profiles])
             self.has_double_strike = any(p and p['unit_type'] in ('Demon', 'Elfarcher') for squad in profiles for p in squad)
-            self.cached_poisoners = jnp.array([[bool(p and (p['name'] == 'РќРёРґРґРѕРі' or p['unit_type'] in ('Dregazul','Spider'))) for p in squad] for squad in profiles])
-            self.poisoners = jnp.array([[bool(p and ((p['name'] == 'РќРёРґРґРѕРі' or p['unit_type'] in ('Dregazul','Spider')) or p['unit_type'] in ('Death','Dead dragon'))) for p in squad] for squad in profiles])
-            self.has_poisoners = any(p and ((p['name'] == 'РќРёРґРґРѕРі' or p['unit_type'] in ('Dregazul','Spider')) or p['unit_type'] in ('Death','Dead dragon')) for squad in profiles for p in squad)
+            self.cached_poisoners = jnp.array([[bool(p and (p['name'] == 'Ниддог' or p['unit_type'] in ('Dregazul','Spider'))) for p in squad] for squad in profiles])
+            self.poisoners = jnp.array([[bool(p and ((p['name'] == 'Ниддог' or p['unit_type'] in ('Dregazul','Spider')) or p['unit_type'] in ('Death','Dead dragon'))) for p in squad] for squad in profiles])
+            self.has_poisoners = any(p and ((p['name'] == 'Ниддог' or p['unit_type'] in ('Dregazul','Spider')) or p['unit_type'] in ('Death','Dead dragon')) for squad in profiles for p in squad)
             self.cached_water = jnp.array([[bool(p and p['unit_type'] == 'Ismir son') for p in squad] for squad in profiles])
             self.water_casters = jnp.array([[bool(p and p['unit_type'] in ('Sentry','Ismir son','Drulliaan')) for p in squad] for squad in profiles])
             self.has_water = any(p and p['unit_type'] in ('Sentry','Ismir son','Drulliaan') for squad in profiles for p in squad)
@@ -361,9 +361,9 @@ class NumberGrid(Summoning, NumericNumberGrid):
             self.has_fear = any(p and p['unit_type'] in ('Baroness','Shamanka') for squad in profiles for p in squad)
             self.weakeners = jnp.array([[bool(p and p['unit_type'] == 'Tiamat') for p in squad] for squad in profiles])
             self.has_weakening = any(p and p['unit_type'] == 'Tiamat' for squad in profiles for p in squad)
-            self.secondary_paralysis_modes = jnp.array([[1 if p and (p['name'] == 'Р СѓСЃР°Р»РєР°' or p['unit_type'] == 'Abyss Devil') else 2 if p and p['unit_type'] in ('Betrezen','Uter','Uter Demon','Abyss Devil') else 0 for p in squad] for squad in profiles],jnp.int32)
+            self.secondary_paralysis_modes = jnp.array([[1 if p and (p['name'] == 'Русалка' or p['unit_type'] == 'Abyss Devil') else 2 if p and p['unit_type'] in ('Betrezen','Uter','Uter Demon','Abyss Devil') else 0 for p in squad] for squad in profiles],jnp.int32)
             self.has_secondary_paralysis = any(p and p['unit_type'] in ('Betrezen','Uter','Uter Demon','Abyss Devil') for squad in profiles for p in squad)
-            self.ghost_modes = jnp.array([[2 if p and p['name'] == 'РўС‘РјРЅС‹Р№ СЌР»СЊС„ РїСЂРёР·СЂР°Рє' else 1 if p and p['unit_type'] in ('Ghost','Shadow','Incub') else 0 for p in squad] for squad in profiles],jnp.int32)
+            self.ghost_modes = jnp.array([[2 if p and p['name'] == 'Тёмный эльф призрак' else 1 if p and p['unit_type'] in ('Ghost','Shadow','Incub') else 0 for p in squad] for squad in profiles],jnp.int32)
             self.has_paralysis = self.has_fear or self.has_secondary_paralysis or any(p and p['unit_type'] in ('Ghost','Shadow','Incub') for squad in profiles for p in squad)
             self.leech_modes = jnp.array([[2 if p and p['unit_type'] in ('Bone Lord','Highvampire') else 1 if p and p['unit_type'] in ('Dregazul','Vampire') else 0 for p in squad] for squad in profiles],jnp.int32)
             self.has_leech = any(p and p['unit_type'] in ('Bone Lord','Dregazul','Vampire','Highvampire') for squad in profiles for p in squad)

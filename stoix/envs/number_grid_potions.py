@@ -86,7 +86,7 @@ class PotionRules:
         self.action_count = self.count*POTION_TARGETS
         self.keys = tuple(p['key'] for p in self.items)
         self.has_buffs = any(p['duration'] != 'instant' for p in self.items)
-        self.initial_counts = jnp.array([game_map['initial_potions'].get(k,0) for k in self.keys],jnp.int32)
+        self.initial_counts = jnp.array([game_map.get('initial_potions',{}).get(k,0) for k in self.keys],jnp.int32)
         self.amounts = jnp.array([p['amount'] for p in self.items],jnp.int32)
         self.stats = jnp.array([max(0,p['stat']) for p in self.items],jnp.int32)
         self.healing = jnp.array([p['effect'] == 'heal' for p in self.items],bool)

@@ -28,7 +28,7 @@ def test_archer_lowest_hp_nonimmune_wards_and_random_ties():
     config = copy.deepcopy(MAP)
     config['hero_combat_stats'] = [dict(armor=90), {}, dict(immunities=['weapon']),
                                    dict(protections=['weapon']), {}]
-    env = NumberGrid(map_config=config)
+    env = NumberGrid(map_config={**config,'initial_potions':{},'chests':[]})
     start, _ = env.reset(jax.random.PRNGKey(42))
     start = env._begin_battle(start.replace(enemy=jnp.int32(2))).replace(actor=jnp.int32(6))
     # Lowest HP wins over an unarmoured guaranteed kill. Immunity is skipped;
@@ -103,7 +103,7 @@ def test_wolf_lord_fenrir_form_damage_mask_and_reversion_before_xp(current_game)
     start = start.replace(hp=start.hp.at[0].set(112).at[6].set(200))
     start = start.replace(enemy_initial_hp=start.hp[6:])
     mask = compiled_method(env,'action_mask')(start)
-    assert mask[FENRIR] and mask[SHOOT+5] and len(mask) == 87
+    assert mask[FENRIR] and mask[SHOOT+5] and len(mask) == 165
     transformed, _ = step(start, jnp.int32(FENRIR))
     assert transformed.fenrir[0] and transformed.hp[0] == 137
     assert transformed.last_event == TRANSFORMED and transformed.turn_phase[0] == 2
@@ -224,7 +224,7 @@ def test_witch_small_and_large_forms_zero_damage_recovery_and_wait(current_game)
     # Retained permanent identity and footprint are visible with the status flags.
     chex.assert_trees_all_equal(second.unit_ids, start.unit_ids)
     obs = compiled_method(env,'observation')(second)
-    assert obs.shape == (1031,) and int(round(float(obs[334+5*env.num_opponents])*255)) & 1
+    assert obs.shape == (1264,) and int(round(float(obs[448+5*env.num_opponents])*255)) & 1
     ending = second.replace(actor=jnp.int32(4), hp=second.hp.at[6:].set(jnp.array([1,1,1,0,1,0])))
     ended, _ = attack(ending, jnp.int32(SHOOT), ending.battle_key, rolls)
     assert not ended.in_battle and not jnp.any(ended.imp)
@@ -301,7 +301,7 @@ def test_centaur_critical_integer_rounding_ignores_secondary_power_armor_and_def
     overrides[11][1] = dict(protections=['weapon'])
     overrides[11][2] = dict(immunities=['weapon'])
     config['enemy_combat_stats'] = overrides
-    env = NumberGrid(map_config=config)
+    env = NumberGrid(map_config={**config,'initial_potions':{},'chests':[]})
     initial, _ = env.reset(jax.random.PRNGKey(42))
     start = env._begin_battle(initial.replace(enemy=jnp.int32(11))).replace(actor=jnp.int32(1))
     start = start.replace(hp=start.hp.at[6].set(100), defended=start.defended.at[6].set(True))
@@ -366,7 +366,7 @@ def test_niddog_secondary_poison_accuracy_source_cache_ticks_and_xp():
     config['hero_combat_stats'] = [dict(max_hp=1000, armor=90),
         dict(max_hp=1000, immunities=['death']), dict(max_hp=1000, protections=['death']),
         dict(max_hp=1000), dict(max_hp=1000)]
-    env = NumberGrid(map_config=config)
+    env = NumberGrid(map_config={**config,'initial_potions':{},'chests':[]})
     initial, _ = env.reset(jax.random.PRNGKey(42))
     start = env._begin_battle(initial.replace(enemy=jnp.int32(9))).replace(actor=jnp.int32(7))
     start = start.replace(hp=start.hp.at[:3].set(jnp.array([500,600,700])),
@@ -441,21 +441,15 @@ def test_poison_queue_wraps_round_and_checks_tick_immunity_once():
     assert result[7][1,1] == -1  # poison immunity cancels the cached effect
 
 
-def test_death_poison_uses_own_accuracy_source_and_multiple_targets():
+def test_death_poison_uses_own_accuracy_source_and_multiple_targets(elemental_attack_game):
     from stoix.envs.number_grid_combat import UNITS
     assert MAP['enemy_rosters'][12][0] == 'death'
     death = UNITS['death']
     assert tuple(death[k] for k in ('max_hp','damage','accuracy','initiative','secondary_damage','secondary_accuracy')) == (125,100,80,40,20,50)
     assert set(death['immunities']) == {'weapon','death'}
-    config = copy.deepcopy(MAP)
-    config['hero_roster'][3] = 'imperial_assassin'
-    overrides = [[{} for _ in range(n)] for n in config['enemy_units']]
-    extras = [dict(protections=['death']), dict(immunities=['death']), dict(immunities=['weapon']), dict(immunities=['poison']), {}, {}]
-    overrides[11] = [dict(max_hp=300, **e) for e in extras]
-    config['enemy_combat_stats'] = overrides
-    env = NumberGrid(map_config=config)
-    initial, _ = env.reset(jax.random.PRNGKey(42))
-    start = env._begin_battle(initial.replace(enemy=jnp.int32(11))).replace(actor=jnp.int32(3))
+    env,initial,_ = elemental_attack_game
+    initial=hero_roster_state(env,initial,['possessed','duke','possessed','imperial_assassin','cultist',None])
+    start = env._begin_battle(initial.replace(enemy=jnp.int32(36))).replace(actor=jnp.int32(3))
     start = start.replace(priority=start.priority.at[0].set(10000.))
     states = jax.tree.map(lambda a: jnp.broadcast_to(a, (7,)+a.shape), start)
     actions = jnp.array([SHOOT,SHOOT+1,SHOOT+2,SHOOT+3,SHOOT+4,SHOOT+5,SHOOT+4],jnp.int32)
@@ -499,7 +493,7 @@ def test_wight_secondary_roll_devolution_recovery_and_battle_cleanup():
     extras = [dict(protections=['death']),dict(immunities=['death']),dict(protections=['death']),dict(protections=['weapon']),{},{}]
     overrides[11] = [dict(max_hp=300,**e) for e in extras]
     config['enemy_combat_stats'] = overrides
-    env = NumberGrid(map_config=config)
+    env = NumberGrid(map_config={**config,'initial_potions':{},'chests':[]})
     initial, _ = env.reset(jax.random.PRNGKey(42))
     start = env._begin_battle(initial.replace(enemy=jnp.int32(11))).replace(actor=jnp.int32(3))
     start = start.replace(priority=start.priority.at[1].set(10000.),
@@ -1305,7 +1299,7 @@ def test_cliric_post_victory_restores_forms_and_heals_before_xp(current_game):
     assert not first.imp[3] and first.weakened[3] and first.paralyzed[3]
     mask = compiled_method(env,'action_mask')(first)
     assert mask[WAIT] and mask[SHOOT] and not mask[DEFEND]
-    assert env.observation(first).shape == (1031,)
+    assert env.observation(first).shape == (1264,)
     bad,_ = compiled_method(env,'step')(first,jnp.int32(DEFEND))
     chex.assert_trees_all_equal(bad.hp,first.hp)
     chex.assert_trees_all_equal(bad.battle_key,first.battle_key)

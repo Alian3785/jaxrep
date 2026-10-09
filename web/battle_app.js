@@ -5,6 +5,7 @@
   const canvas=$('board'), ctx=canvas.getContext('2d');
   let mode='manual', session=null, manual=null, manualMap=null, busy=false, frame=0, recordIndex=0, timer=null, messages=[];
   let manualConstruction=null, manualTurnRules=null, manualCombat=null, manualCapital=null, manualPotions=null, capitalOpen=false, potionsOpen=false, selectedPotion=0, capitalKey=null;
+  let manualEquipment=null;
   const records=data.records||[];
   const combatInfo=()=>mode==='manual'?(manualCombat||data.combat):data.combat;
   const profile=i=>{
@@ -16,7 +17,9 @@
     if(base&&current()?.state.imp?.[i])base={...base,name:base.name+' · '+(base.size===2?'Толстый бес':'Бес'),role:'melee',attack_type:'weapon',immunities:0,protections:0,unit_type:'Warrior'};
     const owners=current()?.state.healer_wards?.[i]||[];
     const temporary=[4,256,8,2].reduce((bits,bit,j)=>bits|(owners[j]?bit:0),0);
-    if(base)base={...base,protections:(base.protections||0)|temporary};
+    const s=current()?.state,potionWard=s&&!s.imp?.[i]&&!s.decay_form?.[i]&&(s.summon_owner?.[i]??-1)<0?(s.copied?.[i]?(s.copy_traits?.[i]?.[3]||0):(s.potion_wards?.[i]||0)):0;
+    const bookWard=base?.hero&&i<6&&!s?.imp?.[i]&&!s?.decay_form?.[i]&&!s?.copied?.[i]?(equipmentInfo()?.items?.[s?.equipped?.[3]]?.ward||0):0;
+    if(base)base={...base,protections:(base.protections||0)|temporary|potionWard|bookWard};
     return base&&current()?.state.fenrir?.[i]&&!current()?.state.imp?.[i]?{...base,name:'Дух Фенрира',role:'melee',attack_type:'weapon',unit_type:'Warrior'}:base;
   };
   const isMage=i=>profile(i)?.role==='area';
@@ -24,7 +27,7 @@
   const isHealer=i=>profile(i)?.role==='healer';
   const isCopier=i=>profile(i)?.unit_type==='Doppelganger';
   const isSummoner=i=>['Summoner','Occultmaster','Lyf','Laclaan'].includes(profile(i)?.unit_type);
-  const targetAction=i=>i<6&&isCopier(current()?.state.actor)?81+i:8+i%6;
+  const targetAction=i=>i<6&&isCopier(current()?.state.actor)?57+i:8+i%6;
   const isPowerSupport=i=>['Travnitsa','Novice','Dwarfdruid','Arhidruid'].includes(profile(i)?.unit_type);
   const isMassHealer=i=>['Profit','Deva roshi'].includes(profile(i)?.unit_type);
   const role=i=>profile(i)?.name||'Пусто';
@@ -39,6 +42,30 @@
   function construction(){return mode==='manual'?(manualConstruction||data.construction):data.construction;}
   function turnRules(){return mode==='manual'?(manualTurnRules||data.turn_rules):data.turn_rules;}
   const potionInfo=()=>mode==='manual'?(manualPotions||data.potions):data.potions;
+  const equipmentInfo=()=>mode==='manual'?(manualEquipment||data.equipment):data.equipment;
+  const movementCap=snap=>snap.movement_cap;
+  function renderEquipment(snap){
+    const info=equipmentInfo(),s=snap.state;
+    $('equipment-panel').hidden=!info;
+    if(!info)return;
+    $('equipment-rule').textContent=(info.policy==='price'?'Более дорогие находки автоматически заменяют дешёвые в своём слоте.':'Автовыбор по правилам референса: сапоги — по движению, книга сохраняется, артефакты — по цене.')+' Заменённые вещи остаются в инвентаре.';
+    $('equipment-slots').replaceChildren(...info.slots.map((name,slot)=>{
+      const item=info.items[s.equipped?.[slot]],row=document.createElement('div');row.className='equipment-slot';
+      const title=document.createElement('span');title.textContent=name;
+      const value=document.createElement('b');value.textContent=item?item.name:'Пусто';
+      const detail=document.createElement('small');detail.textContent=item?item.label+' · '+fmt(item.price)+' золота':'';
+      row.append(title,value,detail);return row;
+    }));
+    const counts=new Map();for(const id of s.item_inventory||[])if(id>=0)counts.set(id,(counts.get(id)||0)+1);
+    $('equipment-count').textContent='Все предметы · '+[...counts.values()].reduce((a,b)=>a+b,0);
+    $('equipment-stock').replaceChildren(...[...counts].map(([id,count])=>{
+      const item=info.items[id],row=document.createElement('li');
+      const worn=(s.equipped||[]).filter(i=>i===id).length;
+      const cost=item.sell_price!=null?'продажа: '+fmt(item.sell_price):fmt(item.price);
+      row.textContent=item.name+' × '+count+' · '+cost+' золота'+(worn?' · надето: '+worn:'');
+      row.title=item.label;return row;
+    }));
+  }
   const capitalInfo=()=>mode==='manual'?(manualCapital||data.capital):data.capital;
   const branchNames={
     empire:['Воины','Стрелки','Маги','Целители','Титаны'],
@@ -125,11 +152,11 @@
     $('potion-stock').replaceChildren(...items.map((item,i)=>{
       const button=document.createElement('button');button.className='potion-choice';
       button.setAttribute('aria-pressed',String(selectedPotion===i));
-      button.textContent=item.name+' · '+(item.effect==='revive'?'1 HP':item.amount+' HP')+' · '+s.potions[i]+' шт.';
+      button.textContent=item.name+' · '+item.label+' · '+s.potions[i]+' шт.';
       button.onclick=()=>{selectedPotion=i;render();};return button;
     }));
     const item=items[selectedPotion];if(!item)return;
-    $('potion-detail').textContent=item.effect==='revive'?'Воскрешает одного погибшего бойца с 1 HP.':'Восстанавливает до '+item.amount+' HP одному живому раненому бойцу. Здоровье не превышает максимум.';
+    $('potion-detail').textContent=item.effect==='revive'?'Воскрешает одного погибшего бойца с 1 HP.':item.effect==='heal'?'Восстанавливает до '+item.amount+' HP одному живому раненому бойцу. Здоровье не превышает максимум.':item.label+' · '+(item.duration==='permanent'?'Постоянный эффект; сохраняется при повышении.':'До следующего отдыха. Один раз на бойца за ход для каждого вида зелья.');
     const cards=[];
     for(let i=0;i<6;i++){
       if(!snap.max_hp[i])continue;
@@ -138,7 +165,7 @@
       const hp=document.createElement('p');hp.className='recovery-health';hp.textContent=s.hp[i]+' / '+snap.max_hp[i]+' HP'+(!s.hp[i]?' · погиб':'');card.append(hp);
       const button=document.createElement('button'),amount=snap.potion_quotes?.[selectedPotion]?.[i]||0;
       button.dataset.action=item.action_start+i;
-      button.textContent=!s.potions[selectedPotion]?'Зелья закончились':item.effect==='revive'?(s.hp[i]?'Боец жив':'Воскресить · 1 бутылка'):!s.hp[i]?'Сначала воскресите бойца':!amount?'Здоровье полное':'Лечить +'+amount+' HP · 1 бутылка';
+      button.textContent=!s.potions[selectedPotion]?'Зелья закончились':item.effect==='revive'?(s.hp[i]?'Боец жив':'Воскресить · 1 бутылка'):!s.hp[i]?'Сначала воскресите бойца':item.effect==='heal'?(!amount?'Здоровье полное':'Лечить +'+amount+' HP · 1 бутылка'):snap.action_mask[item.action_start+i]?'Применить · 1 бутылка':s.in_battle?'Завершите бой':'Эффект уже действует';
       button.onclick=()=>sendAction(item.action_start+i);card.append(button);cards.push(card);
     }
     $('potion-targets').replaceChildren(...cards);
@@ -272,8 +299,9 @@
       case 17:return 'Храм: '+t.toLowerCase()+' восстановил '+s.last_damage+' HP за '+s.last_service_cost+' золота.';
       case 18:return 'Храм: '+t.toLowerCase()+' воскрешён с 1 HP за '+s.last_service_cost+' золота.';
       case 19:return potionInfo()?.[s.last_potion]?.name+': '+t.toLowerCase()+' восстановил '+s.last_damage+' HP. Осталось: '+s.potions[s.last_potion]+'.';
-      case 21:return 'Сундук: '+s.last_loot.map((n,i)=>n?(potionInfo()?.[i]?.name+' × '+n):'').filter(Boolean).join(', ')+'. Добавлено в инвентарь зелий.';
+      case 21:return 'Сундук: '+[...s.last_loot.map((n,i)=>n?(potionInfo()?.[i]?.name+' × '+n):''),...(s.last_item_loot||[]).map((n,i)=>n?(equipmentInfo()?.items?.[i]?.name+' × '+n):'')].filter(Boolean).join(', ')+'. Предметы получены, экипировка обновлена.';
       case 20:return 'Зелье воскрешения: '+t.toLowerCase()+' вернулся с 1 HP. Осталось: '+s.potions[s.last_potion]+'.';
+      case 37:return potionInfo()?.[s.last_potion]?.name+': '+t.toLowerCase()+' получил усиление. Осталось: '+s.potions[s.last_potion]+'.';
       case 15:return 'Атака поглощена защитой.'+blockText(s);
       default:return null;
     }
@@ -287,20 +315,21 @@
     renderConstruction(snap);
     renderCapitalServices(snap);
     renderPotions(snap);
+    renderEquipment(snap);
     renderMapCommands(snap);
     $('phase-label').textContent=s.in_battle?'Бой · отряд № '+(s.enemy+1):'Карта '+map.size+' × '+map.size;
     $('remaining').textContent=s.alive.filter(Boolean).length;
     $('chest-status').hidden=!(map.chests||[]).length;
-    $('chest-status').textContent=(s.last_event===21?eventText(snap)+' ':'')+'Сундуков осталось: '+(s.chest_alive||[]).filter(Boolean).length+' / '+(map.chests||[]).length+'. Подойдите на соседнюю клетку, включая диагональ: зелье попадёт в инвентарь.';
+    $('chest-status').textContent=(s.last_event===21?eventText(snap)+' ':'')+'Сундуков осталось: '+(s.chest_alive||[]).filter(Boolean).length+' / '+(map.chests||[]).length+'. Подойдите на соседнюю клетку, включая диагональ: всё содержимое попадёт в инвентарь.';
     $('wins').textContent=s.alive.filter(v=>!v).length;
     $('steps').textContent=fmt(s.step_count);$('reward').textContent=fmt(snap.total_reward);
     $('gold').textContent=fmt(s.gold);
     const turns=turnRules(),points=s.movement_points;
-    $('turn-summary').textContent='Ход '+s.day+' · '+points+' / '+turns.movement_points+' очков перемещения';
-    $('movement-summary').textContent=points+' / '+turns.movement_points+' очков · '+Math.floor(points/turns.move_cost)+' перемещений';
+    $('turn-summary').textContent='Ход '+s.day+' · '+points+' / '+movementCap(snap)+' очков перемещения';
+    $('movement-summary').textContent=points+' / '+movementCap(snap)+' очков · '+Math.floor(points/turns.move_cost)+' перемещений';
     $('rest').dataset.action=turns.rest_action;
     $('rest-hint').textContent=s.in_battle?'Отдых доступен после завершения боя.':snap.rest_penalty>0?'Штраф за оставшиеся очки: −'+fmt(snap.rest_penalty)+'. Следующий ход: +'+turns.income+' золота и полный запас очков.':'Все очки использованы: отдых без штрафа. Следующий ход: +'+turns.income+' золота и полный запас очков.';
-    if(!s.in_battle)$('rest-hint').textContent+=' Живым бойцам: +'+turns.regeneration_percent+'% максимального HP с округлением вверх (до максимума).';
+    if(!s.in_battle)$('rest-hint').textContent+=' Живым бойцам: +'+(turns.regeneration_percent+10*(equipmentInfo()?.items?.[s.equipped?.[2]]?.regeneration||0))+'% максимального HP с округлением вверх (до максимума).';
     const heroes=Array.from({length:6},(_,i)=>profile(i));
     renderExperience(snap);
     $('party-health').textContent=partyText(heroes.filter((u,i)=>u&&s.hp[i]>0))+' · '+s.hp.slice(0,6).reduce((a,b)=>a+b,0)+' здоровья';
@@ -369,7 +398,7 @@
   function showError(error){$('connection').textContent='Игра недоступна';$('message').textContent=error.message+' Для игры запустите open-numbergrid.cmd.';}
   async function resetGame(){
     if(busy)return;busy=true;render();
-    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||data.map.faction||'legions'});session=result.session;manualMap=result.map;manualConstruction=result.construction;manualTurnRules=result.turn_rules;manualCombat=result.combat;manualCapital=result.capital;manualPotions=result.potions;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
+    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||data.map.faction||'legions'});session=result.session;manualMap=result.map;manualConstruction=result.construction;manualTurnRules=result.turn_rules;manualCombat=result.combat;manualCapital=result.capital;manualPotions=result.potions;manualEquipment=result.equipment;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
     catch(error){busy=false;render();showError(error);return;}
     busy=false;render();
   }
@@ -396,7 +425,7 @@
     const rect=canvas.getBoundingClientRect(),map=currentMap();
     const row=Math.floor((event.clientY-rect.top)/rect.height*map.size),col=Math.floor((event.clientX-rect.left)/rect.width*map.size);
     const chest=(map.chests||[]).find((c,i)=>snap.state.chest_alive?.[i]&&c.position[0]===row&&c.position[1]===col);
-    canvas.title=chest?'Сундук: '+chest.potions.map((n,i)=>n?(potionInfo()?.[i]?.name+' × '+n):'').filter(Boolean).join(', '):'';
+    canvas.title=chest?'Сундук: '+[...Object.entries(chest.potions||{}),...Object.entries(chest.items||{})].filter(([,n])=>n).map(([key,n])=>(potionInfo()?.find(p=>p.key===key)?.name||equipmentInfo()?.items.find(p=>p.key===key)?.name||key)+' × '+n).join(', '):'';
   };
   canvas.ondblclick=event=>{
     const snap=current();if(mode!=='manual'||!snap||snap.state.in_battle||busy||snap.state.done)return;

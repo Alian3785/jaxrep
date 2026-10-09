@@ -52,6 +52,7 @@ class GameService:
                 'max_hp': np.asarray(env.max_hp(state)).tolist(),
                 'building_status': np.asarray(env.construction.status(state)).tolist(),
                 'rest_penalty': float(env.rest_penalty(state)),
+                'movement_cap': int(env.movement_cap(state)),
                 'capital_quotes': np.asarray(env.capital.quotes(state, env.max_hp(state))).tolist(),
                 'potion_quotes': np.asarray(env.potion_rules.quotes(state, env.max_hp(state))).tolist(),
                 'unit_experience': np.asarray(env.unit_experience(state)).tolist(),
@@ -69,6 +70,7 @@ class GameService:
             return {'session': token, 'map': env.map_config, 'construction': env.construction.metadata(),
                     'turn_rules': env.turn_metadata(), 'combat': env.combat_info,
                     'capital': env.capital.metadata(), 'potions': env.potion_rules.metadata(),
+                    'equipment': env.item_rules.metadata if env.items_enabled else None,
                     'snapshot': self.snapshot(env, state, 0.), 'events': []}
 
     def act(self, token, action):

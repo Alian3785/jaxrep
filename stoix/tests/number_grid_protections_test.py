@@ -20,8 +20,8 @@ def test_named_armies_exactly_match_python_reference_level_one_profiles(current_
     env = current_game[0]
     state, ts = compiled_method(env,'reset')(jax.random.PRNGKey(42))
     chex.assert_trees_all_equal(state.hp[:6], jnp.array([120, 150, 120, 45, 45, 0]))
-    assert ts.observation.shape == (1031,) and env.observation_size == 1031
-    assert env.action_space().num_values == 87 and env.hero_count == 5
+    assert ts.observation.shape == (1264,) and env.observation_size == 1264
+    assert env.action_space().num_values == 165 and env.hero_count == 5
     expected = dict(duke=(150, 50, 80, 0, 50, 'weapon'), possessed=(120, 25, 80, 0, 50, 'weapon'), cultist=(45, 15, 80, 0, 40, 'fire'),
                     squire=(100, 25, 80, 0, 50, 'weapon'), archer=(45, 25, 80, 0, 60, 'weapon'))
     for name, values in expected.items():

@@ -89,7 +89,7 @@ def run_training(args, tracking):
     measured_sources = ['benchmark_number_grid.py', 'numbergrid_config.py', 'numbergrid_tracking.py',
                         'stoix/envs/number_grid_buildings.py', 'stoix/envs/data/buildings.json',
                         'stoix/envs/data/units.json', 'stoix/envs/number_grid_effects.py', 'stoix/envs/number_grid_wards.py', 'stoix/envs/number_grid_summoning.py',
-                        'stoix/envs/number_grid.py', 'stoix/envs/number_grid_combat.py', 'stoix/envs/number_grid_progression.py', 'stoix/envs/number_grid_capital.py', 'stoix/envs/number_grid_potions.py', 'stoix/envs/number_grid_chests.py', 'stoix/envs/number_grid_legacy.py',
+                        'stoix/envs/number_grid.py', 'stoix/envs/number_grid_combat.py', 'stoix/envs/number_grid_progression.py', 'stoix/envs/number_grid_capital.py', 'stoix/envs/number_grid_potions.py', 'stoix/envs/number_grid_chests.py', 'stoix/envs/number_grid_items.py', 'stoix/envs/number_grid_item_combat.py', 'stoix/envs/number_grid_legacy.py',
                         'stoix/utils/make_env.py', 'stoix/wrappers/number_grid_metrics.py',
                         'stoix/wrappers/number_grid_reset.py', 'stoix/systems/ppo/anakin/ff_ppo.py']
     source_hashes = {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest()

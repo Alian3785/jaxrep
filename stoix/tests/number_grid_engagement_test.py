@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import pytest
 
 from stoix.envs.number_grid import NumberGrid, MAP, SHOOT, CONTINUE, REST, ENGAGE, VICTORY, WITHDRAW
+from stoix.envs.number_grid_potions import POTION_START
 
 
 def batch(state, count):
@@ -26,7 +27,7 @@ def test_passing_beside_enemy_and_map_services_do_not_start_combat(current_game)
         chex.assert_trees_all_equal(state.alive,initial.alive)
         assert float(ts.reward) == pytest.approx(env.exploration_bonus-env.step_cost)
     # Rest and a potion alongside the enemy are still ordinary map actions.
-    state, _ = advance(state,jnp.int32(56))
+    state, _ = advance(state,jnp.int32(POTION_START))
     assert not state.in_battle and state.hp[0] == 110
     state, _ = advance(state,jnp.int32(REST))
     assert not state.in_battle and state.hp[0] == 120

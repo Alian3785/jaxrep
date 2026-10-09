@@ -53,11 +53,11 @@ def test_48x48_map_with_41_squads_and_reference_profiles(env):
             if key and UNITS[key].get('size', 1) == 2:
                 assert slot < 3 and roster[slot+3] is None
     initial, ts = compiled_method(env,'reset')(jax.random.PRNGKey(1))
-    assert ts.observation.shape == (1031,) and env.num_actions == 87
-    chex.assert_trees_all_equal(ts.observation[315+5*env.num_opponents:327+5*env.num_opponents], jnp.array([.5]*5+[0]*7))
+    assert ts.observation.shape == (1264,) and env.num_actions == 165
+    chex.assert_trees_all_equal(ts.observation[429+5*env.num_opponents:441+5*env.num_opponents], jnp.array([.5]*5+[0]*7))
     state = battle(env, 21)
     obs = compiled_method(env,'observation')(state)
-    chex.assert_trees_all_equal(obs[321+5*env.num_opponents:327+5*env.num_opponents], jnp.array([1,.5,1,0,.5,0]))
+    chex.assert_trees_all_equal(obs[435+5*env.num_opponents:441+5*env.num_opponents], jnp.array([1,.5,1,0,.5,0]))
     traits_start = 112+5*env.num_opponents
     assert obs[traits_start+10*4] == 1  # role HEALER normalized by 4
     assert env.unit_traits(state)[10, 0] == HEALER
@@ -145,6 +145,7 @@ def test_player_healing_mask_step_and_protections_agree():
     config['hero_roster'][4] = 'acolyte'
     config['hero_combat_stats'] = [dict(armor=90, immunities=['life'], protections=['life']),
                                    {}, {}, {}, dict(accuracy=0)]
+    config['initial_potions'],config['chests'] = {},[]
     env = NumberGrid(map_config=config)
     state = battle(env, 0).replace(actor=jnp.int32(4))
     state = state.replace(hp=state.hp.at[0].set(110).at[1].set(150).at[2].set(0).at[3].set(20).at[4].set(40),

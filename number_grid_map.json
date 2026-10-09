@@ -1,5 +1,5 @@
 {
-  "name": "NumberGrid-48x48-v72-complete-unit-catalog",
+  "name": "NumberGrid-48x48-v74-hero-equipment",
   "size": 48,
   "agent_position": [
     2,
@@ -221,7 +221,7 @@
   "mask_walls": true,
   "map_seed": 42,
   "number_generation": "Historical labels retained and copied with added squads. Numbers do not affect battles.",
-  "reconstruction_note": "48x48 map with 41 squads (27 × 1.5 rounded up). Starting capital and first nearby Squire retained; other original positions scaled by two. Fourteen additional human squads spread into the largest gaps, reusing existing compositions. The original three Orc/Goblin groups are unchanged. Titans occupy both slots of their formation line.",
+  "reconstruction_note": "48x48 map with 41 squads (27 Р“вЂ” 1.5 rounded up). Starting capital and first nearby Squire retained; other original positions scaled by two. Fourteen additional human squads spread into the largest gaps, reusing existing compositions. The original three Orc/Goblin groups are unchanged. Titans occupy both slots of their formation line.",
   "battle_mode": true,
   "hero_units": 5,
   "hero_hp": 120,
@@ -313,7 +313,7 @@
     100
   ],
   "battle_recovery": "Victory or retreat preserves all hero HP, including dead units at 0 HP. Full defeat ends the episode. Enemies reset after retreat. Rest heals living heroes by ceil(10% max HP). Paid healing and revival to 1 HP require the temple and exact starting cell (capital).",
-  "battle_observation_version": 28,
+  "battle_observation_version": 30,
   "combat_rules_version": 2,
   "faction": "legions",
   "building_reward": 0.05,
@@ -660,12 +660,12 @@
   ],
   "unit_progression": true,
   "capital_services": true,
-  "initial_potions": [
-    5,
-    5,
-    5,
-    10
-  ],
+  "initial_potions": {
+    "healing": 5,
+    "restoration": 5,
+    "ointment": 5,
+    "life": 10
+  },
   "battle_engagement": "A directional command targeting a living enemy stack starts combat from the current tile. Passing beside a stack is safe. Entry costs ceil(half the full movement allowance), capped at remaining points; zero points forbids attack. Victory and retreat keep the attacker on its original tile.",
   "chests": [
     {
@@ -673,60 +673,92 @@
         5,
         4
       ],
-      "potions": [
-        1,
-        0,
-        0,
-        0
-      ]
+      "potions": {
+        "ointment": 2,
+        "life": 1,
+        "might": 1,
+        "celerity": 1
+      },
+      "items": {
+        "runestone": 1,
+        "boots_speed": 1,
+        "tome_air": 1
+      }
     },
     {
       "position": [
         10,
         26
       ],
-      "potions": [
-        0,
-        1,
-        0,
-        0
-      ]
+      "potions": {
+        "invulnerability": 1,
+        "accuracy": 1,
+        "highfather": 1,
+        "titan": 1,
+        "iron_skin": 1
+      },
+      "items": {
+        "dwarven_bracer": 1,
+        "banner_protection": 1,
+        "bronze_ring": 1
+      }
     },
     {
       "position": [
         25,
         12
       ],
-      "potions": [
-        0,
-        0,
-        1,
-        0
-      ]
+      "potions": {
+        "fire_ward": 1,
+        "water_ward": 1,
+        "earth_ward": 1,
+        "air_ward": 1,
+        "life": 1
+      },
+      "items": {
+        "ring_of_strength": 1,
+        "boots_traveling": 1,
+        "tome_war": 1
+      }
     },
     {
       "position": [
         31,
         43
       ],
-      "potions": [
-        0,
-        0,
-        0,
-        1
-      ]
+      "potions": {
+        "highfather": 1,
+        "titan": 1,
+        "fortune": 1,
+        "quicksilver": 1,
+        "ointment": 1
+      },
+      "items": {
+        "skull_bracers": 1,
+        "banner_might": 1,
+        "unholy_dagger": 1
+      }
     },
     {
       "position": [
         43,
         27
       ],
-      "potions": [
-        0,
-        0,
-        0,
-        1
-      ]
+      "potions": {
+        "invulnerability": 1,
+        "accuracy": 1,
+        "celerity": 1,
+        "might": 1,
+        "life": 1
+      },
+      "items": {
+        "ring_of_ages": 1,
+        "banner_war": 1,
+        "boots_seven_leagues": 1
+      }
     }
-  ]
+  ],
+  "initial_items": {},
+  "equipment_auto_equip": "price",
+  "equipment_requires_skills": false
 }

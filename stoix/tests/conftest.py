@@ -61,6 +61,8 @@ def elemental_attack_game():
     config['enemy_units'][37] = 6
     config['enemy_rosters'][2] = ['archer']*6
     config['enemy_units'][2] = 6
+    config['enemy_rosters'][36] = list(MAP['enemy_rosters'][11])
+    config['enemy_units'][36] = 6
     overrides = [[{} for _ in range(n)] for n in config['enemy_units']]
     overrides[0] = [dict(immunities=['weapon','mind']),
         dict(immunities=['weapon'],protections=['mind']),dict(hero=True),
@@ -80,6 +82,9 @@ def elemental_attack_game():
               dict(immunities=['weapon']),dict(immunities=['poison']),{},{}]
     overrides[11] = [dict(max_hp=300,**e) for e in extras]
     overrides[2] = [dict(immunities=['FiRe'],protections=['fire']),dict(protections=['FIRE','fire'])]+[{}]*4
+    overrides[36] = [dict(max_hp=300,**e) for e in
+        (dict(protections=['death']),dict(immunities=['death']),dict(immunities=['weapon']),
+         dict(immunities=['poison']),{}, {})]
     config['enemy_combat_stats'] = overrides
     env = NumberGrid(map_config=config)
     env.progression.capital_guards = env.progression.capital_guards.at[env.progression.enemy_ids[40,2]].set(True)

@@ -1,7 +1,8 @@
 """Run the complete configured suite in one CUDA process within fifteen minutes.
 
 Usage: bash scripts/run_gpu.sh scripts/test_gpu.py --output results/gpu-tests/RUN
-All fixtures and compilation are inside the timed region; no warm-up is hidden.
+Reuse the local JAX compilation cache by default; --cold-cache measures a fresh
+compile. All fixtures, cache loading and compilation stay inside the timed region.
 """
 import argparse
 from contextlib import suppress
@@ -19,6 +20,7 @@ import tomllib
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--cold-cache',action='store_true',help='Use an empty, isolated compilation cache for this run')
     parser.add_argument('--wall-started-at',type=float,help='Parent launch epoch seconds, including WSL startup')
     args = parser.parse_args()
     if args.wall_started_at is not None and (not math.isfinite(args.wall_started_at) or args.wall_started_at > time.time()+1):
@@ -34,9 +36,11 @@ def main():
     output = args.output.resolve()
     output.mkdir(parents=True,exist_ok=False)
     started = time.monotonic()
-    # A fresh per-run cache keeps compilation inside the measured cold run.
-    cache = output/'compilation-cache'
-    cache.mkdir()
+    # Reuse compiled executables, never test results. JAX keys the cache by
+    # computation, compiler configuration and device; changed graphs recompile.
+    cache = output/'compilation-cache' if args.cold_cache else root/'results/gpu-tests/compilation-cache'
+    cache.mkdir(parents=True,exist_ok=True)
+    cache_populated = any(cache.glob('*-cache'))
     worker_env = {**os.environ,'JAX_ENABLE_COMPILATION_CACHE':'true',
                   'JAX_COMPILATION_CACHE_DIR':str(cache),
                   'JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS':'1'}
@@ -54,7 +58,7 @@ def main():
         for name,files in groups.items():
             stream = (output/(name+'.log')).open('w')
             streams.append(stream)
-            command = [sys.executable,'-m','pytest','-v','--durations=20',*files]
+            command = [sys.executable,'-m','pytest','-v','--durations=20',f'--junitxml={output / "junit.xml"}',*files]
             worker = subprocess.Popen(command,cwd=root,stdout=stream,stderr=subprocess.STDOUT,start_new_session=True,env=worker_env)
             workers[name] = worker
             print(json.dumps(dict(phase='started',group=name,pid=worker.pid,testpaths=files)),flush=True)
@@ -88,7 +92,8 @@ def main():
         total_seconds = time.monotonic()-started if args.wall_started_at is None else time.time()-args.wall_started_at
         summary = dict(seconds=time.monotonic()-started,wall_seconds=total_seconds,execution_limit=execution_limit,wall_limit=900,
                        parent_started_at=args.wall_started_at,backend='cuda',groups=results,
-                       compilation_cache=str(cache),cold_cache=True,
+                       compilation_cache=str(cache),cold_cache=not cache_populated,
+                       isolated_cache=args.cold_cache,
                        passed=total_seconds <= 900 and len(results)==len(groups) and all(r['exit_code']==0 for r in results.values()))
         (output/'results.json').write_text(json.dumps(summary,indent=2)+'\n')
         print(json.dumps(summary),flush=True)

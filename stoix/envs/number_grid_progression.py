@@ -264,8 +264,7 @@ class ProgressionRules:
         self.armor_max_level = self.level_anchor+100
         for level in range(self.armor_max_level+1):
             armor_rows.append([min(90, grown_stats(row, level)[ARMOR]) for row in rows])
-        original_armors = {value for row in armor_rows for value in row}
-        armors = sorted(original_armors | {max(0, int(a)-15*k) for a in original_armors for k in range(1,7)})
+        armors = list(range(91))
         self.armor_ids = jnp.array([[armors.index(a) for a in row] for row in armor_rows], jnp.int32)
         self.shatter_armor_ids = jnp.array([[[armors.index(a if k == 0 else max(0, int(a)-15*k))
                                             for k in range(7)] for a in row] for row in armor_rows], jnp.int32)
@@ -313,7 +312,7 @@ class ProgressionRules:
                   + jnp.maximum(levels-self.kill_anchor, 0)*self.kill_late[ids])
         return jnp.stack((levels, killed, self.required_xp(ids, levels), current), axis=-1)
 
-    def damage(self, state, actor, targets, guarded, bonuses, damage_value=None, armor_shreds=None, imps=None):
+    def damage(self, state, actor, targets, guarded, bonuses, damage_value=None, armor_shreds=None, imps=None, armor_values=None):
         if damage_value is None:
             damage_value = self.stats(state.unit_ids, state.unit_levels)[actor, DAMAGE]
         levels, ids = jnp.minimum(state.unit_levels[targets], self.armor_max_level), state.unit_ids[targets]
@@ -321,10 +320,12 @@ class ProgressionRules:
                      else self.shatter_armor_ids[levels, ids, jnp.minimum(armor_shreds[targets], 6)])
         if imps is not None:
             armor_ids = jnp.where(imps[targets], 0, armor_ids)
+        if armor_values is not None:
+            armor_ids = jnp.clip(armor_values,0,90).astype(jnp.int32)
         return self.damage_rolls[damage_value.astype(jnp.int32), armor_ids,
                                  guarded.astype(jnp.int32), bonuses]
 
-    def finish(self, state, hp, escaped, victory, lost, withdrawal, bank):
+    def finish(self, state, hp, escaped, victory, lost, withdrawal, bank, experience_book=False):
         """Award once, before automatic resurrection; one promotion per battle."""
         ended = victory | lost | withdrawal
         winners = (jnp.arange(12) < 6) == victory
@@ -333,12 +334,16 @@ class ProgressionRules:
         count = jnp.maximum(jnp.sum(recipients), 1)
         total = jnp.where(victory, bank[1], bank[0])
         # floor(total/count + .5), exact integer arithmetic, not bankers' round.
-        award = (2*total+count)//(2*count)
+        scale=jnp.where(victory & experience_book,5,4)
+        whole,remainder=total//count,total%count
+        extra=jnp.where(scale==5,whole//4,0)
+        fraction=jnp.where(scale==5,whole%4,0)*count+remainder*scale
+        award=whole+extra+(fraction+2*count)//(4*count)
         gains = jnp.where(recipients, award, 0)
         if self.has_patriarchs:
             cutoffs = state.revival_xp_cutoff.reshape(2,6)
             masks = recipients.reshape(2,6)
-            gains = jax.vmap(revival_xp_shares,in_axes=(None,0,0))(total,cutoffs,masks).reshape(12)
+            gains = jax.vmap(revival_xp_shares,in_axes=(None,0,0,None))(total,cutoffs,masks,scale).reshape(12)
         xp = state.unit_xp + gains
         ids, levels = state.unit_ids, state.unit_levels
         required = self.required_xp(ids, levels)
@@ -362,7 +367,7 @@ class ProgressionRules:
         promoted = jnp.sum(jnp.where(changed, jnp.left_shift(jnp.uint32(1), jnp.arange(12, dtype=jnp.uint32)), jnp.uint32(0)))
         return ids, levels, xp, enemies, new_hp, gains, promoted
 
-def revival_xp_shares(total,cutoffs,recipients):
+def revival_xp_shares(total,cutoffs,recipients,scale=4):
     """Six final winners, each eligible only after their last revival cutoff.
 
     Splits every kill among eligible final survivors, exactly half-up. Quotients
@@ -375,4 +380,9 @@ def revival_xp_shares(total,cutoffs,recipients):
     whole,remainder = interval//counts,interval%counts
     fraction = remainder*(60//counts)
     include = recipients[:,None] & (ordered[None,:] >= cuts[:,None])
-    return jnp.sum(jnp.where(include,whole,0),axis=1)+(jnp.sum(jnp.where(include,fraction,0),axis=1)+30)//60
+    whole=jnp.sum(jnp.where(include,whole,0),axis=1)
+    fraction=jnp.sum(jnp.where(include,fraction,0),axis=1)
+    # Apply Tome of War before final half-up rounding, including late revivals.
+    extra=jnp.where(scale==5,whole//4,0)
+    remainder=jnp.where(scale==5,whole%4,0)
+    return whole+extra+(remainder*60+fraction*scale+120)//240

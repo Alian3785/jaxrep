@@ -1,5 +1,5 @@
 {
-  "name": "NumberGrid-48x48-v24-potion-chests",
+  "name": "NumberGrid-48x48-v71-reference-aleman",
   "size": 48,
   "agent_position": [
     2,
@@ -313,7 +313,7 @@
     100
   ],
   "battle_recovery": "Victory or retreat preserves all hero HP, including dead units at 0 HP. Full defeat ends the episode. Enemies reset after retreat. Rest heals living heroes by ceil(10% max HP). Paid healing and revival to 1 HP require the temple and exact starting cell (capital).",
-  "battle_observation_version": 13,
+  "battle_observation_version": 27,
   "combat_rules_version": 2,
   "faction": "legions",
   "building_reward": 0.05,
@@ -346,7 +346,7 @@
       null
     ],
     [
-      "archer",
+      "goblin_archer",
       "squire",
       null,
       null,
@@ -357,7 +357,7 @@
       null,
       "squire",
       null,
-      "archer",
+      "apprentice",
       "acolyte",
       null
     ],
@@ -366,19 +366,19 @@
       "squire",
       null,
       null,
-      "archer",
+      "wolf_lord",
       null
     ],
     [
       null,
-      "titan",
+      "abyss_devil",
       null,
       "archer",
       null,
       "acolyte"
     ],
     [
-      "archer",
+      "teurg",
       "squire",
       "archer",
       "archer",
@@ -390,11 +390,11 @@
       "squire",
       "archer",
       "acolyte",
-      "archer",
+      "witch",
       null
     ],
     [
-      "archer",
+      "peasant",
       "squire",
       "archer",
       "archer",
@@ -404,13 +404,13 @@
     [
       "squire",
       "titan",
-      "archer",
+      "centaur_savage",
       "acolyte",
       null,
       "archer"
     ],
     [
-      "archer",
+      "blade_master",
       "squire",
       "archer",
       "archer",
@@ -426,7 +426,7 @@
       "archer"
     ],
     [
-      "squire",
+      "death",
       null,
       null,
       null,
@@ -434,47 +434,47 @@
       null
     ],
     [
+      "wight",
+      "squire",
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      "lord",
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      "squire",
+      "squire",
+      null,
+      null,
+      "acolyte",
+      null
+    ],
+    [
+      "sentry",
+      "squire",
       "archer",
-      "squire",
-      null,
       null,
       null,
       null
     ],
     [
+      null,
       "titan",
       null,
-      null,
-      null,
-      null,
-      null
-    ],
-    [
-      "squire",
-      "squire",
-      null,
-      null,
-      "acolyte",
-      null
-    ],
-    [
-      "archer",
-      "squire",
-      "archer",
-      null,
-      null,
-      null
-    ],
-    [
-      null,
-      "titan",
-      null,
-      "archer",
+      "watcher",
       null,
       "archer"
     ],
     [
-      "squire",
+      "bone_lord",
       "archer",
       null,
       "archer",
@@ -482,7 +482,7 @@
       null
     ],
     [
-      "archer",
+      "dregazul",
       "squire",
       "archer",
       "archer",
@@ -490,17 +490,17 @@
       null
     ],
     [
-      "archer",
+      "ghost",
       "squire",
       "archer",
       "archer",
-      "archer",
+      "alchemist",
       null
     ],
     [
-      "titan",
+      "dead_dragon",
       "squire",
-      "titan",
+      "gumtic",
       null,
       "acolyte",
       null
@@ -509,8 +509,8 @@
       "archer",
       "squire",
       "archer",
-      "archer",
-      "archer",
+      "shadow",
+      "dwarfdruid",
       "archer"
     ],
     [
@@ -518,8 +518,8 @@
       "squire",
       "archer",
       "archer",
-      "acolyte",
-      "archer"
+      "archdruid",
+      "succubus"
     ],
     [
       "orc",
@@ -546,7 +546,7 @@
       null
     ],
     [
-      "squire",
+      "uter_betrezen",
       null,
       null,
       null,
@@ -555,15 +555,15 @@
     ],
     [
       null,
-      "titan",
+      "ismir_son",
       null,
       null,
       null,
       null
     ],
     [
-      "archer",
-      "squire",
+      "ghoul",
+      "mermaid",
       null,
       null,
       null,
@@ -573,31 +573,31 @@
       null,
       "squire",
       null,
-      "archer",
+      "baroness",
       "acolyte",
       null
     ],
     [
-      "squire",
+      "hermit",
       "squire",
       null,
       null,
-      "archer",
+      "medusa",
       null
     ],
     [
       null,
-      "titan",
+      "tiamat",
       null,
       "archer",
       null,
       "acolyte"
     ],
     [
-      "archer",
+      "nosferatu",
       "squire",
       "archer",
-      "archer",
+      "medium",
       null,
       null
     ],
@@ -605,48 +605,48 @@
       "squire",
       "squire",
       "archer",
-      "acolyte",
-      "archer",
+      "cleric",
+      "highvampire",
       null
     ],
     [
+      "thug",
+      "squire",
       "archer",
+      "archer",
+      "sundancer",
+      null
+    ],
+    [
+      "drulliaan",
       "squire",
       "archer",
       "archer",
       "archer",
-      null
+      "sylfid"
     ],
     [
-      "archer",
+      "elf_bandit",
       "squire",
       "archer",
       "archer",
-      "archer",
+      "travnitsa",
       "archer"
     ],
     [
-      "archer",
-      "squire",
-      "archer",
-      "archer",
-      "archer",
-      "archer"
-    ],
-    [
-      "squire",
+      "shamanka",
       "squire",
       null,
       null,
-      "acolyte",
+      "deva_roshi",
       null
     ],
     [
-      "squire",
+      "aleman",
       "archer",
       null,
       "archer",
-      "acolyte",
+      "patriarch",
       null
     ],
     [
@@ -654,7 +654,7 @@
       "squire",
       "archer",
       "archer",
-      "acolyte",
+      "novice",
       "archer"
     ]
   ],

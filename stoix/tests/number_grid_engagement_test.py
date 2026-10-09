@@ -1,5 +1,6 @@
 """Enemy-tile attack regressions from the current Python reference; CUDA only."""
 from collections import OrderedDict
+from stoix.tests.number_grid_fixtures import compiled_method
 import threading
 
 import chex
@@ -41,9 +42,9 @@ def test_attack_all_eight_directions_costs_half_cap_clamped_to_positive_remainde
     states=batch(initial,count).replace(
         position=env.opponent_positions[0]-env.directions[actions],
         movement_points=jnp.repeat(budgets,8), map_steps=jnp.full(count,7,jnp.int32))
-    masks=jax.jit(jax.vmap(env.action_mask))(states)
+    masks=compiled_method(env,'action_mask',batched=True)(states)
     chex.assert_trees_all_equal(masks[jnp.arange(count),actions],states.movement_points>0)
-    following,ts=jax.jit(jax.vmap(env.step))(states,actions)
+    following,ts=compiled_method(env,'step',batched=True)(states,actions)
     chex.assert_trees_all_equal(following.in_battle,states.movement_points>0)
     chex.assert_trees_all_equal(following.position,states.position)
     chex.assert_trees_all_equal(following.origin[8:],states.position[8:])
@@ -60,24 +61,33 @@ def test_attack_all_eight_directions_costs_half_cap_clamped_to_positive_remainde
     # Empty-cell movement still costs two and cannot be taken with one point.
     low=initial.replace(movement_points=jnp.int32(1))
     assert not jnp.any(env.action_mask(low)[:8])
-    stopped,_=jax.jit(env.step)(low,jnp.int32(2))
+    stopped,_=compiled_method(env,'step')(low,jnp.int32(2))
     chex.assert_trees_all_equal(stopped.position,low.position)
     wall=initial.replace(position=jnp.array([1,1]))
     assert not env.action_mask(wall)[0]
-    stopped,_=jax.jit(env.step)(wall,jnp.int32(0))
+    stopped,_=compiled_method(env,'step')(wall,jnp.int32(0))
     assert not stopped.in_battle and stopped.movement_points==20
 
 
 def test_command_selects_exact_stack_when_two_targets_are_adjacent():
     positions=[list(p) for p in MAP['opponent_positions']]
     positions[1]=[3,9]
-    env=NumberGrid(map_config={**MAP,'opponent_positions':positions})
+    # Target selection is independent of attack effects; keep the formation and
+    # current map contract without recompiling every special combat branch.
+    rosters=[[('squire' if i < 3 else 'archer') if key else None
+              for i,key in enumerate(row)] for row in MAP['enemy_rosters']]
+    env=NumberGrid(map_config={**MAP,'opponent_positions':positions,'enemy_rosters':rosters})
     state,_=env.reset(jax.random.PRNGKey(42))
     state=state.replace(position=jnp.array([2,8]))
     commands=env.map_commands(state)
     assert commands[4,0]==0 and commands[3,0]==1
     assert commands[4,1]==commands[3,1]==10
-    next_states,_=jax.jit(jax.vmap(env.step))(batch(state,2),jnp.array([4,3]))
+    assert jnp.all(env.action_mask(state)[jnp.array([4,3])])
+    # Public step/mask coupling is exercised for all directions above. Here
+    # isolate destination selection and battle initialization from combat turns.
+    states=batch(state,2)
+    next_states,_=compiled_method(env,'_world_step',batched=True)(states,
+        jnp.array([4,3],jnp.int32),states.battle_key,jnp.zeros((2,env.random_size)))
     chex.assert_trees_all_equal(next_states.enemy,jnp.array([0,1]))
     chex.assert_trees_all_equal(next_states.position,jnp.array([[2,8],[2,8]]))
     chex.assert_trees_all_equal(next_states.unit_ids[:,6:],env.progression.enemy_ids[:2])
@@ -89,7 +99,7 @@ def test_victory_and_retreat_stay_at_origin_and_cleared_tile_needs_separate_move
     attack,_=advance(ready,jnp.int32(2))
     assert attack.in_battle and attack.movement_points==10
     won,_=battle_step(attack.replace(actor=jnp.int32(0),hp=attack.hp.at[6].set(1)),
-                     jnp.int32(SHOOT),attack.battle_key,jnp.zeros(36))
+                     jnp.int32(SHOOT),attack.battle_key,jnp.zeros(env.random_size))
     assert won.last_event==VICTORY and not won.in_battle and not won.alive[0]
     assert won.movement_points==10 and won.map_steps==0
     chex.assert_trees_all_equal(won.position,ready.position)
@@ -98,7 +108,7 @@ def test_victory_and_retreat_stay_at_origin_and_cleared_tile_needs_separate_move
     assert not entered.in_battle and entered.movement_points==8 and entered.map_steps==1
     escaping=attack.replace(actor=jnp.int32(0),hp=attack.hp.at[1:6].set(0),
         retreating=attack.retreating.at[0].set(True))
-    escaped,_=battle_step(escaping,jnp.int32(CONTINUE),escaping.battle_key,jnp.zeros(36))
+    escaped,_=battle_step(escaping,jnp.int32(CONTINUE),escaping.battle_key,jnp.zeros(env.random_size))
     assert escaped.last_event==WITHDRAW and not escaped.in_battle and escaped.alive[0]
     chex.assert_trees_all_equal(escaped.position,ready.position)
     assert escaped.movement_points==10 and escaped.map_steps==0
@@ -112,7 +122,7 @@ def test_human_server_uses_jax_target_and_cost_and_does_not_auto_attack_neighbou
     env,initial,advance,_=current_game
     service=GameService.__new__(GameService)
     service.lock=threading.Lock()
-    service.environments={env.construction.faction:(env,jax.jit(env.reset),advance)}
+    service.environments={env.construction.faction:(env,compiled_method(env,'reset'),advance)}
     service.sessions=OrderedDict({'attack':(env.construction.faction,initial.replace(position=jnp.array([2,6])),0.)})
     result=service.act('attack',2)['snapshot']
     assert result['state']['position']==[2,7] and not result['state']['in_battle']

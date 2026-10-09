@@ -1,4 +1,6 @@
+from functools import lru_cache
 import dataclasses
+from stoix.tests.number_grid_fixtures import compiled_method
 import json
 from pathlib import Path
 
@@ -22,6 +24,16 @@ class NumberGrid(CurrentNumberGrid):
         super().__init__(map_config=LEGACY_MAP, **kwargs)
 
 
+@lru_cache(maxsize=1)
+def legacy_grid():
+    return NumberGrid()
+
+
+@lru_cache(maxsize=1)
+def legacy_current_grid():
+    return CurrentNumberGrid()
+
+
 def initial_state():
     return reference.initial_state(LEGACY_MAP)
 
@@ -43,7 +55,7 @@ def reset(env):
 
 
 def test_reset_and_observation():
-    env = NumberGrid()
+    env = legacy_grid()
     state, ts = env.reset(jax.random.PRNGKey(1))
     assert plain(state) == initial_state()
     assert ts.first() and ts.discount == 1 and ts.reward == 0
@@ -54,7 +66,7 @@ def test_reset_and_observation():
 
 
 def test_fixed_map_ignores_seed():
-    env = NumberGrid()
+    env = legacy_grid()
     a, _ = env.reset(jax.random.PRNGKey(0))
     b, _ = env.reset(jax.random.PRNGKey(999))
     assert plain(a) == plain(b)
@@ -62,24 +74,24 @@ def test_fixed_map_ignores_seed():
 
 @pytest.mark.parametrize('action', range(8))
 def test_eight_directions(action):
-    env = NumberGrid()
+    env = legacy_grid()
     state = reset(env).replace(position=jnp.asarray([6, 10], jnp.int32))
-    nxt, ts = jax.jit(env.step)(state, jnp.int32(action))
+    nxt, ts = compiled_method(env,'step')(state, jnp.int32(action))
     np.testing.assert_array_equal(nxt.position, np.asarray([6, 10]) + DIRECTIONS[action])
     assert nxt.step_count == 1 and ts.reward == 0
 
 
 @pytest.mark.parametrize('position,action', [([1, 1], 7), ([1, 14], 1), ([14, 14], 3), ([14, 1], 5)])
 def test_perimeter_wall(position, action):
-    env = NumberGrid()
+    env = legacy_grid()
     state = reset(env).replace(position=jnp.asarray(position, jnp.int32), alive=jnp.asarray([True, False, False]))
-    nxt, _ = jax.jit(env.step)(state, jnp.int32(action))
+    nxt, _ = compiled_method(env,'step')(state, jnp.int32(action))
     np.testing.assert_array_equal(nxt.position, position)
     assert nxt.step_count == 1
 
 
 def test_weak_contact_and_no_double_reward():
-    env = NumberGrid()
+    env = legacy_grid()
     state = reset(env).replace(position=jnp.asarray([3, 6], jnp.int32))
     nxt, ts = env.step(state, jnp.int32(2))
     assert ts.reward == 1 and nxt.number == 2 and not nxt.alive[0] and not nxt.done
@@ -89,7 +101,7 @@ def test_weak_contact_and_no_double_reward():
 
 @pytest.mark.parametrize('number', [1, 0])
 def test_equal_or_stronger_loses(number):
-    env = NumberGrid()
+    env = legacy_grid()
     state = reset(env).replace(position=jnp.asarray([8, 4], jnp.int32), number=jnp.int32(number))
     nxt, ts = env.step(state, jnp.int32(4))
     assert nxt.lost and nxt.done and not nxt.won
@@ -100,7 +112,7 @@ def test_loss_has_priority_over_simultaneous_capture():
     env = NumberGrid()
     env.opponent_positions = jnp.asarray([[5, 5], [5, 7], [13, 13]], jnp.int32)
     state = reset(env).replace(position=jnp.asarray([3, 6], jnp.int32))
-    nxt, ts = jax.jit(env.step)(state, jnp.int32(4))
+    nxt, ts = compiled_method(env,'step')(state, jnp.int32(4))
     assert nxt.lost and ts.reward == -1 and nxt.number == 1 and np.all(nxt.alive)
 
 
@@ -133,7 +145,7 @@ def test_win_on_last_step_beats_timeout():
 
 
 def test_opponent_cell_is_occupied():
-    env = NumberGrid()
+    env = legacy_grid()
     state = reset(env).replace(position=jnp.asarray([3, 7], jnp.int32))
     nxt, ts = env.step(state, jnp.int32(2))
     np.testing.assert_array_equal(nxt.position, [3, 7])
@@ -141,9 +153,9 @@ def test_opponent_cell_is_occupied():
 
 
 def test_shortest_path_matches_jax_and_reward_six():
-    env = NumberGrid()
+    env = legacy_grid()
     state = reset(env)
-    compiled = jax.jit(env.step)
+    compiled = compiled_method(env,'step')
     reference = initial_state()
     total = 0
     actions = shortest_path()
@@ -184,9 +196,9 @@ def test_random_transitions_against_independent_reference():
 
 
 def test_vmap_and_jit_run_on_selected_device():
-    env = NumberGrid()
-    states, _ = jax.jit(jax.vmap(env.reset))(jax.random.split(jax.random.PRNGKey(1), 32))
-    states, ts = jax.jit(jax.vmap(env.step))(states, jnp.zeros(32, jnp.int32))
+    env = legacy_grid()
+    states, _ = compiled_method(env,'reset',batched=True)(jax.random.split(jax.random.PRNGKey(1), 32))
+    states, ts = compiled_method(env,'step',batched=True)(states, jnp.zeros(32, jnp.int32))
     assert states.position.shape == (32, 2)
     assert ts.observation.shape == (32, 16)
     assert np.all(np.asarray(states.step_count) == 1)
@@ -198,7 +210,7 @@ def test_training_autoreset_preserves_terminal_observation():
     config.env.kwargs.max_steps = 1
     env, _ = make(config)
     states, ts = env.reset(jax.random.split(jax.random.PRNGKey(0), 2))
-    states, ts = jax.jit(env.step)(states, jnp.zeros(2, jnp.int32))
+    states, ts = compiled_method(env,'step')(states, jnp.zeros(2, jnp.int32))
     assert np.all(ts.truncated()) and np.all(ts.discount == 1)
     assert np.all(np.asarray(ts.observation[:, -1]) == 0)
     assert np.all(np.asarray(ts.extras['next_obs'][:, -1]) == 1)
@@ -225,7 +237,7 @@ def test_current_map_counts_and_required_twelve():
 
 
 def test_current_full_observation_and_reset():
-    env = CurrentNumberGrid()
+    env = legacy_current_grid()
     state, ts = env.reset(jax.random.PRNGKey(43))
     assert plain(state) == reference.initial_state(MAP)
     assert state.alive.shape == (12,)
@@ -239,7 +251,7 @@ def test_current_full_observation_and_reset():
 
 
 def test_current_grid_vmap_scan_on_gpu():
-    env = CurrentNumberGrid()
+    env = legacy_current_grid()
     @jax.jit
     def rollout(keys):
         states, _ = jax.vmap(env.reset)(keys)
@@ -268,16 +280,16 @@ def test_current_grid_against_reference():
 
 @pytest.mark.parametrize('enemy', range(12))
 def test_current_grid_each_enemy_can_be_captured_when_weaker(enemy):
-    env = CurrentNumberGrid()
+    env = legacy_current_grid()
     r,c = MAP['opponent_positions'][enemy]
     state = reset(env).replace(position=jnp.asarray([r-2,c], jnp.int32),
         number=jnp.int32(MAP['opponent_numbers'][enemy]+1), alive=jnp.arange(12)==enemy)
-    nxt, ts = jax.jit(env.step)(state,jnp.int32(4))
+    nxt, ts = compiled_method(env,'step')(state,jnp.int32(4))
     assert nxt.won and float(ts.reward) == pytest.approx(4 + env.exploration_bonus - env.step_cost) and not np.any(nxt.alive)
 
 
 def test_current_grid_bottom_right_boundary():
-    env = CurrentNumberGrid()
+    env = legacy_current_grid()
     state = reset(env).replace(position=jnp.asarray([22,22],jnp.int32))
     nxt, ts = env.step(state,jnp.int32(3))
     np.testing.assert_array_equal(nxt.position,[22,22])
@@ -285,9 +297,9 @@ def test_current_grid_bottom_right_boundary():
 
 
 def test_current_grid_has_a_legal_winning_route():
-    env = CurrentNumberGrid()
+    env = legacy_current_grid()
     state = reset(env)
-    advance = jax.jit(env.step)
+    advance = compiled_method(env,'step')
     reward = 0.0
     for action in reference.winning_path(MAP):
         state, ts = advance(state, jnp.int32(action))
@@ -303,7 +315,7 @@ def test_step_cost_applies_to_movement_and_invalid_actions(action):
     env = CurrentNumberGrid(map_config={**MAP, 'exploration_bonus': 0})
     state, initial = env.reset(jax.random.PRNGKey(0))
     assert initial.reward == 0
-    nxt, ts = jax.jit(env.step)(state, jnp.int32(action))
+    nxt, ts = compiled_method(env,'step')(state, jnp.int32(action))
     assert nxt.step_count == 1 and not nxt.done
     assert float(ts.reward) == pytest.approx(-0.001)
 
@@ -321,7 +333,7 @@ def test_step_cost_on_contacts_and_terminal_steps(event):
     elif event == 'loss':
         state = state.replace(position=jnp.asarray([18,20]))
         action, base_reward = 4, -1
-    nxt, ts = jax.jit(env.step)(state, jnp.int32(action))
+    nxt, ts = compiled_method(env,'step')(state, jnp.int32(action))
     assert float(ts.reward) == pytest.approx(base_reward - 0.001)
     if event in ('loss', 'timeout'):
         assert nxt.done
@@ -356,9 +368,9 @@ def test_generated_numbers_have_a_legal_spatial_winning_route(seed):
 
 
 def test_exploration_once_per_cell_and_reset():
-    env = CurrentNumberGrid()
+    env = legacy_current_grid()
     state = reset(env)
-    advance = jax.jit(env.step)
+    advance = compiled_method(env,'step')
     rewards = []
     # New [2,3], back to spawn, revisit [2,3], new [2,4], invalid action.
     for action in [2, 6, 2, 2, -1]:
@@ -371,8 +383,8 @@ def test_exploration_once_per_cell_and_reset():
 
 
 def test_exploration_blocked_loss_timeout_and_absorbing():
-    env = CurrentNumberGrid()
-    advance = jax.jit(env.step)
+    env = legacy_current_grid()
+    advance = compiled_method(env,'step')
     state, _ = advance(reset(env), jnp.int32(7))  # [1,1]
     state, ts = advance(state, jnp.int32(7))  # wall
     assert float(ts.reward) == pytest.approx(-.001)
@@ -390,10 +402,10 @@ def test_exploration_blocked_loss_timeout_and_absorbing():
 
 
 def test_exploration_bit31_and_independent_batched_memory():
-    env = CurrentNumberGrid()
+    env = legacy_current_grid()
     keys = jax.random.split(jax.random.PRNGKey(4), 2)
     states, _ = jax.vmap(env.reset)(keys)
-    advance = jax.jit(jax.vmap(env.step))
+    advance = compiled_method(env,'step',batched=True)
     states, _ = advance(states, jnp.asarray([2, 4]))
     states, ts = advance(states, jnp.asarray([6, 1]))  # spawn vs [2,3]
     np.testing.assert_allclose(ts.reward, [-.001, .009], atol=1e-7)
@@ -408,7 +420,7 @@ def test_exploration_autoreset_and_success_is_not_inferred_from_return():
     config.env.kwargs.max_steps = 1
     env, _ = make(config)
     state, _ = env.reset(jax.random.split(jax.random.PRNGKey(0), 2))
-    advance = jax.jit(env.step)
+    advance = compiled_method(env,'step')
     for _ in range(2):
         state, ts = advance(state, jnp.asarray([2, 4]))
         np.testing.assert_allclose(ts.reward, [99.999, 99.999], atol=1e-5)

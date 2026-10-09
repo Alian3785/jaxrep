@@ -40,7 +40,9 @@
       "kill_late": 1
     },
     "heal_gold_per_hp": 1,
-    "revive_gold": 50
+    "revive_gold": 50,
+    "lower_form": "",
+    "neutral": false
   },
   "cultist": {
     "name": "Сектант",
@@ -84,7 +86,9 @@
       "kill_late": 1
     },
     "heal_gold_per_hp": 1,
-    "revive_gold": 50
+    "revive_gold": 50,
+    "lower_form": "",
+    "neutral": false
   },
   "squire": {
     "name": "Скваер",
@@ -128,7 +132,9 @@
       "kill_late": 1
     },
     "heal_gold_per_hp": 1,
-    "revive_gold": 50
+    "revive_gold": 50,
+    "lower_form": "",
+    "neutral": false
   },
   "archer": {
     "name": "Лучник",
@@ -171,7 +177,9 @@
       "kill_late": 1
     },
     "heal_gold_per_hp": 1,
-    "revive_gold": 50
+    "revive_gold": 50,
+    "lower_form": "",
+    "neutral": false
   },
   "berserker": {
     "name": "Берсерк",
@@ -214,7 +222,9 @@
       "kill_late": 3
     },
     "heal_gold_per_hp": 2,
-    "revive_gold": 200
+    "revive_gold": 200,
+    "lower_form": "possessed",
+    "neutral": false
   },
   "dark_paladin": {
     "name": "Темный паладин",
@@ -257,7 +267,9 @@
       "kill_late": 7
     },
     "heal_gold_per_hp": 2,
-    "revive_gold": 400
+    "revive_gold": 400,
+    "lower_form": "berserker",
+    "neutral": false
   },
   "infernal_knight": {
     "name": "Адский рыцарь",
@@ -298,7 +310,9 @@
       "kill_late": 11
     },
     "heal_gold_per_hp": 3,
-    "revive_gold": 600
+    "revive_gold": 600,
+    "lower_form": "dark_paladin",
+    "neutral": false
   },
   "warlock": {
     "name": "Колдун",
@@ -342,14 +356,16 @@
       "kill_late": 3
     },
     "heal_gold_per_hp": 2,
-    "revive_gold": 200
+    "revive_gold": 200,
+    "lower_form": "cultist",
+    "neutral": false
   },
   "witch": {
     "name": "Ведьма",
     "game_id": "g000uu0067",
     "faction": "legions",
     "level": 2,
-    "role": "unsupported",
+    "role": "ranged",
     "max_hp": 75,
     "damage": 0,
     "accuracy": 80,
@@ -364,7 +380,7 @@
     "upgrades": [
       "sorceress"
     ],
-    "upgrade_unavailable_reason": "Паралич пока не реализован",
+    "upgrade_unavailable_reason": "",
     "growth": {
       "threshold": 10,
       "early": [
@@ -385,7 +401,13 @@
       "kill_late": 2
     },
     "heal_gold_per_hp": 2,
-    "revive_gold": 200
+    "revive_gold": 200,
+    "unit_type": "Witch",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "lower_form": "cultist",
+    "neutral": false
   },
   "doppelganger": {
     "name": "Двойник",
@@ -426,7 +448,9 @@
       "kill_late": 6
     },
     "heal_gold_per_hp": 2,
-    "revive_gold": 400
+    "revive_gold": 400,
+    "lower_form": "warlock",
+    "neutral": false
   },
   "demonologist": {
     "name": "Демонолог",
@@ -470,14 +494,16 @@
       "kill_late": 7
     },
     "heal_gold_per_hp": 2,
-    "revive_gold": 400
+    "revive_gold": 400,
+    "lower_form": "warlock",
+    "neutral": false
   },
   "sorceress": {
     "name": "Колдунья",
     "game_id": "g000uu0068",
     "faction": "legions",
     "level": 3,
-    "role": "unsupported",
+    "role": "ranged",
     "max_hp": 115,
     "damage": 50,
     "accuracy": 80,
@@ -492,7 +518,7 @@
     "upgrades": [
       "succubus"
     ],
-    "upgrade_unavailable_reason": "Массовый паралич пока не реализован",
+    "upgrade_unavailable_reason": "",
     "growth": {
       "threshold": 10,
       "early": [
@@ -513,27 +539,38 @@
       "kill_late": 2
     },
     "heal_gold_per_hp": 2,
-    "revive_gold": 400
+    "revive_gold": 400,
+    "unit_type": "Witch",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "lower_form": "witch",
+    "neutral": false
   },
   "incubus": {
     "name": "Инкуб",
     "game_id": "g000uu0065",
     "faction": "legions",
     "level": 4,
-    "role": "unsupported",
+    "unit_type": "Incub",
+    "role": "area",
+    "size": 1,
     "max_hp": 135,
     "damage": 0,
     "accuracy": 65,
     "armor": 0,
     "initiative": 20,
     "attack_type": "earth",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
     "immunities": [],
     "protections": [],
     "exp_kill": 90,
     "exp_required": 1125,
     "exp_current": 0,
     "upgrades": [],
-    "upgrade_unavailable_reason": "Массовый паралич пока не реализован",
+    "upgrade_unavailable_reason": "",
     "growth": {
       "threshold": 10,
       "early": [
@@ -551,10 +588,20 @@
         0
       ],
       "kill_early": 9,
-      "kill_late": 5
+      "kill_late": 5,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
     },
     "heal_gold_per_hp": 3,
-    "revive_gold": 600
+    "revive_gold": 600,
+    "neutral": false,
+    "lower_form": "demonologist"
   },
   "pandemoneus": {
     "name": "Пандемонеус",
@@ -597,27 +644,34 @@
       "kill_late": 11
     },
     "heal_gold_per_hp": 3,
-    "revive_gold": 600
+    "revive_gold": 600,
+    "lower_form": "demonologist",
+    "neutral": false
   },
   "succubus": {
     "name": "Суккуб",
     "game_id": "g000uu0173",
     "faction": "legions",
     "level": 4,
-    "role": "unsupported",
+    "unit_type": "Succub",
+    "role": "area",
+    "size": 1,
     "max_hp": 145,
     "damage": 0,
     "accuracy": 40,
     "armor": 0,
     "initiative": 20,
     "attack_type": "mind",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
     "immunities": [],
     "protections": [],
     "exp_kill": 305,
     "exp_required": 1500,
     "exp_current": 0,
     "upgrades": [],
-    "upgrade_unavailable_reason": "Превращение пока не реализовано",
+    "upgrade_unavailable_reason": "",
     "growth": {
       "threshold": 10,
       "early": [
@@ -635,10 +689,20 @@
         0
       ],
       "kill_early": 8,
-      "kill_late": 4
+      "kill_late": 4,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
     },
     "heal_gold_per_hp": 3,
-    "revive_gold": 600
+    "revive_gold": 600,
+    "neutral": false,
+    "lower_form": "sorceress"
   },
   "modeus": {
     "name": "Модеус",
@@ -681,7 +745,9 @@
       "kill_late": 19
     },
     "heal_gold_per_hp": 3,
-    "revive_gold": 1000
+    "revive_gold": 1000,
+    "lower_form": "pandemoneus",
+    "neutral": false
   },
   "knight": {
     "name": "Рыцарь",
@@ -724,7 +790,9 @@
       "kill_late": 3
     },
     "heal_gold_per_hp": 2,
-    "revive_gold": 200
+    "revive_gold": 200,
+    "lower_form": "squire",
+    "neutral": false
   },
   "witch_hunter": {
     "name": "Охотник на ведьм",
@@ -769,7 +837,9 @@
       "kill_late": 3
     },
     "heal_gold_per_hp": 2,
-    "revive_gold": 200
+    "revive_gold": 200,
+    "lower_form": "squire",
+    "neutral": false
   },
   "imperial_knight": {
     "name": "Имперский рыцарь",
@@ -813,7 +883,9 @@
       "kill_late": 6
     },
     "heal_gold_per_hp": 2,
-    "revive_gold": 400
+    "revive_gold": 400,
+    "lower_form": "knight",
+    "neutral": false
   },
   "inquisitor": {
     "name": "Инквизитор",
@@ -858,7 +930,9 @@
       "kill_late": 5
     },
     "heal_gold_per_hp": 2,
-    "revive_gold": 400
+    "revive_gold": 400,
+    "lower_form": "witch_hunter",
+    "neutral": false
   },
   "angel": {
     "name": "Ангел",
@@ -899,7 +973,9 @@
       "kill_late": 11
     },
     "heal_gold_per_hp": 3,
-    "revive_gold": 600
+    "revive_gold": 600,
+    "lower_form": "imperial_knight",
+    "neutral": false
   },
   "paladin": {
     "name": "Паладин",
@@ -943,7 +1019,9 @@
       "kill_late": 10
     },
     "heal_gold_per_hp": 3,
-    "revive_gold": 600
+    "revive_gold": 600,
+    "lower_form": "imperial_knight",
+    "neutral": false
   },
   "defender_of_faith": {
     "name": "Защитник Веры",
@@ -984,7 +1062,9 @@
       "kill_late": 16
     },
     "heal_gold_per_hp": 3,
-    "revive_gold": 800
+    "revive_gold": 800,
+    "lower_form": "paladin",
+    "neutral": false
   },
   "blade_master": {
     "name": "Мастер клинка",
@@ -1004,7 +1084,7 @@
     "exp_required": 2000,
     "exp_current": 0,
     "upgrades": [],
-    "upgrade_unavailable_reason": "Двойная атака пока не реализована",
+    "upgrade_unavailable_reason": "",
     "growth": {
       "threshold": 10,
       "early": [
@@ -1025,7 +1105,11 @@
       "kill_late": 15
     },
     "heal_gold_per_hp": 3,
-    "revive_gold": 800
+    "revive_gold": 800,
+    "unit_type": "Demon",
+    "size": 1,
+    "lower_form": "paladin",
+    "neutral": false
   },
   "grand_inquisitor": {
     "name": "Великий инквизитор",
@@ -1070,7 +1154,9 @@
       "kill_late": 8
     },
     "heal_gold_per_hp": 3,
-    "revive_gold": 600
+    "revive_gold": 600,
+    "lower_form": "inquisitor",
+    "neutral": false
   },
   "marksman": {
     "name": "Стрелок",
@@ -1113,27 +1199,34 @@
       "kill_late": 3
     },
     "heal_gold_per_hp": 2,
-    "revive_gold": 200
+    "revive_gold": 200,
+    "lower_form": "archer",
+    "neutral": false
   },
   "imperial_assassin": {
     "name": "Имперский ассасин",
     "game_id": "g000uu0154",
     "faction": "empire",
     "level": 3,
+    "unit_type": "Death",
     "role": "ranged",
+    "size": 1,
     "max_hp": 135,
     "damage": 60,
     "accuracy": 85,
     "armor": 0,
     "initiative": 60,
     "attack_type": "weapon",
+    "secondary_attack_type": "death",
+    "secondary_accuracy": 75,
+    "secondary_damage": 20,
     "immunities": [],
     "protections": [],
     "exp_kill": 140,
     "exp_required": 1100,
     "exp_current": 0,
     "upgrades": [],
-    "upgrade_unavailable_reason": "Дополнительная атака пока не реализована",
+    "upgrade_unavailable_reason": "",
     "growth": {
       "threshold": 10,
       "early": [
@@ -1151,10 +1244,20 @@
         0
       ],
       "kill_early": 14,
-      "kill_late": 7
+      "kill_late": 7,
+      "secondary_early": [
+        6,
+        1
+      ],
+      "secondary_late": [
+        3,
+        0
+      ]
     },
     "heal_gold_per_hp": 2,
-    "revive_gold": 400
+    "revive_gold": 400,
+    "lower_form": "marksman",
+    "neutral": false
   },
   "duke": {
     "name": "Герцог",
@@ -1239,7 +1342,9 @@
       }
     ],
     "heal_gold_per_hp": 1,
-    "revive_gold": 200
+    "revive_gold": 200,
+    "lower_form": "",
+    "neutral": false
   },
   "titan": {
     "name": "Титан",
@@ -1281,13 +1386,16 @@
       "kill_late": 6
     },
     "heal_gold_per_hp": 2,
-    "revive_gold": 200
+    "revive_gold": 200,
+    "lower_form": "",
+    "neutral": false
   },
   "acolyte": {
     "name": "Служка",
     "game_id": "g000uu0011",
     "faction": "empire",
     "level": 1,
+    "unit_type": "Cliric",
     "role": "healer",
     "size": 1,
     "max_hp": 50,
@@ -1296,6 +1404,9 @@
     "armor": 0,
     "initiative": 10,
     "attack_type": "life",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
     "immunities": [],
     "protections": [],
     "exp_kill": 20,
@@ -1323,16 +1434,27 @@
         0
       ],
       "kill_early": 2,
-      "kill_late": 1
+      "kill_late": 1,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
     },
     "heal_gold_per_hp": 1,
-    "revive_gold": 50
+    "revive_gold": 50,
+    "neutral": false,
+    "lower_form": ""
   },
   "priest": {
     "name": "Жрец",
     "game_id": "g000uu0012",
     "faction": "empire",
     "level": 2,
+    "unit_type": "Cliric",
     "role": "healer",
     "size": 1,
     "max_hp": 75,
@@ -1341,6 +1463,9 @@
     "armor": 0,
     "initiative": 10,
     "attack_type": "life",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
     "immunities": [],
     "protections": [],
     "exp_kill": 60,
@@ -1367,16 +1492,27 @@
         0
       ],
       "kill_early": 6,
-      "kill_late": 3
+      "kill_late": 3,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
     },
     "heal_gold_per_hp": 2,
-    "revive_gold": 200
+    "revive_gold": 200,
+    "neutral": false,
+    "lower_form": "acolyte"
   },
   "cleric": {
     "name": "Клирик",
     "game_id": "g000uu0016",
     "faction": "empire",
     "level": 2,
+    "unit_type": "Profit",
     "role": "healer",
     "size": 1,
     "max_hp": 75,
@@ -1385,6 +1521,9 @@
     "armor": 0,
     "initiative": 10,
     "attack_type": "life",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
     "immunities": [],
     "protections": [],
     "exp_kill": 55,
@@ -1393,7 +1532,7 @@
     "upgrades": [
       "abbess"
     ],
-    "upgrade_unavailable_reason": "Массовое лечение пока не реализовано",
+    "upgrade_unavailable_reason": "",
     "growth": {
       "threshold": 10,
       "early": [
@@ -1411,16 +1550,27 @@
         0
       ],
       "kill_early": 5,
-      "kill_late": 3
+      "kill_late": 3,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
     },
     "heal_gold_per_hp": 2,
-    "revive_gold": 200
+    "revive_gold": 200,
+    "neutral": false,
+    "lower_form": "acolyte"
   },
   "hierophant": {
     "name": "Священник",
     "game_id": "g000uu0013",
     "faction": "empire",
     "level": 3,
+    "unit_type": "Cliric",
     "role": "healer",
     "size": 1,
     "max_hp": 100,
@@ -1429,6 +1579,9 @@
     "armor": 0,
     "initiative": 10,
     "attack_type": "life",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
     "immunities": [],
     "protections": [],
     "exp_kill": 160,
@@ -1455,16 +1608,27 @@
         0
       ],
       "kill_early": 16,
-      "kill_late": 8
+      "kill_late": 8,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
     },
     "heal_gold_per_hp": 2,
-    "revive_gold": 400
+    "revive_gold": 400,
+    "neutral": false,
+    "lower_form": "priest"
   },
   "abbess": {
     "name": "Аббатиса",
     "game_id": "g000uu0017",
     "faction": "empire",
     "level": 3,
+    "unit_type": "Profit",
     "role": "healer",
     "size": 1,
     "max_hp": 100,
@@ -1473,6 +1637,9 @@
     "armor": 0,
     "initiative": 10,
     "attack_type": "life",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
     "immunities": [],
     "protections": [],
     "exp_kill": 140,
@@ -1481,7 +1648,7 @@
     "upgrades": [
       "prophetess"
     ],
-    "upgrade_unavailable_reason": "Массовое лечение пока не реализовано",
+    "upgrade_unavailable_reason": "",
     "growth": {
       "threshold": 10,
       "early": [
@@ -1499,16 +1666,27 @@
         0
       ],
       "kill_early": 14,
-      "kill_late": 7
+      "kill_late": 7,
+      "secondary_early": [
+        0,
+        1
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
     },
     "heal_gold_per_hp": 2,
-    "revive_gold": 400
+    "revive_gold": 400,
+    "neutral": false,
+    "lower_form": "cleric"
   },
   "patriarch": {
     "name": "Патриарх",
     "game_id": "g000uu0150",
     "faction": "empire",
     "level": 4,
+    "unit_type": "Patriach",
     "role": "healer",
     "size": 1,
     "max_hp": 125,
@@ -1517,13 +1695,16 @@
     "armor": 0,
     "initiative": 10,
     "attack_type": "life",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
     "immunities": [],
     "protections": [],
     "exp_kill": 300,
     "exp_required": 2000,
     "exp_current": 0,
     "upgrades": [],
-    "upgrade_unavailable_reason": "Воскрешение Патриархом пока не реализовано",
+    "upgrade_unavailable_reason": "",
     "growth": {
       "threshold": 10,
       "early": [
@@ -1541,16 +1722,27 @@
         0
       ],
       "kill_early": 30,
-      "kill_late": 15
+      "kill_late": 15,
+      "secondary_early": [
+        0,
+        1
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
     },
     "heal_gold_per_hp": 3,
-    "revive_gold": 600
+    "revive_gold": 600,
+    "neutral": false,
+    "lower_form": "hierophant"
   },
   "prophetess": {
     "name": "Прорицательница",
     "game_id": "g000uu0151",
     "faction": "empire",
     "level": 4,
+    "unit_type": "Profit",
     "role": "healer",
     "size": 1,
     "max_hp": 125,
@@ -1559,13 +1751,16 @@
     "armor": 0,
     "initiative": 10,
     "attack_type": "life",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
     "immunities": [],
     "protections": [],
     "exp_kill": 305,
     "exp_required": 2050,
     "exp_current": 0,
     "upgrades": [],
-    "upgrade_unavailable_reason": "Массовое лечение пока не реализовано",
+    "upgrade_unavailable_reason": "",
     "growth": {
       "threshold": 10,
       "early": [
@@ -1583,10 +1778,20 @@
         0
       ],
       "kill_early": 31,
-      "kill_late": 15
+      "kill_late": 15,
+      "secondary_early": [
+        0,
+        1
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
     },
     "heal_gold_per_hp": 3,
-    "revive_gold": 600
+    "revive_gold": 600,
+    "neutral": false,
+    "lower_form": "abbess"
   },
   "orc": {
     "name": "Орк",
@@ -1628,7 +1833,9 @@
       "kill_late": 4
     },
     "heal_gold_per_hp": 2,
-    "revive_gold": 200
+    "revive_gold": 200,
+    "lower_form": "",
+    "neutral": true
   },
   "goblin": {
     "name": "Гоблин",
@@ -1670,7 +1877,9 @@
       "kill_late": 1
     },
     "heal_gold_per_hp": 1,
-    "revive_gold": 50
+    "revive_gold": 50,
+    "lower_form": "",
+    "neutral": true
   },
   "goblin_archer": {
     "name": "Гоблин лучник",
@@ -1712,6 +1921,4351 @@
       "kill_late": 1
     },
     "heal_gold_per_hp": 1,
-    "revive_gold": 50
+    "revive_gold": 50,
+    "lower_form": "",
+    "neutral": true
+  },
+  "apprentice": {
+    "name": "Ученик",
+    "game_id": "g000uu0008",
+    "faction": "empire",
+    "level": 1,
+    "unit_type": "Mage",
+    "role": "area",
+    "size": 1,
+    "max_hp": 35,
+    "damage": 15,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "air",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 15,
+    "exp_required": 75,
+    "exp_current": 0,
+    "upgrades": [
+      "mage"
+    ],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        5,
+        2,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        1,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 1,
+      "kill_late": 1
+    },
+    "heal_gold_per_hp": 1,
+    "revive_gold": 50,
+    "lower_form": "",
+    "neutral": false
+  },
+  "mage": {
+    "name": "Маг",
+    "game_id": "g000uu0009",
+    "faction": "empire",
+    "level": 2,
+    "unit_type": "Mage",
+    "role": "area",
+    "size": 1,
+    "max_hp": 65,
+    "damage": 30,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "air",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 55,
+    "exp_required": 550,
+    "exp_current": 0,
+    "upgrades": [
+      "wizard",
+      "elementalist"
+    ],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        5,
+        3,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        2,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 5,
+      "kill_late": 3
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 200,
+    "lower_form": "apprentice",
+    "neutral": false
+  },
+  "wizard": {
+    "name": "Волшебник",
+    "game_id": "g000uu0010",
+    "faction": "empire",
+    "level": 3,
+    "unit_type": "Mage",
+    "role": "area",
+    "size": 1,
+    "max_hp": 95,
+    "damage": 45,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "air",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 120,
+    "exp_required": 1200,
+    "exp_current": 0,
+    "upgrades": [
+      "white_mage"
+    ],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        5,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        2,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 12,
+      "kill_late": 6
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400,
+    "lower_form": "mage",
+    "neutral": false
+  },
+  "white_mage": {
+    "name": "Белый маг",
+    "game_id": "g000uu0152",
+    "faction": "empire",
+    "level": 4,
+    "unit_type": "Mage",
+    "role": "area",
+    "size": 1,
+    "max_hp": 125,
+    "damage": 60,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "air",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 210,
+    "exp_required": 2100,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        15,
+        6,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 21,
+      "kill_late": 11
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 600,
+    "lower_form": "wizard",
+    "neutral": false
+  },
+  "elementalist": {
+    "name": "Элементалист",
+    "game_id": "g000uu0153",
+    "faction": "empire",
+    "level": 3,
+    "unit_type": "Summoner",
+    "role": "area",
+    "size": 1,
+    "max_hp": 95,
+    "damage": 0,
+    "accuracy": 100,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "air",
+    "immunities": [],
+    "protections": [
+      "air"
+    ],
+    "exp_kill": 200,
+    "exp_required": 1500,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "Призыватели исключены из текущего переноса.",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        0,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        0,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 10,
+      "kill_late": 5
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400,
+    "lower_form": "mage",
+    "neutral": false
+  },
+  "wolf_lord": {
+    "name": "Повелитель волков",
+    "game_id": "g000uu0164",
+    "faction": "mountain_clans",
+    "level": 4,
+    "unit_type": "Wolf Lord",
+    "role": "area",
+    "size": 1,
+    "max_hp": 225,
+    "damage": 40,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "water",
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 250,
+    "exp_required": 2025,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        25,
+        0,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        10,
+        0,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 25,
+      "kill_late": 13
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 600,
+    "lower_form": "reference_g000uu0041",
+    "neutral": false
+  },
+  "teurg": {
+    "name": "Теург",
+    "game_id": "g000uu8028",
+    "faction": "elves",
+    "level": 3,
+    "unit_type": "Teurg",
+    "role": "area",
+    "size": 1,
+    "max_hp": 95,
+    "damage": 40,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 45,
+    "attack_type": "air",
+    "secondary_attack_type": "air",
+    "secondary_accuracy": 80,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 125,
+    "exp_required": 1240,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        4,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        2,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 12,
+      "kill_late": 6
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400,
+    "lower_form": "reference_g000uu8026",
+    "neutral": false
+  },
+  "peasant": {
+    "name": "Крестьянин",
+    "game_id": "g000uu5001",
+    "faction": "neutral",
+    "level": 1,
+    "unit_type": "Warrior",
+    "role": "melee",
+    "size": 1,
+    "max_hp": 40,
+    "damage": 15,
+    "accuracy": 75,
+    "armor": 0,
+    "initiative": 30,
+    "attack_type": "weapon",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 5,
+    "exp_required": 35,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        5,
+        2,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        2,
+        1,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 1,
+      "kill_late": 1
+    },
+    "heal_gold_per_hp": 1,
+    "revive_gold": 50,
+    "lower_form": "",
+    "neutral": true
+  },
+  "centaur_savage": {
+    "name": "Кентавр дикарь",
+    "game_id": "g000uu8017",
+    "faction": "elves",
+    "level": 3,
+    "unit_type": "Centaur Savage",
+    "role": "melee",
+    "size": 1,
+    "max_hp": 210,
+    "damage": 100,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 35,
+    "attack_type": "weapon",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 170,
+    "exp_required": 1300,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        21,
+        12,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        10,
+        5,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 17,
+      "kill_late": 9
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400,
+    "lower_form": "reference_g000uu8016",
+    "neutral": false
+  },
+  "niddog": {
+    "name": "Ниддог",
+    "game_id": "g000uu6010",
+    "faction": "neutral",
+    "level": 1,
+    "unit_type": "Demon",
+    "role": "melee",
+    "size": 2,
+    "max_hp": 2000,
+    "damage": 150,
+    "accuracy": 90,
+    "armor": 0,
+    "initiative": 50,
+    "attack_type": "weapon",
+    "secondary_attack_type": "death",
+    "secondary_accuracy": 90,
+    "secondary_damage": 50,
+    "immunities": [
+      "mind"
+    ],
+    "protections": [],
+    "exp_kill": 2570,
+    "exp_required": 9900,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        100,
+        15,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        15,
+        0,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 257,
+      "kill_late": 128,
+      "secondary_early": [
+        15,
+        1
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 4,
+    "revive_gold": 1000,
+    "lower_form": "",
+    "neutral": true
+  },
+  "death": {
+    "name": "Смерть",
+    "game_id": "g000uu0177",
+    "faction": "undead_hordes",
+    "level": 4,
+    "unit_type": "Death",
+    "role": "ranged",
+    "size": 1,
+    "max_hp": 125,
+    "damage": 100,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "death",
+    "secondary_attack_type": "death",
+    "secondary_accuracy": 50,
+    "secondary_damage": 20,
+    "immunities": [
+      "death",
+      "weapon"
+    ],
+    "protections": [],
+    "exp_kill": 315,
+    "exp_required": 900,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        15,
+        10,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        5,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 31,
+      "kill_late": 16,
+      "secondary_early": [
+        10,
+        1
+      ],
+      "secondary_late": [
+        5,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 600,
+    "lower_form": "reference_g000uu0085",
+    "neutral": false
+  },
+  "stinger": {
+    "name": "Стингер",
+    "game_id": "g000uu8020",
+    "faction": "elves",
+    "level": 3,
+    "unit_type": "Death",
+    "role": "ranged",
+    "size": 1,
+    "max_hp": 125,
+    "damage": 65,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 60,
+    "attack_type": "weapon",
+    "secondary_attack_type": "death",
+    "secondary_accuracy": 90,
+    "secondary_damage": 15,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 130,
+    "exp_required": 1300,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        13,
+        7,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        7,
+        4,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 13,
+      "kill_late": 7,
+      "secondary_early": [
+        7,
+        1
+      ],
+      "secondary_late": [
+        4,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400,
+    "lower_form": "reference_g000uu8019",
+    "neutral": false
+  },
+  "wight": {
+    "name": "Сущий",
+    "game_id": "g000uu0178",
+    "faction": "undead",
+    "level": 4,
+    "unit_type": "Wight",
+    "role": "ranged",
+    "size": 1,
+    "max_hp": 105,
+    "damage": 75,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 50,
+    "attack_type": "death",
+    "secondary_attack_type": "death",
+    "secondary_accuracy": 80,
+    "secondary_damage": 0,
+    "immunities": [
+      "death",
+      "weapon"
+    ],
+    "protections": [],
+    "exp_kill": 200,
+    "exp_required": 900,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        8,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        4,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 20,
+      "kill_late": 10,
+      "secondary_early": [
+        0,
+        1
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 600,
+    "lower_form": "reference_g000uu0085",
+    "neutral": false
+  },
+  "reference_g000uu0041": {
+    "name": "Горец",
+    "game_id": "g000uu0041",
+    "faction": "legions",
+    "level": 3,
+    "unit_type": "Mage",
+    "role": "area",
+    "size": 1,
+    "max_hp": 225,
+    "damage": 30,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "water",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 190,
+    "exp_required": 1500,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        25,
+        3,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        10,
+        2,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 19,
+      "kill_late": 9
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400,
+    "lower_form": "reference_g000uu0037",
+    "neutral": false
+  },
+  "reference_g000uu8026": {
+    "name": "Проводник",
+    "game_id": "g000uu8026",
+    "faction": "elves",
+    "level": 2,
+    "unit_type": "Mage",
+    "role": "area",
+    "size": 1,
+    "max_hp": 60,
+    "damage": 30,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 45,
+    "attack_type": "air",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 50,
+    "exp_required": 505,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        3,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        1,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 5,
+      "kill_late": 3
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 200,
+    "lower_form": "reference_g000uu8025",
+    "neutral": false
+  },
+  "reference_g000uu8016": {
+    "name": "Кентавр странник",
+    "game_id": "g000uu8016",
+    "faction": "elves",
+    "level": 2,
+    "unit_type": "Warrior",
+    "role": "melee",
+    "size": 1,
+    "max_hp": 175,
+    "damage": 65,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "weapon",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 90,
+    "exp_required": 730,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        18,
+        7,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        9,
+        4,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 9,
+      "kill_late": 4
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 200,
+    "lower_form": "reference_g000uu8014",
+    "neutral": false
+  },
+  "reference_g000uu0085": {
+    "name": "Дух",
+    "game_id": "g000uu0085",
+    "faction": "undead",
+    "level": 3,
+    "unit_type": "Archer",
+    "role": "ranged",
+    "size": 1,
+    "max_hp": 75,
+    "damage": 60,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 60,
+    "attack_type": "death",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [
+      "weapon",
+      "death"
+    ],
+    "protections": [],
+    "exp_kill": 115,
+    "exp_required": 900,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        6,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 11,
+      "kill_late": 6
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400,
+    "lower_form": "reference_g000uu0081",
+    "neutral": false
+  },
+  "reference_g000uu8019": {
+    "name": "Охотник",
+    "game_id": "g000uu8019",
+    "faction": "elves",
+    "level": 2,
+    "unit_type": "Archer",
+    "role": "ranged",
+    "size": 1,
+    "max_hp": 85,
+    "damage": 45,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 60,
+    "attack_type": "weapon",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 60,
+    "exp_required": 490,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        5,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 6,
+      "kill_late": 3
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 200,
+    "lower_form": "reference_g000uu8018",
+    "neutral": false
+  },
+  "reference_g000uu0037": {
+    "name": "Гном воин",
+    "game_id": "g000uu0037",
+    "faction": "legions",
+    "level": 2,
+    "unit_type": "Warrior",
+    "role": "melee",
+    "size": 1,
+    "max_hp": 200,
+    "damage": 55,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "weapon",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 90,
+    "exp_required": 600,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        20,
+        6,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        10,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 9,
+      "kill_late": 4
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 200,
+    "lower_form": "reference_g000uu0036",
+    "neutral": false
+  },
+  "reference_g000uu8025": {
+    "name": "Адепт эльфов",
+    "game_id": "g000uu8025",
+    "faction": "elves",
+    "level": 1,
+    "unit_type": "Mage",
+    "role": "area",
+    "size": 1,
+    "max_hp": 35,
+    "damage": 15,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 45,
+    "attack_type": "air",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 15,
+    "exp_required": 75,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        5,
+        2,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        3,
+        1,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 2,
+      "kill_late": 1
+    },
+    "heal_gold_per_hp": 1,
+    "revive_gold": 50,
+    "lower_form": "",
+    "neutral": false
+  },
+  "reference_g000uu8014": {
+    "name": "Кентавр копейщик",
+    "game_id": "g000uu8014",
+    "faction": "elves",
+    "level": 1,
+    "unit_type": "Warrior",
+    "role": "melee",
+    "size": 1,
+    "max_hp": 150,
+    "damage": 30,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "weapon",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 36,
+    "exp_required": 145,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        15,
+        3,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        8,
+        1,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 4,
+      "kill_late": 2
+    },
+    "heal_gold_per_hp": 1,
+    "revive_gold": 50,
+    "lower_form": "",
+    "neutral": false
+  },
+  "reference_g000uu0081": {
+    "name": "Чернокнижник",
+    "game_id": "g000uu0081",
+    "faction": "undead",
+    "level": 2,
+    "unit_type": "Mage",
+    "role": "area",
+    "size": 1,
+    "max_hp": 75,
+    "damage": 30,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "death",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 65,
+    "exp_required": 500,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        3,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        2,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 6,
+      "kill_late": 3
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 200,
+    "lower_form": "reference_g000uu0080",
+    "neutral": false
+  },
+  "reference_g000uu8018": {
+    "name": "Рейнджер",
+    "game_id": "g000uu8018",
+    "faction": "elves",
+    "level": 1,
+    "unit_type": "Archer",
+    "role": "ranged",
+    "size": 1,
+    "max_hp": 45,
+    "damage": 30,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 65,
+    "attack_type": "weapon",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 25,
+    "exp_required": 95,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        5,
+        3,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        3,
+        1,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 3,
+      "kill_late": 1
+    },
+    "heal_gold_per_hp": 1,
+    "revive_gold": 50,
+    "lower_form": "",
+    "neutral": false
+  },
+  "reference_g000uu0036": {
+    "name": "Гном",
+    "game_id": "g000uu0036",
+    "faction": "legions",
+    "level": 1,
+    "unit_type": "Warrior",
+    "role": "melee",
+    "size": 1,
+    "max_hp": 150,
+    "damage": 30,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "weapon",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 35,
+    "exp_required": 130,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        15,
+        3,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        10,
+        2,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 4,
+      "kill_late": 2
+    },
+    "heal_gold_per_hp": 1,
+    "revive_gold": 50,
+    "lower_form": "",
+    "neutral": false
+  },
+  "reference_g000uu0080": {
+    "name": "Адепт",
+    "game_id": "g000uu0080",
+    "faction": "undead",
+    "level": 1,
+    "unit_type": "Mage",
+    "role": "area",
+    "size": 1,
+    "max_hp": 45,
+    "damage": 15,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "death",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 20,
+    "exp_required": 75,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        5,
+        2,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        1,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 2,
+      "kill_late": 1
+    },
+    "heal_gold_per_hp": 1,
+    "revive_gold": 50,
+    "lower_form": "",
+    "neutral": false
+  },
+  "sentry": {
+    "name": "Часовой",
+    "game_id": "g000uu8024",
+    "faction": "elves",
+    "level": 3,
+    "unit_type": "Sentry",
+    "role": "ranged",
+    "size": 1,
+    "max_hp": 120,
+    "damage": 55,
+    "accuracy": 85,
+    "armor": 0,
+    "initiative": 70,
+    "attack_type": "water",
+    "secondary_attack_type": "water",
+    "secondary_accuracy": 70,
+    "secondary_damage": 20,
+    "immunities": [],
+    "protections": [
+      "water"
+    ],
+    "exp_kill": 135,
+    "exp_required": 1335,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        12,
+        6,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        6,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 13,
+      "kill_late": 7,
+      "secondary_early": [
+        6,
+        1
+      ],
+      "secondary_late": [
+        3,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400,
+    "lower_form": "elf_scout",
+    "neutral": false
+  },
+  "elf_scout": {
+    "name": "Дозорный",
+    "game_id": "g000uu8022",
+    "faction": "elves",
+    "level": 2,
+    "unit_type": "Archer",
+    "role": "ranged",
+    "size": 1,
+    "max_hp": 75,
+    "damage": 40,
+    "accuracy": 85,
+    "armor": 0,
+    "initiative": 65,
+    "attack_type": "air",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 60,
+    "exp_required": 475,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        4,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        2,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 6,
+      "kill_late": 3
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 200,
+    "lower_form": "reference_g000uu8018",
+    "neutral": false
+  },
+  "watcher": {
+    "name": "Смотритель",
+    "game_id": "g000uu8023",
+    "faction": "elves",
+    "level": 3,
+    "unit_type": "Watcher",
+    "role": "ranged",
+    "size": 1,
+    "max_hp": 120,
+    "damage": 60,
+    "accuracy": 85,
+    "armor": 0,
+    "initiative": 70,
+    "attack_type": "fire",
+    "secondary_attack_type": "fire",
+    "secondary_accuracy": 70,
+    "secondary_damage": 15,
+    "immunities": [],
+    "protections": [
+      "fire"
+    ],
+    "exp_kill": 145,
+    "exp_required": 1455,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        12,
+        6,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        6,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 15,
+      "kill_late": 8,
+      "secondary_early": [
+        6,
+        1
+      ],
+      "secondary_late": [
+        3,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400,
+    "lower_form": "elf_scout",
+    "neutral": false
+  },
+  "reference_g000uu0057": {
+    "name": "Чёрт",
+    "game_id": "g000uu0057",
+    "faction": "legions",
+    "level": 1,
+    "unit_type": "Warrior",
+    "role": "melee",
+    "size": 2,
+    "max_hp": 170,
+    "damage": 50,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 35,
+    "attack_type": "weapon",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 70,
+    "exp_required": 275,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        20,
+        5,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        10,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 7,
+      "kill_late": 3,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 1,
+    "revive_gold": 100,
+    "neutral": false,
+    "lower_form": ""
+  },
+  "reference_g000uu0058": {
+    "name": "Демон",
+    "game_id": "g000uu0058",
+    "faction": "legions",
+    "level": 2,
+    "unit_type": "Warrior",
+    "role": "melee",
+    "size": 2,
+    "max_hp": 270,
+    "damage": 80,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 35,
+    "attack_type": "weapon",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 175,
+    "exp_required": 850,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        30,
+        8,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        15,
+        4,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 17,
+      "kill_late": 9,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400,
+    "neutral": false,
+    "lower_form": "reference_g000uu0057"
+  },
+  "reference_g000uu0059": {
+    "name": "Молох",
+    "game_id": "g000uu0059",
+    "faction": "legions",
+    "level": 3,
+    "unit_type": "Warrior",
+    "role": "melee",
+    "size": 2,
+    "max_hp": 370,
+    "damage": 110,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 35,
+    "attack_type": "weapon",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 325,
+    "exp_required": 2275,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        40,
+        11,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        20,
+        6,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 33,
+      "kill_late": 16,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 600,
+    "neutral": false,
+    "lower_form": "reference_g000uu0058"
+  },
+  "reference_g000uu0061": {
+    "name": "Повелитель демонов",
+    "game_id": "g000uu0061",
+    "faction": "legions",
+    "level": 4,
+    "unit_type": "Warrior",
+    "role": "melee",
+    "size": 2,
+    "max_hp": 470,
+    "damage": 140,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "weapon",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 525,
+    "exp_required": 2650,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        50,
+        14,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        25,
+        7,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 53,
+      "kill_late": 26,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 800,
+    "neutral": false,
+    "lower_form": "reference_g000uu0059"
+  },
+  "lord": {
+    "name": "Владыка",
+    "game_id": "g000uu0169",
+    "faction": "legions",
+    "level": 5,
+    "unit_type": "Lord",
+    "role": "melee",
+    "size": 2,
+    "max_hp": 570,
+    "damage": 170,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 50,
+    "attack_type": "weapon",
+    "secondary_attack_type": "fire",
+    "secondary_accuracy": 70,
+    "secondary_damage": 30,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 775,
+    "exp_required": 3875,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        55,
+        17,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        30,
+        9,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 78,
+      "kill_late": 39,
+      "secondary_early": [
+        17,
+        1
+      ],
+      "secondary_late": [
+        9,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 1000,
+    "neutral": false,
+    "lower_form": "reference_g000uu0061"
+  },
+  "bone_lord": {
+    "name": "Костяной лорд",
+    "game_id": "g000uu6017",
+    "faction": "neutral",
+    "level": 1,
+    "unit_type": "Bone Lord",
+    "role": "melee",
+    "size": 1,
+    "max_hp": 400,
+    "damage": 65,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 50,
+    "attack_type": "weapon",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [
+      "mind",
+      "death"
+    ],
+    "protections": [],
+    "exp_kill": 360,
+    "exp_required": 2900,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        40,
+        7,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        20,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 36,
+      "kill_late": 18,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 4,
+    "revive_gold": 1000,
+    "neutral": true,
+    "lower_form": ""
+  },
+  "dregazul": {
+    "name": "Дрега Зул",
+    "game_id": "g000uu6021",
+    "faction": "neutral",
+    "level": 1,
+    "unit_type": "Dregazul",
+    "role": "melee",
+    "size": 1,
+    "max_hp": 200,
+    "damage": 65,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 50,
+    "attack_type": "weapon",
+    "secondary_attack_type": "death",
+    "secondary_accuracy": 50,
+    "secondary_damage": 20,
+    "immunities": [],
+    "protections": [
+      "death"
+    ],
+    "exp_kill": 170,
+    "exp_required": 450,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        20,
+        7,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        10,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 17,
+      "kill_late": 9,
+      "secondary_early": [
+        7,
+        1
+      ],
+      "secondary_late": [
+        3,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 600,
+    "neutral": true,
+    "lower_form": ""
+  },
+  "reference_g000uu0093": {
+    "name": "Виверна",
+    "game_id": "g000uu0093",
+    "faction": "undead_hordes",
+    "level": 1,
+    "unit_type": "Mage",
+    "role": "area",
+    "size": 2,
+    "max_hp": 225,
+    "damage": 25,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 35,
+    "attack_type": "death",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 160,
+    "exp_required": 500,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        25,
+        3,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        10,
+        1,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 16,
+      "kill_late": 8,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 1,
+    "revive_gold": 100,
+    "neutral": false,
+    "lower_form": ""
+  },
+  "reference_g000uu0094": {
+    "name": "Дракон рока",
+    "game_id": "g000uu0094",
+    "faction": "undead_hordes",
+    "level": 2,
+    "unit_type": "Mage",
+    "role": "area",
+    "size": 2,
+    "max_hp": 300,
+    "damage": 40,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 35,
+    "attack_type": "death",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 335,
+    "exp_required": 1100,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        30,
+        4,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        15,
+        2,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 34,
+      "kill_late": 17,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400,
+    "neutral": false,
+    "lower_form": "reference_g000uu0093"
+  },
+  "reference_g000uu0095": {
+    "name": "Дракон смерти",
+    "game_id": "g000uu0095",
+    "faction": "undead_hordes",
+    "level": 3,
+    "unit_type": "Mage",
+    "role": "area",
+    "size": 2,
+    "max_hp": 375,
+    "damage": 55,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 35,
+    "attack_type": "death",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [
+      "death"
+    ],
+    "protections": [],
+    "exp_kill": 635,
+    "exp_required": 2550,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        40,
+        6,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        20,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 64,
+      "kill_late": 32,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 600,
+    "neutral": false,
+    "lower_form": "reference_g000uu0094"
+  },
+  "dead_dragon": {
+    "name": "Змей ужаса",
+    "game_id": "g000uu0180",
+    "faction": "undead_hordes",
+    "level": 4,
+    "unit_type": "Dead dragon",
+    "role": "area",
+    "size": 2,
+    "max_hp": 450,
+    "damage": 65,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 35,
+    "attack_type": "death",
+    "secondary_attack_type": "death",
+    "secondary_accuracy": 40,
+    "secondary_damage": 20,
+    "immunities": [
+      "death"
+    ],
+    "protections": [],
+    "exp_kill": 900,
+    "exp_required": 3600,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        45,
+        7,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        25,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 90,
+      "kill_late": 45,
+      "secondary_early": [
+        7,
+        1
+      ],
+      "secondary_late": [
+        3,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 800,
+    "neutral": false,
+    "lower_form": "reference_g000uu0095"
+  },
+  "gumtic": {
+    "name": "Гамтик кровавый",
+    "game_id": "g000uu8049",
+    "faction": "neutral",
+    "level": 1,
+    "unit_type": "Gumtic",
+    "role": "area",
+    "size": 2,
+    "max_hp": 1100,
+    "damage": 110,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "weapon",
+    "secondary_attack_type": "fire",
+    "secondary_accuracy": 50,
+    "secondary_damage": 15,
+    "immunities": [
+      "mind"
+    ],
+    "protections": [
+      "fire"
+    ],
+    "exp_kill": 3390,
+    "exp_required": 9995,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        110,
+        11,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        55,
+        5,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 339,
+      "kill_late": 160,
+      "secondary_early": [
+        11,
+        1
+      ],
+      "secondary_late": [
+        5,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 400,
+    "neutral": true,
+    "lower_form": ""
+  },
+  "reference_g000uu0029": {
+    "name": "Холмовой гигант",
+    "game_id": "g000uu0029",
+    "faction": "mountain_clans",
+    "level": 1,
+    "unit_type": "Warrior",
+    "role": "melee",
+    "size": 2,
+    "max_hp": 210,
+    "damage": 60,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 30,
+    "attack_type": "earth",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 100,
+    "exp_required": 400,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        20,
+        6,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        10,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 10,
+      "kill_late": 5,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 1,
+    "revive_gold": 100,
+    "neutral": false,
+    "lower_form": ""
+  },
+  "reference_g000uu0030": {
+    "name": "Скальной гигант",
+    "game_id": "g000uu0030",
+    "faction": "mountain_clans",
+    "level": 2,
+    "unit_type": "Warrior",
+    "role": "melee",
+    "size": 2,
+    "max_hp": 310,
+    "damage": 90,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 30,
+    "attack_type": "earth",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 225,
+    "exp_required": 1100,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        30,
+        9,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        15,
+        5,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 22,
+      "kill_late": 11,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400,
+    "neutral": false,
+    "lower_form": "reference_g000uu0029"
+  },
+  "reference_g000uu0032": {
+    "name": "Ледяной гигант",
+    "game_id": "g000uu0032",
+    "faction": "mountain_clans",
+    "level": 3,
+    "unit_type": "Warrior",
+    "role": "melee",
+    "size": 2,
+    "max_hp": 400,
+    "damage": 120,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 30,
+    "attack_type": "water",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [
+      "water"
+    ],
+    "protections": [],
+    "exp_kill": 390,
+    "exp_required": 1950,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        40,
+        12,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        20,
+        6,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 39,
+      "kill_late": 20,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 600,
+    "neutral": false,
+    "lower_form": "reference_g000uu0030"
+  },
+  "ismir_son": {
+    "name": "Сын Имира",
+    "game_id": "g000uu0159",
+    "faction": "mountain_clans",
+    "level": 4,
+    "unit_type": "Ismir son",
+    "role": "melee",
+    "size": 2,
+    "max_hp": 500,
+    "damage": 150,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 50,
+    "attack_type": "water",
+    "secondary_attack_type": "water",
+    "secondary_accuracy": 85,
+    "secondary_damage": 30,
+    "immunities": [
+      "water"
+    ],
+    "protections": [],
+    "exp_kill": 610,
+    "exp_required": 3050,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        50,
+        15,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        25,
+        8,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 61,
+      "kill_late": 31,
+      "secondary_early": [
+        15,
+        1
+      ],
+      "secondary_late": [
+        8,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 800,
+    "neutral": false,
+    "lower_form": "reference_g000uu0032"
+  },
+  "ghost": {
+    "name": "Привидение",
+    "game_id": "g000uu0078",
+    "faction": "undead_hordes",
+    "level": 1,
+    "unit_type": "Ghost",
+    "role": "ranged",
+    "size": 1,
+    "max_hp": 45,
+    "damage": 0,
+    "accuracy": 65,
+    "armor": 0,
+    "initiative": 20,
+    "attack_type": "mind",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [
+      "death"
+    ],
+    "protections": [],
+    "exp_kill": 20,
+    "exp_required": 75,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        5,
+        0,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        0,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 2,
+      "kill_late": 1,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 1,
+    "revive_gold": 50,
+    "neutral": false,
+    "lower_form": ""
+  },
+  "dark_elf_gast": {
+    "name": "Тёмный эльф призрак",
+    "game_id": "g000uu8044",
+    "faction": "neutral",
+    "level": 1,
+    "unit_type": "Ghost",
+    "role": "ranged",
+    "size": 1,
+    "max_hp": 110,
+    "damage": 0,
+    "accuracy": 70,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "death",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [
+      "death"
+    ],
+    "protections": [],
+    "exp_kill": 50,
+    "exp_required": 200,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        11,
+        0,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        0,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 5,
+      "kill_late": 3,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400,
+    "neutral": true,
+    "lower_form": ""
+  },
+  "spectre": {
+    "name": "Призрак",
+    "game_id": "g000uu0079",
+    "faction": "undead_hordes",
+    "level": 2,
+    "unit_type": "Ghost",
+    "role": "ranged",
+    "size": 1,
+    "max_hp": 90,
+    "damage": 0,
+    "accuracy": 70,
+    "armor": 0,
+    "initiative": 20,
+    "attack_type": "mind",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [
+      "death"
+    ],
+    "protections": [],
+    "exp_kill": 40,
+    "exp_required": 700,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        0,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        0,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 4,
+      "kill_late": 2,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 200,
+    "neutral": false,
+    "lower_form": "ghost"
+  },
+  "shadow": {
+    "name": "Тень",
+    "game_id": "g000uu0174",
+    "faction": "undead_hordes",
+    "level": 3,
+    "unit_type": "Shadow",
+    "role": "area",
+    "size": 1,
+    "max_hp": 135,
+    "damage": 0,
+    "accuracy": 50,
+    "armor": 0,
+    "initiative": 20,
+    "attack_type": "mind",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [
+      "death"
+    ],
+    "protections": [],
+    "exp_kill": 85,
+    "exp_required": 850,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        15,
+        0,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        0,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 9,
+      "kill_late": 4,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400,
+    "neutral": false,
+    "lower_form": "spectre"
+  },
+  "uter_betrezen": {
+    "name": "Утер",
+    "game_id": "g000uu6001",
+    "faction": "neutral",
+    "level": 1,
+    "unit_type": "Betrezen",
+    "role": "ranged",
+    "size": 1,
+    "max_hp": 300,
+    "damage": 100,
+    "accuracy": 90,
+    "armor": 0,
+    "initiative": 60,
+    "attack_type": "fire",
+    "secondary_attack_type": "mind",
+    "secondary_accuracy": 90,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [
+      "death",
+      "water",
+      "earth",
+      "air",
+      "fire",
+      "mind"
+    ],
+    "exp_kill": 720,
+    "exp_required": 5750,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        30,
+        10,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        15,
+        5,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 72,
+      "kill_late": 36,
+      "secondary_early": [
+        0,
+        1
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 600,
+    "neutral": true,
+    "lower_form": ""
+  },
+  "ghoul": {
+    "name": "Упырь",
+    "game_id": "g000uu5033",
+    "faction": "neutral",
+    "level": 1,
+    "unit_type": "Uter",
+    "role": "melee",
+    "size": 1,
+    "max_hp": 150,
+    "damage": 35,
+    "accuracy": 75,
+    "armor": 0,
+    "initiative": 50,
+    "attack_type": "weapon",
+    "secondary_attack_type": "mind",
+    "secondary_accuracy": 80,
+    "secondary_damage": 0,
+    "immunities": [
+      "death"
+    ],
+    "protections": [],
+    "exp_kill": 75,
+    "exp_required": 300,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        15,
+        4,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        10,
+        2,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 7,
+      "kill_late": 4,
+      "secondary_early": [
+        0,
+        1
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 200,
+    "neutral": true,
+    "lower_form": ""
+  },
+  "mermaid": {
+    "name": "Русалка",
+    "game_id": "g000uu5026",
+    "faction": "neutral",
+    "level": 1,
+    "unit_type": "Uter Demon",
+    "role": "area",
+    "size": 1,
+    "max_hp": 75,
+    "damage": 20,
+    "accuracy": 60,
+    "armor": 0,
+    "initiative": 20,
+    "attack_type": "water",
+    "secondary_attack_type": "mind",
+    "secondary_accuracy": 50,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 100,
+    "exp_required": 975,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        2,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        1,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 10,
+      "kill_late": 5,
+      "secondary_early": [
+        0,
+        1
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400,
+    "neutral": true,
+    "lower_form": ""
+  },
+  "uter_demon": {
+    "name": "Утер демон",
+    "game_id": "g000uu6002",
+    "faction": "neutral",
+    "level": 1,
+    "unit_type": "Uter Demon",
+    "role": "area",
+    "size": 2,
+    "max_hp": 1500,
+    "damage": 150,
+    "accuracy": 90,
+    "armor": 0,
+    "initiative": 65,
+    "attack_type": "fire",
+    "secondary_attack_type": "mind",
+    "secondary_accuracy": 60,
+    "secondary_damage": 0,
+    "immunities": [
+      "fire",
+      "mind"
+    ],
+    "protections": [
+      "death",
+      "water",
+      "earth",
+      "air"
+    ],
+    "exp_kill": 9950,
+    "exp_required": 9900,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        150,
+        15,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        75,
+        8,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 995,
+      "kill_late": 498,
+      "secondary_early": [
+        0,
+        1
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 4,
+    "revive_gold": 1000,
+    "neutral": true,
+    "lower_form": ""
+  },
+  "tiamat": {
+    "name": "Тиамат",
+    "game_id": "g000uu0168",
+    "faction": "legions",
+    "level": 5,
+    "unit_type": "Tiamat",
+    "role": "area",
+    "size": 2,
+    "max_hp": 495,
+    "damage": 100,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 20,
+    "attack_type": "weapon",
+    "secondary_attack_type": "mind",
+    "secondary_accuracy": 80,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 1385,
+    "exp_required": 5000,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        50,
+        10,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        25,
+        5,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 139,
+      "kill_late": 69,
+      "secondary_early": [
+        0,
+        1
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 1000,
+    "neutral": false,
+    "lower_form": "reference_g000uu0060"
+  },
+  "reference_g000uu0060": {
+    "name": "Тварь",
+    "game_id": "g000uu0060",
+    "faction": "legions",
+    "level": 4,
+    "unit_type": "Mage",
+    "role": "area",
+    "size": 2,
+    "max_hp": 420,
+    "damage": 70,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 20,
+    "attack_type": "weapon",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 825,
+    "exp_required": 3100,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        40,
+        7,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        20,
+        4,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 82,
+      "kill_late": 41,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 800,
+    "neutral": false,
+    "lower_form": "reference_g000uu0059"
+  },
+  "baroness": {
+    "name": "Баронесса",
+    "game_id": "g000uu0073",
+    "faction": "legions",
+    "level": 1,
+    "unit_type": "Baroness",
+    "role": "ranged",
+    "size": 1,
+    "max_hp": 100,
+    "damage": 0,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 20,
+    "attack_type": "mind",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 50,
+    "exp_required": 120,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        0,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        0,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 5,
+      "kill_late": 2,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 1,
+    "revive_gold": 200,
+    "neutral": false,
+    "lower_form": "",
+    "hero": true,
+    "exp_increment": 300,
+    "level_bonuses": [
+      {
+        "level": 4,
+        "name": "Выносливость: +20% HP",
+        "stat": "max_hp",
+        "multiplier": 1.2,
+        "bonus": 0,
+        "rounding": "even"
+      },
+      {
+        "level": 5,
+        "name": "Сила: +25% урона",
+        "stat": "damage",
+        "multiplier": 1.25,
+        "bonus": 0,
+        "rounding": "even"
+      },
+      {
+        "level": 13,
+        "name": "Первый удар: +50% инициативы",
+        "stat": "initiative",
+        "multiplier": 1.5,
+        "bonus": 0,
+        "rounding": "half_up"
+      },
+      {
+        "level": 14,
+        "name": "Точность: +20% к точности",
+        "stat": "accuracy",
+        "multiplier": 1.2,
+        "bonus": 0,
+        "rounding": "half_up"
+      },
+      {
+        "level": 15,
+        "name": "Природная броня: +20 брони",
+        "stat": "armor",
+        "multiplier": 1,
+        "bonus": 20,
+        "rounding": "half_up"
+      }
+    ]
+  },
+  "medusa": {
+    "name": "Медуза",
+    "game_id": "g000uu5025",
+    "faction": "neutral",
+    "level": 1,
+    "unit_type": "Incub",
+    "role": "area",
+    "size": 1,
+    "max_hp": 115,
+    "damage": 0,
+    "accuracy": 60,
+    "armor": 0,
+    "initiative": 20,
+    "attack_type": "earth",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 72,
+    "exp_required": 725,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        0,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        0,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 7,
+      "kill_late": 4,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 600,
+    "neutral": true,
+    "lower_form": ""
+  },
+  "abyss_devil": {
+    "name": "Дьявол Бездны",
+    "game_id": "g000uu0170",
+    "faction": "legions",
+    "level": 5,
+    "unit_type": "Abyss Devil",
+    "role": "melee",
+    "size": 2,
+    "max_hp": 600,
+    "damage": 140,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "weapon",
+    "secondary_attack_type": "mind",
+    "secondary_accuracy": 50,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 720,
+    "exp_required": 3600,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        60,
+        15,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        30,
+        8,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 72,
+      "kill_late": 36,
+      "secondary_early": [
+        0,
+        1
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 1000,
+    "neutral": false,
+    "lower_form": "reference_g000uu0061"
+  },
+  "medium": {
+    "name": "Медиум",
+    "game_id": "g000uu8031",
+    "faction": "elves",
+    "level": 1,
+    "unit_type": "Cliric",
+    "role": "healer",
+    "size": 1,
+    "max_hp": 45,
+    "damage": 25,
+    "accuracy": 100,
+    "armor": 0,
+    "initiative": 10,
+    "attack_type": "life",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 25,
+    "exp_required": 90,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        5,
+        3,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        3,
+        1,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 2,
+      "kill_late": 1,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 1,
+    "revive_gold": 50,
+    "neutral": false,
+    "lower_form": ""
+  },
+  "elf_oracle": {
+    "name": "Нейтральный эльфийский оракул",
+    "game_id": "g000uu5006",
+    "faction": "neutral",
+    "level": 1,
+    "unit_type": "Profit",
+    "role": "healer",
+    "size": 1,
+    "max_hp": 125,
+    "damage": 60,
+    "accuracy": 100,
+    "armor": 0,
+    "initiative": 10,
+    "attack_type": "life",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [
+      "air"
+    ],
+    "exp_kill": 300,
+    "exp_required": 2200,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        15,
+        6,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 30,
+      "kill_late": 15,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 600,
+    "neutral": true,
+    "lower_form": ""
+  },
+  "sundancer": {
+    "name": "Солнечная танцовщица",
+    "game_id": "g000uu8034",
+    "faction": "elves",
+    "level": 4,
+    "unit_type": "Sundancer",
+    "role": "healer",
+    "size": 1,
+    "max_hp": 115,
+    "damage": 50,
+    "accuracy": 100,
+    "armor": 0,
+    "initiative": 10,
+    "attack_type": "life",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 255,
+    "exp_required": 2535,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        12,
+        0,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        6,
+        0,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 25,
+      "kill_late": 12,
+      "secondary_early": [
+        6,
+        1
+      ],
+      "secondary_late": [
+        1,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 600,
+    "neutral": false,
+    "lower_form": "deva_roshi"
+  },
+  "deva_roshi": {
+    "name": "Дева рощи",
+    "game_id": "g000uu8033",
+    "faction": "elves",
+    "level": 3,
+    "unit_type": "Deva roshi",
+    "role": "healer",
+    "size": 1,
+    "max_hp": 85,
+    "damage": 50,
+    "accuracy": 100,
+    "armor": 0,
+    "initiative": 10,
+    "attack_type": "life",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 70,
+    "exp_required": 1300,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        0,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        4,
+        0,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 7,
+      "kill_late": 3,
+      "secondary_early": [
+        5,
+        1
+      ],
+      "secondary_late": [
+        3,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400,
+    "neutral": false,
+    "lower_form": "reference_g000uu8032"
+  },
+  "reference_g000uu8032": {
+    "name": "Оракул",
+    "game_id": "g000uu8032",
+    "faction": "elves",
+    "level": 2,
+    "unit_type": "Cliric",
+    "role": "healer",
+    "size": 1,
+    "max_hp": 60,
+    "damage": 40,
+    "accuracy": 100,
+    "armor": 0,
+    "initiative": 10,
+    "attack_type": "life",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 25,
+    "exp_required": 450,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        6,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 6,
+      "kill_late": 3,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 200,
+    "neutral": false,
+    "lower_form": "medium"
+  },
+  "sylfid": {
+    "name": "Сильфида",
+    "game_id": "g000uu8035",
+    "faction": "elves",
+    "level": 4,
+    "unit_type": "Sylfid",
+    "role": "healer",
+    "size": 1,
+    "max_hp": 95,
+    "damage": 55,
+    "accuracy": 100,
+    "armor": 0,
+    "initiative": 10,
+    "attack_type": "life",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 230,
+    "exp_required": 2470,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        0,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        0,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 22,
+      "kill_late": 13,
+      "secondary_early": [
+        7,
+        1
+      ],
+      "secondary_late": [
+        3,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 600,
+    "neutral": false,
+    "lower_form": "deva_roshi"
+  },
+  "travnitsa": {
+    "name": "Травница",
+    "game_id": "g000uu0033",
+    "faction": "mountain_clans",
+    "level": 1,
+    "unit_type": "Travnitsa",
+    "role": "healer",
+    "size": 1,
+    "max_hp": 60,
+    "damage": 0,
+    "accuracy": 100,
+    "armor": 0,
+    "initiative": 70,
+    "attack_type": "life",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 50,
+    "exp_required": 95,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        5,
+        0,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        0,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 5,
+      "kill_late": 2,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 1,
+    "revive_gold": 50,
+    "neutral": false,
+    "lower_form": ""
+  },
+  "novice": {
+    "name": "Посвященная",
+    "game_id": "g000uu0034",
+    "faction": "mountain_clans",
+    "level": 2,
+    "unit_type": "Novice",
+    "role": "healer",
+    "size": 1,
+    "max_hp": 90,
+    "damage": 0,
+    "accuracy": 100,
+    "armor": 0,
+    "initiative": 70,
+    "attack_type": "life",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 70,
+    "exp_required": 325,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        0,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        0,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 7,
+      "kill_late": 4,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 200,
+    "neutral": false,
+    "lower_form": "travnitsa"
+  },
+  "alchemist": {
+    "name": "Алхимик",
+    "game_id": "g000uu0161",
+    "faction": "mountain_clans",
+    "level": 3,
+    "unit_type": "Alchemist",
+    "role": "healer",
+    "size": 1,
+    "max_hp": 120,
+    "damage": 0,
+    "accuracy": 100,
+    "armor": 0,
+    "initiative": 10,
+    "attack_type": "life",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 120,
+    "exp_required": 325,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        0,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        0,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 12,
+      "kill_late": 6,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400,
+    "neutral": false,
+    "lower_form": "novice"
+  },
+  "dwarfdruid": {
+    "name": "Друид",
+    "game_id": "g000uu0035",
+    "faction": "mountain_clans",
+    "level": 3,
+    "unit_type": "Dwarfdruid",
+    "role": "healer",
+    "size": 1,
+    "max_hp": 120,
+    "damage": 0,
+    "accuracy": 100,
+    "armor": 0,
+    "initiative": 70,
+    "attack_type": "life",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 95,
+    "exp_required": 850,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        0,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        0,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 10,
+      "kill_late": 5,
+      "secondary_early": [
+        0,
+        1
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400,
+    "neutral": false,
+    "lower_form": "novice"
+  },
+  "archdruid": {
+    "name": "Архидруид",
+    "game_id": "g000uu0160",
+    "faction": "mountain_clans",
+    "level": 4,
+    "unit_type": "Arhidruid",
+    "role": "healer",
+    "size": 1,
+    "max_hp": 150,
+    "damage": 0,
+    "accuracy": 100,
+    "armor": 0,
+    "initiative": 70,
+    "attack_type": "life",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 120,
+    "exp_required": 1450,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        15,
+        0,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        10,
+        0,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 12,
+      "kill_late": 6,
+      "secondary_early": [
+        0,
+        1
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 600,
+    "neutral": false,
+    "lower_form": "dwarfdruid"
+  },
+  "hermit": {
+    "name": "Отшельник",
+    "game_id": "g000uu0163",
+    "faction": "mountain_clans",
+    "level": 4,
+    "unit_type": "Hermit",
+    "role": "area",
+    "size": 1,
+    "max_hp": 250,
+    "damage": 55,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "water",
+    "secondary_attack_type": "water",
+    "secondary_accuracy": 33,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 385,
+    "exp_required": 1000,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        25,
+        6,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        15,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 39,
+      "kill_late": 19,
+      "secondary_early": [
+        0,
+        1
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 600,
+    "neutral": false,
+    "lower_form": "reference_g000uu0041"
+  },
+  "nosferatu": {
+    "name": "Носферату",
+    "game_id": "g000uu0097",
+    "faction": "undead_hordes",
+    "level": 1,
+    "unit_type": "Vampire",
+    "role": "area",
+    "size": 1,
+    "max_hp": 90,
+    "damage": 10,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 50,
+    "attack_type": "death",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [
+      "death"
+    ],
+    "protections": [],
+    "exp_kill": 40,
+    "exp_required": 100,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        5,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 4,
+      "kill_late": 2,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 1,
+    "revive_gold": 200,
+    "neutral": false,
+    "lower_form": "",
+    "hero": true,
+    "exp_increment": 450,
+    "level_bonuses": [
+      {
+        "level": 4,
+        "name": "Выносливость: +20% HP",
+        "stat": "max_hp",
+        "multiplier": 1.2,
+        "bonus": 0,
+        "rounding": "even"
+      },
+      {
+        "level": 5,
+        "name": "Сила: +25% урона",
+        "stat": "damage",
+        "multiplier": 1.25,
+        "bonus": 0,
+        "rounding": "even"
+      },
+      {
+        "level": 13,
+        "name": "Первый удар: +50% инициативы",
+        "stat": "initiative",
+        "multiplier": 1.5,
+        "bonus": 0,
+        "rounding": "half_up"
+      },
+      {
+        "level": 14,
+        "name": "Точность: +20% к точности",
+        "stat": "accuracy",
+        "multiplier": 1.2,
+        "bonus": 0,
+        "rounding": "half_up"
+      },
+      {
+        "level": 15,
+        "name": "Природная броня: +20 брони",
+        "stat": "armor",
+        "multiplier": 1,
+        "bonus": 20,
+        "rounding": "half_up"
+      }
+    ]
+  },
+  "vampire": {
+    "name": "Вампир",
+    "game_id": "g000uu0083",
+    "faction": "undead_hordes",
+    "level": 4,
+    "unit_type": "Vampire",
+    "role": "area",
+    "size": 1,
+    "max_hp": 185,
+    "damage": 50,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "death",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [
+      "death"
+    ],
+    "protections": [],
+    "exp_kill": 425,
+    "exp_required": 2300,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        20,
+        5,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        10,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 43,
+      "kill_late": 21,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 600,
+    "neutral": false,
+    "lower_form": "reference_g000uu0082"
+  },
+  "reference_g000uu0082": {
+    "name": "Некромант",
+    "game_id": "g000uu0082",
+    "faction": "undead_hordes",
+    "level": 3,
+    "unit_type": "Mage",
+    "role": "area",
+    "size": 1,
+    "max_hp": 105,
+    "damage": 45,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "death",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [
+      "death"
+    ],
+    "exp_kill": 145,
+    "exp_required": 1150,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        5,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        2,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 15,
+      "kill_late": 7,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400,
+    "neutral": false,
+    "lower_form": "reference_g000uu0081"
+  },
+  "highvampire": {
+    "name": "Высший вампир",
+    "game_id": "g000uu0175",
+    "faction": "undead_hordes",
+    "level": 5,
+    "unit_type": "Highvampire",
+    "role": "area",
+    "size": 1,
+    "max_hp": 210,
+    "damage": 60,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "death",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [
+      "death"
+    ],
+    "protections": [],
+    "exp_kill": 580,
+    "exp_required": 3300,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        20,
+        6,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        10,
+        3,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 58,
+      "kill_late": 29,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 800,
+    "neutral": false,
+    "lower_form": "vampire"
+  },
+  "thug": {
+    "name": "Головорез",
+    "game_id": "g000uu5031",
+    "faction": "neutral",
+    "level": 1,
+    "unit_type": "Spider",
+    "role": "melee",
+    "size": 1,
+    "max_hp": 110,
+    "damage": 35,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 75,
+    "attack_type": "weapon",
+    "secondary_attack_type": "death",
+    "secondary_accuracy": 80,
+    "secondary_damage": 20,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 30,
+    "exp_required": 250,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        10,
+        4,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        2,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 3,
+      "kill_late": 2,
+      "secondary_early": [
+        4,
+        1
+      ],
+      "secondary_late": [
+        2,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 200,
+    "neutral": true,
+    "lower_form": ""
+  },
+  "drulliaan": {
+    "name": "Драллиаан",
+    "game_id": "g000uu8003",
+    "faction": "neutral",
+    "level": 1,
+    "unit_type": "Drulliaan",
+    "role": "area",
+    "size": 1,
+    "max_hp": 2000,
+    "damage": 175,
+    "accuracy": 95,
+    "armor": 50,
+    "initiative": 60,
+    "attack_type": "life",
+    "secondary_attack_type": "water",
+    "secondary_accuracy": 30,
+    "secondary_damage": 30,
+    "immunities": [
+      "mind",
+      "earth"
+    ],
+    "protections": [],
+    "exp_kill": 9995,
+    "exp_required": 9995,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        200,
+        18,
+        1,
+        1,
+        0
+      ],
+      "late": [
+        100,
+        9,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 995,
+      "kill_late": 995,
+      "secondary_early": [
+        18,
+        1
+      ],
+      "secondary_late": [
+        9,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 4,
+    "revive_gold": 1500,
+    "neutral": true,
+    "lower_form": ""
+  },
+  "elf_bandit": {
+    "name": "Бандит",
+    "game_id": "g000uu8021",
+    "faction": "elves",
+    "level": 3,
+    "unit_type": "Elfarcher",
+    "role": "ranged",
+    "size": 1,
+    "max_hp": 115,
+    "damage": 30,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 60,
+    "attack_type": "weapon",
+    "secondary_attack_type": "",
+    "secondary_accuracy": 0,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 100,
+    "exp_required": 1010,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        11,
+        8,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        5,
+        4,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 14,
+      "kill_late": 7,
+      "secondary_early": [
+        0,
+        0
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400,
+    "neutral": false,
+    "lower_form": "reference_g000uu8019"
+  },
+  "shamanka": {
+    "name": "Шаманка",
+    "game_id": "g000uu8046",
+    "faction": "neutral",
+    "level": 1,
+    "unit_type": "Shamanka",
+    "role": "area",
+    "size": 1,
+    "max_hp": 165,
+    "damage": 30,
+    "accuracy": 80,
+    "armor": 0,
+    "initiative": 40,
+    "attack_type": "earth",
+    "secondary_attack_type": "mind",
+    "secondary_accuracy": 30,
+    "secondary_damage": 0,
+    "immunities": [],
+    "protections": [],
+    "exp_kill": 165,
+    "exp_required": 1665,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        17,
+        3,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        8,
+        2,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 17,
+      "kill_late": 8,
+      "secondary_early": [
+        0,
+        1
+      ],
+      "secondary_late": [
+        0,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 2,
+    "revive_gold": 400,
+    "neutral": true,
+    "lower_form": ""
+  },
+  "aleman": {
+    "name": "Сэр Аллемон",
+    "game_id": "g000uu8050",
+    "faction": "neutral",
+    "level": 1,
+    "unit_type": "Aleman",
+    "role": "melee",
+    "size": 1,
+    "max_hp": 800,
+    "damage": 300,
+    "accuracy": 80,
+    "armor": 20,
+    "initiative": 60,
+    "attack_type": "weapon",
+    "secondary_attack_type": "weapon",
+    "secondary_accuracy": 50,
+    "secondary_damage": 0,
+    "immunities": [
+      "mind"
+    ],
+    "protections": [],
+    "exp_kill": 3360,
+    "exp_required": 9995,
+    "exp_current": 0,
+    "upgrades": [],
+    "upgrade_unavailable_reason": "",
+    "growth": {
+      "threshold": 10,
+      "early": [
+        80,
+        30,
+        1,
+        0,
+        0
+      ],
+      "late": [
+        40,
+        15,
+        0,
+        0,
+        0
+      ],
+      "kill_early": 336,
+      "kill_late": 160,
+      "secondary_early": [
+        30,
+        1
+      ],
+      "secondary_late": [
+        15,
+        0
+      ]
+    },
+    "heal_gold_per_hp": 3,
+    "revive_gold": 400,
+    "neutral": true,
+    "lower_form": ""
   }
 }

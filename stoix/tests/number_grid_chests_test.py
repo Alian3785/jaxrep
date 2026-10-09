@@ -1,5 +1,6 @@
 """Automatic, one-shot map loot and shared potion inventory on CUDA."""
 from collections import OrderedDict
+from stoix.tests.number_grid_fixtures import compiled_method
 import copy
 import threading
 
@@ -15,7 +16,7 @@ from stoix.envs.number_grid_potions import POTION_START
 
 def test_chest_configuration_observation_and_invalid_loot(current_game):
     env, state, _, _ = current_game
-    assert env.observation_version == 13 and env.observation_size == 532 and env.num_actions == 80
+    assert env.observation_version == 27 and env.observation_size == 983 and env.num_actions == 81
     assert state.chest_alive.tolist() == [True]*5 and state.potions.tolist() == [5,5,5,10]
     positions = [tuple(c['position']) for c in MAP['chests']]
     assert len(set(positions)) == 5
@@ -31,7 +32,9 @@ def test_chest_configuration_observation_and_invalid_loot(current_game):
         potions=state.potions+jnp.sum(env.chest_rules.loot,axis=0))
     assert collected.potions.tolist() == [6,6,6,12]
     chex.assert_trees_all_equal(env.observation(collected)[start:start+35].reshape(5,7)[:,6],jnp.zeros(5))
-    chex.assert_trees_all_close(env.observation(collected)[-55:-51],jnp.full(4,1.2))
+    columns = jnp.nonzero(env.observation(state.replace(potions=jnp.zeros(4,jnp.int32)))
+                          != env.observation(state),size=4)[0]
+    chex.assert_trees_all_close(env.observation(collected)[columns],jnp.full(4,1.2))
     invalid = [None, [None], [dict(position=[0,4],potions=[1,0,0,0])],
                [dict(position=MAP['agent_position'],potions=[1,0,0,0])],
                [dict(position=MAP['opponent_positions'][0],potions=[1,0,0,0])],
@@ -106,7 +109,7 @@ def test_human_service_collects_into_the_same_potion_inventory(current_game):
     env,initial,advance,_=current_game
     service=GameService.__new__(GameService)
     service.lock=threading.Lock()
-    service.environments={env.construction.faction:(env,jax.jit(env.reset),advance)}
+    service.environments={env.construction.faction:(env,compiled_method(env,'reset'),advance)}
     state=initial.replace(position=jnp.array([4,2]),hp=initial.hp.at[0].set(20))
     service.sessions=OrderedDict({'loot':(env.construction.faction,state,0.)})
     picked=service.act('loot',2)['snapshot']

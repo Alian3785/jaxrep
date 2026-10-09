@@ -1,4 +1,5 @@
 """Reference XP rules, battle integration and growing stats on JAX/CUDA."""
+from stoix.tests.number_grid_fixtures import compiled_method
 import copy
 import json
 from pathlib import Path
@@ -26,19 +27,29 @@ def stack(*states):
     return jax.tree.map(lambda *xs: jnp.stack(xs), *states)
 
 
+def compiled_winning_battle(env):
+    if not hasattr(env, '_test_winning_battle'):
+        env._test_winning_battle = jax.jit(jax.vmap(env._battle_step, in_axes=(0, None, 0, None)))
+    return env._test_winning_battle
+
+
 def win(env, states):
-    return jax.jit(jax.vmap(env._battle_step, in_axes=(0, None, 0, None)))(
-        states, jnp.int32(SHOOT), states.battle_key, jnp.zeros(36))[0]
+    count = states.hp.shape[0]
+    # Reuse one executable for the small independent promotion scenarios.
+    padded = jax.tree.map(lambda x: jnp.concatenate((x, jnp.repeat(x[:1],16-count,axis=0))), states)
+    result = compiled_winning_battle(env)(
+        padded, jnp.int32(SHOOT), padded.battle_key, jnp.zeros(env.random_size))[0]
+    return jax.tree.map(lambda x: x[:count], result)
 
 
 def test_initial_experience_and_observation_contract(env):
-    state, ts = jax.jit(env.reset)(jax.random.PRNGKey(42))
+    state, ts = compiled_method(env,'reset')(jax.random.PRNGKey(42))
     chex.assert_trees_all_equal(env.unit_experience(state)[:5],
         jnp.array([[1,25,95,0],[1,60,150,0],[1,25,95,0]]+[[1,20,75,0]]*2))
     enemy = battle(env, 11)
     chex.assert_trees_all_equal(env.unit_experience(enemy)[6:],
         jnp.array([[1,20,70,0],[1,20,80,0]]+[[1,20,70,0]]*4))
-    assert ts.observation.shape == (532,) and env.observation_size == 532
+    assert ts.observation.shape == (983,) and env.observation_size == 983
     encoded = ts.observation[160+5*env.num_opponents:220+5*env.num_opponents].reshape(12,5)
     chex.assert_trees_all_close(encoded[:5,2], jnp.array([.025,.06,.025,.02,.02]))
     chex.assert_trees_all_equal(encoded[5:], jnp.zeros((7,5)))
@@ -53,12 +64,12 @@ def test_xp_is_awarded_once_only_to_surviving_non_escaped_winners(env):
     chex.assert_trees_all_equal(won.unit_xp[:6], jnp.array([7,0,0,7,7,0]))
     chex.assert_trees_all_equal(won.last_xp[:6], jnp.array([7,0,0,7,7,0]))
     assert won.hp[1] == 0  # dead units neither earn XP nor revive automatically
-    rested, _ = jax.jit(env.step)(won, jnp.int32(REST))
+    rested, _ = compiled_method(env,'step')(won, jnp.int32(REST))
     chex.assert_trees_all_equal(rested.unit_xp, won.unit_xp)
     assert not jnp.any(rested.last_xp)
     # An action that does not end combat must neither award XP nor promote.
-    ongoing, _ = jax.jit(env._battle_step)(battle(env).replace(actor=jnp.int32(0)),
-        jnp.int32(DEFEND), s.battle_key, jnp.zeros(36))
+    ongoing, _ = compiled_method(env,'_battle_step')(battle(env).replace(actor=jnp.int32(0)),
+        jnp.int32(DEFEND), s.battle_key, jnp.zeros(env.random_size))
     assert not jnp.any(ongoing.unit_xp) and not ongoing.last_promoted
 
 
@@ -95,7 +106,7 @@ def test_cap_building_requirement_full_heal_and_discarded_excess(env):
     assert env.unit_stats(upgraded)[0,1] == 50
     # Construction itself does not spend the old cap or grant a heal/promotion.
     capped = jax.tree.map(lambda x:x[0],out).replace(gold=jnp.int32(200))
-    built, _ = jax.jit(env.step)(capped, jnp.int32(18))
+    built, _ = compiled_method(env,'step')(capped, jnp.int32(18))
     chex.assert_trees_all_equal(built.unit_ids,capped.unit_ids)
     chex.assert_trees_all_equal(built.unit_xp,capped.unit_xp)
     chex.assert_trees_all_equal(built.hp,capped.hp)
@@ -113,8 +124,8 @@ def test_supported_promotion_chain_uses_reference_targets_and_stats(env):
             unit_levels=s.unit_levels.at[0].set(UNITS[key]['level']),
             unit_xp=s.unit_xp.at[0].set(UNITS[key]['exp_required']-1), buildings=jnp.uint32(1<<bit)))
     result = win(env,stack(*cases))
-    stats = jax.jit(jax.vmap(env.unit_stats))(result)
-    xp = jax.jit(jax.vmap(env.unit_experience))(result)
+    stats = compiled_method(env,'unit_stats',batched=True)(result)
+    xp = compiled_method(env,'unit_experience',batched=True)(result)
     for i,key in enumerate(targets):
         assert result.unit_ids[i,0] == env.progression.ids[key]
         assert result.hp[i,0] == UNITS[key]['max_hp'] and result.unit_xp[i,0] == 0
@@ -127,11 +138,11 @@ def test_enemy_winners_keep_experience_after_hero_withdrawal(env):
     s = battle(env).replace(actor=jnp.int32(0))
     s = s.replace(hp=s.hp.at[:6].set(0).at[0].set(10),
                   retreating=s.retreating.at[0].set(True), battle_xp=jnp.array([25,0]))
-    out, _ = jax.jit(env._battle_step)(s,jnp.int32(CONTINUE),s.battle_key,jnp.zeros(36))
+    out, _ = compiled_method(env,'_battle_step')(s,jnp.int32(CONTINUE),s.battle_key,jnp.zeros(env.random_size))
     assert not out.in_battle and not out.done
     assert out.unit_xp[6] == 25 and out.enemy_progress[0,0,1] == 25
     assert not jnp.any(out.unit_xp[:6])
-    begun = jax.jit(env._begin_battle)(out)
+    begun = compiled_method(env,'_begin_battle')(out)
     assert begun.unit_xp[6] == 25 and begun.hp[6] == 100
     assert not jnp.any(begun.battle_xp)
 
@@ -151,11 +162,11 @@ def test_terminal_form_growth_and_regeneration_use_new_maximum(env):
     assert env.unit_experience(out)[0,1] == 215+6*22+11
     assert env.unit_experience(out)[0,2] == 1725  # terminal form keeps its XP threshold
     hurt = out.replace(hp=out.hp.at[0].set(1))
-    rest, _ = jax.jit(env.step)(hurt,jnp.int32(REST))
+    rest, _ = compiled_method(env,'step')(hurt,jnp.int32(REST))
     assert rest.hp[0] == 1+(max_hp+9)//10
-    next_battle = jax.jit(env._begin_battle)(rest.replace(enemy=jnp.int32(1)))
+    next_battle = compiled_method(env,'_begin_battle')(rest.replace(enemy=jnp.int32(1)))
     assert next_battle.unit_ids[0] == out.unit_ids[0] and next_battle.hp[0] == rest.hp[0]
-    fresh, _ = jax.jit(env.reset)(jax.random.PRNGKey(43))
+    fresh, _ = compiled_method(env,'reset')(jax.random.PRNGKey(43))
     assert fresh.unit_levels[0] == 1 and not jnp.any(fresh.unit_xp)
 
 
@@ -182,12 +193,11 @@ def test_unsupported_forms_and_foreign_buildings_do_not_fake_promotions():
     out = jax.tree.map(lambda x:x[0],win(env,stack(s)))
     assert out.unit_xp[0] == 94 and out.unit_ids[0] == s.unit_ids[0]
     with pytest.raises(ValueError,match='пока не реализован'):
-        NumberGrid(map_config={**MAP,'hero_roster':['possessed']*3+['witch','cultist',None]})
+        NumberGrid(map_config={**MAP,'hero_roster':['possessed']*3+['doppelganger','cultist',None]})
 
 
-def test_human_snapshot_reports_current_form_and_xp(env):
-    from serve_number_grid import GameService
-    game = GameService()
+def test_human_snapshot_reports_current_form_and_xp(env, human_service):
+    game = human_service
     created = game.create(42)
     assert created['snapshot']['unit_experience'][0] == [1,25,95,0]
     faction,s,total = game.sessions[created['session']]
@@ -203,15 +213,18 @@ def test_human_snapshot_reports_current_form_and_xp(env):
 def test_unimplemented_branches_are_masked_and_rejected_by_step(env):
     s, _ = env.reset(jax.random.PRNGKey(42))
     s = s.replace(gold=jnp.int32(10000))
-    slots = jnp.array([5,6,8,9,11],jnp.int32)
+    unavailable = {u['name'] for u in UNITS.values() if u.get('upgrade_unavailable_reason')}
+    blocked_slots = [i for i, row in enumerate(env.construction.rows) if row['unit'] in unavailable]
+    assert 6 in blocked_slots  # Doppelganger is explicitly excluded from the task.
+    slots = jnp.array(blocked_slots,jnp.int32)
     assert jnp.all(env.construction.status(s)[slots] == 2)
     assert not jnp.any(env.action_mask(s)[18+slots])
-    states = jax.tree.map(lambda x:jnp.broadcast_to(x,(5,)+x.shape),s)
-    following, _ = jax.jit(jax.vmap(env.step))(states,18+slots)
+    states = jax.tree.map(lambda x:jnp.broadcast_to(x,(len(blocked_slots),)+x.shape),s)
+    following, _ = compiled_method(env,'step',batched=True)(states,18+slots)
     chex.assert_trees_all_equal(following.gold,states.gold)
     chex.assert_trees_all_equal(following.buildings,states.buildings)
     chex.assert_trees_all_equal(following.unit_xp,states.unit_xp)
-    for slot in (5,6,8,9,11):
+    for slot in blocked_slots:
         assert env.construction.metadata()['buildings'][slot]['unavailable_reason']
 
 
@@ -253,7 +266,7 @@ def test_duke_levelups_need_no_building_heal_once_and_raise_threshold(env, duke_
         assert out.hp[i,1] == expected['hp'] and out.last_promoted[i] == 2
         assert out.unit_ids[i,1] == env.progression.ids['duke']
         assert not out.buildings[i]
-    xp = jax.jit(jax.vmap(env.unit_experience))(out)
+    xp = compiled_method(env,'unit_experience',batched=True)(out)
     chex.assert_trees_all_equal(xp[:,1,2], jnp.array([duke_reference[l]['exp_required'] for l in levels+[1]]))
     # A subsequent battle needs 650, not the initial 150 XP.
     raised = jax.tree.map(lambda x:x[0],out)
@@ -261,8 +274,8 @@ def test_duke_levelups_need_no_building_heal_once_and_raise_threshold(env, duke_
     begun = begun.replace(unit_xp=begun.unit_xp.at[1].set(150),
         hp=begun.hp.at[:6].set(0).at[1].set(10).at[6:].set(0).at[6].set(1))
     won = jax.tree.map(lambda x:x[0],win(env,stack(begun)))
-    assert won.unit_levels[1] == 2 and won.unit_xp[1] == 170 and won.hp[1] == 10
-    rested, _ = jax.jit(env.step)(won,jnp.int32(REST))
+    assert won.unit_levels[1] == 2 and won.unit_xp[1] == 160 and won.hp[1] == 10
+    rested, _ = compiled_method(env,'step')(won,jnp.int32(REST))
     assert rested.hp[1] == 27  # ceil(10% of the new 165 maximum)
 
 
@@ -282,13 +295,12 @@ def test_duke_damage_cap_and_passive_armor_affect_real_attacks(env):
     chex.assert_trees_all_equal(actual,jnp.array(expected))
     before = s.replace(unit_levels=s.unit_levels.at[1].set(12))
     after = s.replace(unit_levels=s.unit_levels.at[1].set(13))
-    priority = jax.jit(lambda state: env._round_priority(jnp.zeros(36),state=state))
+    priority = jax.jit(lambda state: env._round_priority(jnp.zeros(env.random_size),state=state))
     assert priority(before)[1] == 50 and priority(after)[1] == 75
 
 
-def test_human_snapshot_exposes_duke_progress_and_passive_bonuses(env):
-    from serve_number_grid import GameService
-    game = GameService()
+def test_human_snapshot_exposes_duke_progress_and_passive_bonuses(env, human_service):
+    game = human_service
     created = game.create(42)
     snap = created['snapshot']
     assert snap['unit_experience'][1] == [1,60,150,0]

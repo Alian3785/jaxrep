@@ -1,4 +1,5 @@
 """Wall masking across the Stoa wrapper, policy distribution, and auto-reset."""
+from stoix.tests.number_grid_fixtures import compiled_method
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -35,7 +36,7 @@ def test_requested_wrapper_and_observation_space():
     assert ts.observation['observation'].shape == (52,)
     assert ts.observation['action_mask'].shape == (8,)
     assert jax.tree.structure(ts.observation) == jax.tree.structure(env.observation_space().generate_value())
-    state, ts = jax.jit(env.step)(state, jnp.int32(7))
+    state, ts = compiled_method(env,'step')(state, jnp.int32(7))
     np.testing.assert_array_equal(ts.observation['action_mask'], [False,False,True,True,True,False,False,False])
     np.testing.assert_array_equal(ts.observation['action_mask'], ts.extras['action_mask'])
     legacy = wrap_wall_action_mask(NumberGrid(map_config={**MAP, 'mask_walls': False}))
@@ -49,7 +50,7 @@ def test_autoreset_keeps_reset_mask_and_final_mask_separate():
     env, eval_env = make(config)
     assert isinstance(eval_env, AddActionMaskWrapper)
     state, _ = env.reset(jax.random.split(jax.random.PRNGKey(0), 2))
-    state, ts = jax.jit(env.step)(state, jnp.array([7,3]))
+    state, ts = compiled_method(env,'step')(state, jnp.array([7,3]))
     assert np.all(ts.truncated()) and np.all(ts.discount == 1)
     assert np.all(ts.observation['action_mask'])  # reset at [2,2]
     final = ts.extras['next_obs']

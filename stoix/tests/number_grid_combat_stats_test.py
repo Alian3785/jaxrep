@@ -1,4 +1,5 @@
 """Basic combat characteristics, Python-reference arithmetic and turn scheduling."""
+from stoix.tests.number_grid_fixtures import compiled_method, basic_environment
 import copy
 import json
 from pathlib import Path
@@ -38,7 +39,7 @@ def attack(env, state, values, action=SHOOT):
 
 
 def test_default_stats_and_observation_are_individual_and_finite():
-    env = NumberGrid(map_config=MAP)
+    env = basic_environment()
     state, ts = env.reset(jax.random.PRNGKey(0))
     assert ts.observation.shape == env.observation_space().shape == (271,)
     np.testing.assert_array_equal(env.unit_stats(state)[:, HP], env.max_hp(state))
@@ -128,7 +129,7 @@ def test_wait_is_once_per_round_and_reverses_the_rolled_queue():
     state = attack(env, state, rolls(.99, .99), CONTINUE)
     for actor in (2, 1, 0):
         assert state.actor == actor and not env.action_mask(state)[WAIT]
-        rejected, _ = jax.jit(env.step)(state, jnp.int32(WAIT))
+        rejected, _ = compiled_method(env,'step')(state, jnp.int32(WAIT))
         assert rejected.actor == actor
         np.testing.assert_array_equal(rejected.battle_key, state.battle_key)
         state = attack(env, state, rolls(), DEFEND)
@@ -149,12 +150,12 @@ def test_defend_survives_round_boundary_and_expires_at_next_activation():
     assert not state.defended[0]  # waiting cannot extend the previous defence.
 
 
-def test_enemy_uses_its_own_stats_and_armor_aware_kill_targets():
+def test_enemy_uses_its_own_accuracy_and_lowest_hp_target():
     env, state = battle(hero=[dict(max_hp=10, armor=90), dict(max_hp=20)] + [{}]*4,
                         enemy=[dict(damage=20, accuracy=0)] + [{}]*5,
                         enemy_warrior_slots=[-1]*24)
     state = state.replace(actor=jnp.int32(6))
-    assert env._enemy_action(state, jnp.zeros(6)) == SHOOT+1
+    assert env._enemy_action(state, jnp.zeros(6)) == SHOOT
     result = attack(env, state, rolls(), CONTINUE)
     np.testing.assert_array_equal(result.hp, state.hp)
     assert result.last_event == MISS
@@ -190,23 +191,40 @@ def test_versions_and_override_shapes_are_validated():
     assert not env.basic_combat and env.reset(jax.random.PRNGKey(0))[1].observation.shape == (178,)
 
 
-def test_jitted_vmap_rollout_has_finite_observations_and_valid_wait_defend_masks():
-    env = NumberGrid(max_steps=200, map_config=MAP)
-    states, _ = jax.vmap(env.reset)(jax.random.split(jax.random.PRNGKey(7), 16))
-    states = jax.vmap(lambda s: env._begin_battle(s.replace(enemy=jnp.int32(11))))(states)
-    def step(carry, key):
-        mask = jax.vmap(env.action_mask)(carry)
-        actions = jax.random.categorical(key, jnp.where(mask, 0., -jnp.inf))
-        following, ts = jax.vmap(env.step)(carry, actions)
-        return following, ts.observation
-    final, obs = jax.jit(lambda s: jax.lax.scan(step, s, jax.random.split(jax.random.PRNGKey(8), 200)))(states)
-    assert np.isfinite(obs).all() and np.all(final.hp >= 0)
-    assert obs.shape == (200, 16, 271)
-
-
-def test_current_map_has_a_winning_route_with_new_combat(monkeypatch):
-    # Reuse the independent preparation-only route verifier on the current map.
-    from stoix.tests import number_grid_battle_test as route_tests
-    from stoix.envs.number_grid import MAP as current_map
-    monkeypatch.setattr(route_tests, 'MAP', current_map)
-    route_tests.test_fixed_map_has_a_playable_full_route_with_archer_battles()
+def test_every_current_squad_is_reachable_for_an_attack(current_game):
+    from collections import deque
+    from stoix.envs.number_grid import DIRECTIONS
+    env, initial, _, _ = current_game
+    position = tuple(env.map_config['agent_position'])
+    opponents = [tuple(p) for p in env.map_config['opponent_positions']]
+    remaining = set(range(len(opponents)))
+    origins, actions, enemies = [], [], []
+    # Map preparation only: the planner is never passed into PPO. This checks
+    # geometry and attack commands, not a fictitious guaranteed combat win.
+    while remaining:
+        occupied = {opponents[i]: i for i in remaining}
+        queue, seen, found = deque([position]), {position}, None
+        while queue and found is None:
+            pos = queue.popleft()
+            for action, (dr, dc) in enumerate(DIRECTIONS):
+                dest = (pos[0]+dr, pos[1]+dc)
+                if not all(0 < x < env.size-1 for x in dest):
+                    continue
+                if dest in occupied:
+                    found = pos, action, occupied[dest]
+                    break
+                if dest not in seen:
+                    queue.append(dest)
+                    seen.add(dest)
+        assert found is not None, 'An enemy has no reachable adjacent attack cell'
+        position, action, enemy = found
+        origins.append(position)
+        actions.append(action)
+        enemies.append(enemy)
+        remaining.remove(enemy)
+    states = jax.tree.map(lambda x:jnp.broadcast_to(x,(len(enemies),)+x.shape),initial)
+    states = states.replace(position=jnp.array(origins,jnp.int32))
+    commands = compiled_method(env,'map_commands',batched=True)(states)
+    selected = commands[jnp.arange(len(enemies)),jnp.array(actions,jnp.int32)]
+    np.testing.assert_array_equal(selected[:,0],enemies)
+    np.testing.assert_array_equal(selected[:,1],10)

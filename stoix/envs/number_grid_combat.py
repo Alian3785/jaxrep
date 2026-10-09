@@ -4,6 +4,7 @@ import math
 from pathlib import Path
 
 import jax.numpy as jnp
+from stoix.envs.number_grid_effects import CAPITAL_GUARDS
 
 HP, DAMAGE, ACCURACY, ARMOR, INITIATIVE = range(5)
 STAT_NAMES = ('max_hp', 'damage', 'accuracy', 'armor', 'initiative')
@@ -12,7 +13,14 @@ ATTACK_LABELS = ('Оружие', 'Земля', 'Огонь', 'Вода', 'Яд',
 EMPTY, MELEE, RANGED, AREA, HEALER = range(5)
 ROLES = {'melee': MELEE, 'ranged': RANGED, 'area': AREA, 'healer': HEALER}
 UNITS = json.loads((Path(__file__).parent / 'data/units.json').read_text(encoding='utf-8'))
-PROFILE_FIELDS = set(STAT_NAMES) | {'size', 'role', 'attack_type', 'immunities', 'protections', 'exp_kill', 'exp_required', 'exp_current'}
+PROFILE_FIELDS = set(STAT_NAMES) | {'size', 'role', 'attack_type', 'immunities', 'protections', 'exp_kill', 'exp_required', 'exp_current', 'hero',
+                                  'secondary_attack_type', 'secondary_accuracy', 'secondary_damage'}
+
+
+def uses_aoe_accuracy_falloff(profile):
+    """Reference Mage heroes and Nosferatu lose 10 points per living target."""
+    unit_type = profile.get('unit_type', 'Mage' if profile.get('role') == 'area' else '')
+    return bool(profile.get('hero') and (unit_type == 'Mage' or profile.get('name') == 'Носферату'))
 
 
 def _validated_stats(values):
@@ -97,6 +105,8 @@ def build_combat_tables(game_map):
             if not isinstance(override, dict) or set(override) - PROFILE_FIELDS:
                 raise ValueError('Unknown combat profile fields')
             values = {**defaults, **override}
+            if type(values.get('hero', False)) is not bool:
+                raise ValueError('Combat hero flag must be boolean')
             if values.get('upgrade_unavailable_reason'):
                 raise ValueError(values['upgrade_unavailable_reason'])
             if not isinstance(values['role'], str) or values['role'] not in ROLES:
@@ -112,9 +122,20 @@ def build_combat_tables(game_map):
                 raise ValueError('Combat size must be 1 or 2')
             stats = _validated_stats(values)
             source = _source(values['attack_type'])
+            secondary_source = _source(values['secondary_attack_type'])+1 if values.get('secondary_attack_type') else 0
+            for field, limit in (('secondary_accuracy', 100), ('secondary_damage', 1_000_000)):
+                v = values.get(field, 0)
+                if type(v) not in (int, float) or not math.isfinite(v) or not 0 <= v <= limit:
+                    raise ValueError('Invalid combat '+field)
             immune, wards = _protection_mask(values['immunities']), _protection_mask(values['protections'])
             profiles.append(dict(name=values['name'], level=values['level'], size=size, role=values['role'],
-                                 attack_type=ATTACK_TYPES[source], immunities=immune, protections=wards))
+                                 unit_type=values.get('unit_type', ''),
+                                 secondary_source=secondary_source,
+                                 secondary_accuracy=values.get('secondary_accuracy', 0),
+                                 secondary_damage=values.get('secondary_damage', 0),
+                                 capital_guard=values['name'] in CAPITAL_GUARDS,
+                                 attack_type=ATTACK_TYPES[source], immunities=immune, protections=wards,
+                                 aoe_accuracy_falloff=uses_aoe_accuracy_falloff(values)))
             rows.append(stats)
             traits.append([ROLES[values['role']], source+1, immune, wards])
         for slot, profile in enumerate(profiles):
@@ -130,15 +151,19 @@ def build_combat_tables(game_map):
         squads.append(heroes+rows)
         traits.append(hero_traits+properties)
         enemies.append(names)
-    damages = sorted({s[DAMAGE] for squad in squads for s in squad})
-    armors = sorted({s[ARMOR] for squad in squads for s in squad})
+    damages = sorted({s[DAMAGE] for squad in squads for s in squad} | {20, 30, 90})
+    original_armors = {s[ARMOR] for squad in squads for s in squad}
+    armors = sorted(original_armors | {max(0, int(a)-15*k) for a in original_armors for k in range(1,7)})
     damage_ids = [[damages.index(s[DAMAGE]) for s in squad] for squad in squads]
     armor_ids = [[armors.index(s[ARMOR]) for s in squad] for squad in squads]
     # Preserve Python float/round semantics, including half-integer edge cases.
     rolls = [[[[int(round((d+b)*(1.-a/100.)*(.5 if defend else 1.)))
                 if d > 0 else 0 for b in range(6)] for defend in (False, True)]
               for a in armors] for d in damages]
-    metadata = dict(heroes=hero_names, enemies=enemies,
+    metadata = dict(heroes=hero_names, enemies=enemies, fenrir_damage_id=damages.index(90),
+                    imp_damage_ids=[damages.index(20), damages.index(30)],
+                    _shatter_armor_ids=[[[armors.index(s[ARMOR] if k == 0 else max(0, int(s[ARMOR])-15*k))
+                                         for k in range(7)] for s in squad] for squad in squads],
                     attack_types=[dict(key=key, name=label, bit=1 << i)
                                   for i, (key, label) in enumerate(zip(ATTACK_TYPES, ATTACK_LABELS))])
     return (jnp.asarray(squads, jnp.float32), jnp.asarray(damage_ids, jnp.int32),

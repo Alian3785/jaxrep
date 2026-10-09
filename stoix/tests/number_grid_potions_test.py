@@ -1,5 +1,6 @@
 """Original recovery potions, finite inventory and map-only actions on CUDA."""
 from collections import OrderedDict
+from stoix.tests.number_grid_fixtures import compiled_method, hero_roster_state
 import threading
 
 import chex
@@ -7,10 +8,8 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from numbergrid_config import make_config
 from stoix.envs.number_grid import NumberGrid, BattleState, MAP, REST, SHOOT
 from stoix.envs.number_grid_potions import PotionRules, POTION_START, POTION_HEAL, POTION_REVIVE
-from stoix.utils.make_env import make
 
 
 @pytest.fixture(scope='module')
@@ -18,14 +17,19 @@ def game(current_game):
     return current_game[:3]
 
 
+def potion_columns(env,state):
+    changed = state.replace(potions=jnp.zeros(4,jnp.int32))
+    return jnp.nonzero(env.observation(changed) != env.observation(state),size=4)[0]
+
+
 def test_starting_stock_observation_and_input_validation(game):
     env, state, _ = game
     assert state.potions.tolist() == [5,5,5,10]
-    assert env.num_actions == 80 and env.observation_size == 532
-    assert env.observation(state).shape == (532,)
-    chex.assert_trees_all_equal(env.observation(state)[-55:-51], jnp.ones(4))
+    assert env.num_actions == 81 and env.observation_size == 983
+    assert env.observation(state).shape == (983,)
+    chex.assert_trees_all_equal(env.observation(state)[potion_columns(env,state)], jnp.ones(4))
     used = state.replace(potions=jnp.array([4,3,0,9]))
-    chex.assert_trees_all_close(env.observation(used)[-55:-51], jnp.array([.8,.6,0.,.9]))
+    chex.assert_trees_all_close(env.observation(used)[potion_columns(env,state)], jnp.array([.8,.6,0.,.9]))
     assert [p['amount'] for p in env.potion_rules.metadata()] == [50,100,200,1]
     for invalid in ([], [5,5,10], [5,5,5,-1], [5,True,5,10], [5,5,5,2**31]):
         with pytest.raises(ValueError, match='initial_potions'):
@@ -90,17 +94,16 @@ def test_revive_then_heal_and_invalid_uses_never_consume(game):
     assert reset.potions.tolist() == [5,5,5,10]
 
 
-def test_every_type_can_target_all_six_slots_under_jit_vmap():
-    env = NumberGrid(map_config={**MAP,'hero_units':6,
-        'hero_roster':['possessed','duke','possessed','cultist','cultist','possessed']})
-    state, _ = env.reset(jax.random.PRNGKey(42))
+def test_every_type_can_target_all_six_slots_under_jit_vmap(game):
+    env,initial,_ = game
+    state = hero_roster_state(env,initial,['possessed','duke','possessed','cultist','cultist','possessed'])
     actions = jnp.arange(56,80,dtype=jnp.int32)
     states = jax.tree.map(lambda x:jnp.broadcast_to(x,(24,)+x.shape),state)
     hp = jnp.where(jnp.arange(24)[:,None] < 18, 1, 0)
     states = states.replace(hp=states.hp.at[:,:6].set(jnp.broadcast_to(hp,(24,6))))
-    masks = jax.jit(jax.vmap(env.action_mask))(states)
+    masks = compiled_method(env,'action_mask',batched=True)(states)
     assert jnp.all(masks[jnp.arange(24),actions])
-    following, _ = jax.jit(jax.vmap(env.step))(states,actions)
+    following, _ = compiled_method(env,'step',batched=True)(states,actions)
     slots, kinds = jnp.arange(24)%6, jnp.arange(24)//6
     maximum = env.max_hp(state)[:6]
     expected = jnp.where(kinds==3,1,jnp.minimum(maximum[slots],1+jnp.array([50,100,200,1])[kinds]))
@@ -110,24 +113,22 @@ def test_every_type_can_target_all_six_slots_under_jit_vmap():
 
 
 def test_large_unit_uses_only_its_anchor_and_battle_keeps_stock(game):
-    env = NumberGrid(map_config={**MAP,
-        'hero_roster':['titan','duke','possessed',None,'cultist','cultist']})
-    state, _ = env.reset(jax.random.PRNGKey(42))
+    env,initial,_ = game
+    state = hero_roster_state(env,initial,['titan','duke','possessed',None,'cultist','cultist'])
     dead = state.replace(hp=state.hp.at[0].set(0))
     assert env.action_mask(dead)[74] and not env.action_mask(dead)[77]
-    revived, _ = jax.jit(env.step)(dead,jnp.int32(74))
+    revived, _ = compiled_method(env,'step')(dead,jnp.int32(74))
     assert revived.hp[0] == 1 and revived.hp[3] == 0 and revived.potions[3] == 9
     battle = env._begin_battle(revived.replace(enemy=jnp.int32(0))).replace(actor=jnp.int32(0))
     battle = battle.replace(hp=battle.hp.at[6].set(1))
-    won, _ = jax.jit(env._battle_step)(battle,jnp.int32(SHOOT),battle.battle_key,jnp.zeros(36))
+    won, _ = compiled_method(env,'_battle_step')(battle,jnp.int32(SHOOT),battle.battle_key,jnp.zeros(env.random_size))
     assert not won.in_battle
     chex.assert_trees_all_equal(won.potions,revived.potions)
 
 
-def test_ppo_autoreset_restores_inventory_and_keeps_terminal_stock():
-    config = make_config()
-    config.env.kwargs.max_steps = 1
-    training, _ = make(config)
+def test_ppo_autoreset_restores_inventory_and_keeps_terminal_stock(current_game, training_autoreset):
+    training, _, advance = training_autoreset
+    columns = potion_columns(current_game[0],current_game[1])
     state, _ = training.reset(jax.random.split(jax.random.PRNGKey(42),2))
     def injure(live):
         if isinstance(live,BattleState):
@@ -135,12 +136,12 @@ def test_ppo_autoreset_restores_inventory_and_keeps_terminal_stock():
                                 position=live.position.at[1].set(jnp.array([4,2])))
         return live.replace(base_env_state=injure(live.base_env_state))
     state = injure(state)
-    following, ts = jax.jit(training.step)(state,jnp.array([POTION_START,2],jnp.int32))
+    following, ts = advance(state,jnp.array([POTION_START,2],jnp.int32))
     assert jnp.all(ts.truncated())
     chex.assert_trees_all_equal(following.potions,jnp.array([[5,5,5,10]]*2))
-    chex.assert_trees_all_close(ts.extras['next_obs']['observation'][:,-55:-51],
+    chex.assert_trees_all_close(ts.extras['next_obs']['observation'][:,columns],
                               jnp.array([[.2,1.,1.,1.],[.6,1.,1.,1.]]))
-    chex.assert_trees_all_equal(ts.observation['observation'][:,-55:-51],jnp.ones((2,4)))
+    chex.assert_trees_all_equal(ts.observation['observation'][:,columns],jnp.ones((2,4)))
     chex.assert_trees_all_equal(following.chest_alive,jnp.ones((2,5),bool))
     chest_flag=220+5*len(MAP['opponent_positions'])+6
     chex.assert_trees_all_equal(ts.extras['next_obs']['observation'][:,chest_flag],jnp.array([1.,0.]))
@@ -152,7 +153,7 @@ def test_human_service_uses_same_inventory_and_quotes(game):
     env, state, advance = game
     service = GameService.__new__(GameService)
     service.lock = threading.Lock()
-    service.environments = {env.construction.faction:(env,jax.jit(env.reset),advance)}
+    service.environments = {env.construction.faction:(env,compiled_method(env,'reset'),advance)}
     state = state.replace(hp=state.hp.at[0].set(20).at[1].set(0))
     service.sessions = OrderedDict({'potions':(env.construction.faction,state,0.)})
     snap = service.snapshot(env,state,0.)

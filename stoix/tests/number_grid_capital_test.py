@@ -1,6 +1,7 @@
 """Capital recovery reference rules and user integer-HP override, on CUDA only."""
 from collections import OrderedDict
 
+from stoix.tests.number_grid_fixtures import compiled_method, enemy_roster_state
 import chex
 import jax
 import jax.numpy as jnp
@@ -53,7 +54,7 @@ def test_services_require_exact_capital_temple_money_and_correct_target(game):
         after, _ = advance(before, jnp.int32(action))
         for field in ('hp','gold','buildings','movement_points','day','recovery_balance','battle_key'):
             chex.assert_trees_all_equal(getattr(after,field), getattr(before,field))
-    assert env.observation(state).shape == (532,) and env.num_actions == 80
+    assert env.observation(state).shape == (983,) and env.num_actions == 81
     # Capital follows the actual scenario spawn, not a hard-coded (2, 2).
     other = CapitalRules(env.progression, env.construction, [4,4])
     assert not other.at_capital(state) and other.at_capital(state.replace(position=jnp.array([4,4])))
@@ -115,37 +116,42 @@ def test_only_victory_funds_recovery_once_and_keeps_casualties(game):
     # The Titan counts once and contributes only its initial 250 HP even if
     # a healer in another encounter repeatedly restores damaged enemies.
     battle = env._begin_battle(state.replace(enemy=jnp.int32(1))).replace(actor=jnp.int32(1))
-    battle = battle.replace(hp=battle.hp.at[0].set(0).at[7].set(1))
-    won, _ = fight(battle, jnp.int32(SHOOT+1), battle.battle_key, jnp.zeros(36))
+    battle = battle.replace(hp=battle.hp.at[0].set(0).at[7].set(1),
+        enemy_damage_credit=battle.enemy_damage_credit.at[1].set(249))
+    won, _ = fight(battle, jnp.int32(SHOOT+1), battle.battle_key, jnp.zeros(env.random_size))
     assert won.recovery_balance.tolist() == [243,0] and won.hp[0] == 0
     rested, _ = advance(won, jnp.int32(REST))
     chex.assert_trees_all_equal(rested.recovery_balance, won.recovery_balance)
     assert rested.hp[0] == 0
     fleeing = battle.replace(escaped=battle.escaped.at[2:6].set(True),
                               retreating=battle.retreating.at[1].set(True))
-    withdrawn, _ = fight(fleeing, jnp.int32(CONTINUE), battle.battle_key, jnp.zeros(36))
+    withdrawn, _ = fight(fleeing, jnp.int32(CONTINUE), battle.battle_key, jnp.zeros(env.random_size))
     assert not withdrawn.in_battle and withdrawn.hp[0] == 0
     chex.assert_trees_all_equal(withdrawn.recovery_balance, state.recovery_balance)
-    ongoing, _ = fight(battle, jnp.int32(DEFEND), battle.battle_key, jnp.zeros(36))
+    ongoing, _ = fight(battle, jnp.int32(DEFEND), battle.battle_key, jnp.zeros(env.random_size))
     chex.assert_trees_all_equal(ongoing.recovery_balance, state.recovery_balance)
 
     losing = battle.replace(hp=battle.hp.at[:6].set(0).at[1].set(1), actor=jnp.int32(7))
-    lost, _ = fight(losing, jnp.int32(CONTINUE), battle.battle_key, jnp.zeros(36))
+    lost, _ = fight(losing, jnp.int32(CONTINUE), battle.battle_key, jnp.zeros(env.random_size))
     assert lost.lost and lost.done
     chex.assert_trees_all_equal(lost.recovery_balance, state.recovery_balance)
     limited = battle.replace(turn_phase=jnp.full(12,2).at[1].set(0), round=jnp.int32(env.max_rounds))
-    timed, _ = fight(limited, jnp.int32(DEFEND), battle.battle_key, jnp.zeros(36))
+    timed, _ = fight(limited, jnp.int32(DEFEND), battle.battle_key, jnp.zeros(env.random_size))
     assert timed.done and not timed.lost
     chex.assert_trees_all_equal(timed.recovery_balance, state.recovery_balance)
     healed_enemy = env._begin_battle(state.replace(enemy=jnp.int32(5)))
+    healed_enemy = enemy_roster_state(env,healed_enemy,['squire','titan','squire','archer',None,'acolyte'])
     initial_max = env.max_hp(healed_enemy)[6:]
+    healed_enemy = healed_enemy.replace(enemy_initial_hp=initial_max)
     for _ in range(3):
         healed_enemy = healed_enemy.replace(actor=jnp.int32(11), hp=healed_enemy.hp.at[7].set(200))
-        healed_enemy, _ = fight(healed_enemy, jnp.int32(CONTINUE), healed_enemy.battle_key, jnp.zeros(36))
+        healed_enemy, _ = fight(healed_enemy, jnp.int32(CONTINUE), healed_enemy.battle_key, jnp.zeros(env.random_size))
         assert healed_enemy.hp[7] == 220
         chex.assert_trees_all_equal(healed_enemy.recovery_balance, state.recovery_balance)
-    healed_enemy = healed_enemy.replace(actor=jnp.int32(3), hp=healed_enemy.hp.at[6:].set((initial_max>0).astype(jnp.int32)))
-    finished, _ = fight(healed_enemy, jnp.int32(SHOOT+1), healed_enemy.battle_key, jnp.zeros(36))
+    # Seed damage from earlier attacks before the final one-HP sweep.
+    healed_enemy = healed_enemy.replace(actor=jnp.int32(3), hp=healed_enemy.hp.at[6:].set((initial_max>0).astype(jnp.int32)),
+        enemy_damage_credit=jnp.maximum(initial_max-1,0))
+    finished, _ = fight(healed_enemy, jnp.int32(SHOOT+1), healed_enemy.battle_key, jnp.zeros(env.random_size))
     assert not finished.in_battle
     chex.assert_trees_all_equal(finished.recovery_balance,
         state.recovery_balance+jnp.array([initial_max.sum(), (initial_max>0).sum()]))
@@ -158,7 +164,7 @@ def test_human_service_uses_engine_quotes_and_payment(game):
     service = GameService.__new__(GameService)
     import threading
     service.lock = threading.Lock()
-    service.environments = {env.construction.faction:(env, jax.jit(env.reset), advance)}
+    service.environments = {env.construction.faction:(env, compiled_method(env,'reset'), advance)}
     token = 'capital-test'
     state = state.replace(hp=state.hp.at[0].set(115).at[1].set(0))
     service.sessions = OrderedDict({token:(env.construction.faction,state,0.)})

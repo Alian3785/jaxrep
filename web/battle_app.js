@@ -7,10 +7,21 @@
   let manualConstruction=null, manualTurnRules=null, manualCombat=null, manualCapital=null, manualPotions=null, capitalOpen=false, potionsOpen=false, selectedPotion=0, capitalKey=null;
   const records=data.records||[];
   const combatInfo=()=>mode==='manual'?(manualCombat||data.combat):data.combat;
-  const profile=i=>i>=0&&i<12?(combatInfo()?.catalogue?.[current()?.state.unit_ids?.[i]]??(i<6?combatInfo()?.heroes[i]:combatInfo()?.enemies[current()?.state.enemy]?.[i-6])):null;
+  const profile=i=>{
+    const original=i>=0&&i<12?(combatInfo()?.catalogue?.[current()?.state.unit_ids?.[i]]??(i<6?combatInfo()?.heroes[i]:combatInfo()?.enemies[current()?.state.enemy]?.[i-6])):null;
+    const lowered=combatInfo()?.catalogue?.[current()?.state.decay_form?.[i]];
+    let base=lowered?{...lowered,name:original.name+' → '+lowered.name}:original;
+    if(base&&current()?.state.imp?.[i])base={...base,name:base.name+' · '+(base.size===2?'Толстый бес':'Бес'),role:'melee',attack_type:'weapon',immunities:0,protections:0,unit_type:'Warrior'};
+    const owners=current()?.state.healer_wards?.[i]||[];
+    const temporary=[4,256,8,2].reduce((bits,bit,j)=>bits|(owners[j]?bit:0),0);
+    if(base)base={...base,protections:(base.protections||0)|temporary};
+    return base&&current()?.state.fenrir?.[i]&&!current()?.state.imp?.[i]?{...base,name:'Дух Фенрира',role:'melee',attack_type:'weapon',unit_type:'Warrior'}:base;
+  };
   const isMage=i=>profile(i)?.role==='area';
   const isWarrior=i=>profile(i)?.role==='melee';
   const isHealer=i=>profile(i)?.role==='healer';
+  const isPowerSupport=i=>['Travnitsa','Novice','Dwarfdruid','Arhidruid'].includes(profile(i)?.unit_type);
+  const isMassHealer=i=>['Profit','Deva roshi'].includes(profile(i)?.unit_type);
   const role=i=>profile(i)?.name||'Пусто';
   const unitName=i=>(i<6?'Ваш ':'Вражеский ')+role(i).toLowerCase()+' '+(i%6+1);
   const partyText=units=>{const counts=new Map();for(const u of units||[])if(u)counts.set(u.name,(counts.get(u.name)||0)+1);return [...counts].map(([name,count])=>name+' × '+count).join(' · ');};
@@ -219,13 +230,24 @@
     return parts.length?' '+parts.join('; ')+'.':'';
   }
   function eventText(snapshot){
+    const ticks=[...['poison','burn','water'].flatMap(kind=>(snapshot.state['last_'+kind+'_damage']||[]).map((amount,i)=>amount?unitName(i)+': '+({poison:'яд',burn:'огонь',water:'вода'}[kind])+' −'+amount+' HP':'').filter(Boolean))];
+    return actionEventText(snapshot)+(ticks.length?' '+ticks.join('; ')+'.':'');
+  }
+  function actionEventText(snapshot){
     const s=snapshot.state,a=unitName(s.last_actor),t=unitName(s.last_target);
     switch(s.last_event){
       case 1:return 'Атака отряда № '+(s.enemy+1)+'. Отряд остаётся на своей клетке; очков перемещения: '+s.movement_points+'.';
       case 2:return isMage(s.last_actor)?a+': заклинание по всем противникам (суммарный урон '+s.last_damage+').'+blockText(s):a+(isWarrior(s.last_actor)?': удар мечом по ':': попадание в ')+t.toLowerCase()+' (−'+s.last_damage+').'+blockText(s);
       case 3:return a+': промах.';
+      case 22:return a+': превращение в Дух Фенрира. Доля здоровья сохранена.';
+      case 23:return a+(s.last_target<0?': массовое превращение в бесов.':': '+t+' превращён в беса.')+' Здоровье сохранено.'+blockText(s);
+      case 25:return a+(s.last_target<0?': массовый паралич.':': паралич — '+t+'.')+blockText(s);
+      case 26:return a+': пропускает ход из-за паралича.';
+      case 27:return a+(s.last_target<0?': массовый страх.':': страх — '+t+'.')+blockText(s);
+      case 28:return 'Противник побеждён. Лекари получают по одному действию перед выдачей опыта.';
+      case 24:return a+': понижение формы '+t+' (урон '+s.last_damage+'). Доля HP пересчитана.';
       case 4:return a+' встал в защиту.';
-      case 5:return a+' ждёт конца раунда.';
+      case 5:return a+(s.post_victory?' пропускает заключительное лечение.':' ждёт конца раунда.');
       case 6:return a+' готовится отступить.';
       case 7:return a+' покинул бой.';
       case 8:return 'Победа! Ранения и потери сохранены.'+xpSummary(snapshot);
@@ -235,7 +257,11 @@
       case 12:{const b=construction()?.buildings[s.last_building];return b?'Построено: '+b.name+' (−'+b.gold+' золота).':null;}
       case 13:return 'Отдых. Начался ход '+s.day+', +'+turnRules().income+' золота; очки перемещения восстановлены, живые бойцы получили регенерацию 10% HP. Штраф: '+fmt(Math.max(0,-snapshot.reward))+'.';
       case 14:return 'Атака заблокирована иммунитетом.'+blockText(s);
-      case 16:return a+': лечение — '+t.toLowerCase()+' (+'+s.last_damage+' HP).';
+      case 32:return a+': атака и замедление инициативы противников (урон '+s.last_damage+').';
+      case 31:return a+': дополнительный ход — '+t+'.';
+      case 30:return a+': воскрешение — '+t+' (+'+s.last_damage+' HP). Повторное воскрешение в этом бою недоступно.';
+      case 29:return a+': усиление — '+t+'. Сила атаки: '+s.last_damage+'.';
+      case 16:return a+(s.last_target<0?': лечение союзников':': лечение — '+t.toLowerCase())+' (+'+s.last_damage+' HP).';
       case 17:return 'Храм: '+t.toLowerCase()+' восстановил '+s.last_damage+' HP за '+s.last_service_cost+' золота.';
       case 18:return 'Храм: '+t.toLowerCase()+' воскрешён с 1 HP за '+s.last_service_cost+' золота.';
       case 19:return potionInfo()?.[s.last_potion]?.name+': '+t.toLowerCase()+' восстановил '+s.last_damage+' HP. Осталось: '+s.potions[s.last_potion]+'.';
@@ -279,7 +305,8 @@
     $('basic-combat-rule').hidden=false;
     $('mage-rule').innerHTML='<b>Массовая атака.</b> Маг атакует всех живых противников. Попадание, прибавка к урону, иммунитет и защита проверяются отдельно для каждой цели.';
     $('battle-hint').textContent='Источник атаки, иммунитеты и оставшиеся защиты указаны на карточках. Точность 80% соответствует фактическому шансу попадания 92,2%. Броня и действие защиты уменьшают прошедший урон. Титан занимает обе клетки линии. Служка лечит одного живого союзника на 20 HP.';
-    $('attack-hint').textContent=isHealer(s.actor)?'Лечение: выберите живого союзника.':isMage(s.actor)?'Массовая атака: выберите любого живого врага.':isWarrior(s.actor)?(mask.slice(8,14).some(Boolean)?'Ход воина: выберите подсвеченного врага для удара мечом.':'Воин не достаёт до врагов. Можно защищаться, ждать или отступить.'):'Нажмите на живого противника, чтобы выстрелить.';
+    $('fenrir').hidden=!s.in_battle||profile(s.actor)?.unit_type!=='Wolf Lord';
+    $('attack-hint').textContent=profile(s.actor)?.unit_type==='Succub'?'Массовое превращение в бесов без урона: выберите любого доступного живого противника.':profile(s.actor)?.unit_type==='Witch'?'Превращение: выберите живого противника.':profile(s.actor)?.unit_type==='Alchemist'?'Дополнительный ход: выберите живого союзника, кроме алхимика и отступающего.':profile(s.actor)?.unit_type==='Patriach'?'Выберите союзника: лечение живого или однократное воскрешение погибшего с 50% HP.':isPowerSupport(s.actor)?(['Dwarfdruid','Arhidruid'].includes(profile(s.actor)?.unit_type)?'Выберите союзника для усиления и очищения; себя — только для очищения.':'Усиление: выберите другого живого союзника.'):isMassHealer(s.actor)?'Массовое лечение всех живых союзников, кроме самого лекаря. Выберите любую доступную карточку.':isHealer(s.actor)?'Лечение: выберите живого союзника.':isMage(s.actor)?'Массовая атака: выберите любого живого врага.':isWarrior(s.actor)?(mask.slice(8,14).some(Boolean)?'Ход воина: выберите подсвеченного врага для удара мечом.':'Воин не достаёт до врагов. Можно защищаться, ждать или отступить.'):'Нажмите на живого противника, чтобы выстрелить.';
     const message=s.won?'Победа! Карта очищена.':s.lost?'Ваш отряд погиб. Начните новую игру.':s.done?'Достигнут лимит. Начните новую игру.':s.in_battle?'Выбирайте цели и берегите свой отряд.':!s.movement_points?'Очки перемещения закончились. Можно использовать зелья, строить или отдохнуть.':'Шаг на клетку врага — атака. Рядом с отрядом можно пройти без боя.';
     $('message').textContent=message;
     $('map-controls').hidden=s.in_battle||capitalOpen||potionsOpen;$('battle-controls').hidden=!s.in_battle||capitalOpen||potionsOpen;
@@ -289,29 +316,36 @@
     if(s.in_battle){
       $('battle-heading').textContent='Отряд № '+(s.enemy+1)+' · '+enemyParty(map,s.enemy);
       $('round').textContent='Раунд '+Math.min(s.round,snap.battle_max_rounds ?? map.battle_max_rounds);
-      $('turn-message').textContent=s.done?message:s.actor<6&&!s.retreating[s.actor]?'Ваш ход: '+role(s.actor).toLowerCase()+' '+(s.actor+1):s.actor>=6?'Ход противника: '+role(s.actor).toLowerCase()+' '+(s.actor-5):unitName(s.actor)+' завершает отступление';
+      $('turn-message').textContent=s.done?message:s.actor<6&&(!s.retreating[s.actor]||s.post_victory)?'Ваш ход: '+role(s.actor).toLowerCase()+' '+(s.actor+1):s.actor>=6?'Ход противника: '+role(s.actor).toLowerCase()+' '+(s.actor-5):unitName(s.actor)+' завершает отступление';
+      if(s.post_victory&&!s.done)$('turn-message').textContent='Лечение после боя: '+unitName(s.actor)+(s.actor<6?' · выберите союзника или пропустите действие кнопкой ожидания.':'');
+      if(s.second_strike&&!s.done)$('turn-message').textContent+=' · второй удар';
       document.querySelectorAll('[data-slot]').forEach(b=>{
         const i=Number(b.dataset.slot),max=snap.max_hp[i],hp=s.hp[i];
         const local=i%6,big=profile(i)?.size===2,covered=local>=3&&profile(i-3)?.size===2;
         b.hidden=covered;
         b.style.gridRow=String(local%3+1);
         b.style.gridColumn=big?'1 / span 2':String(i<6?(local<3?2:1):(local<3?1:2));
-        const targetTurn=(isHealer(s.actor)?i<6:i>=6)&&s.actor<6&&!s.retreating[s.actor]&&!s.done;
+        const targetTurn=(isHealer(s.actor)?i<6:i>=6)&&s.actor<6&&(!s.retreating[s.actor]||s.post_victory)&&!s.done;
         const unreachable=targetTurn&&hp>0&&!s.escaped[i]&&!mask[8+i%6];
         b.className='unit'+(i>=6?' foe':'')+(big?' large':'')+(isHealer(i)?' healer':'')+(isMage(i)?' mage':'')+(isWarrior(i)?' warrior':'')+(i===s.actor&&!s.done?' active':'')+(!max?' empty':!hp?' dead':s.escaped[i]?' escaped':'')+(unreachable?' unreachable':targetTurn&&mask[8+i%6]?' reachable':'');
         b.querySelector('.unit-name').textContent=max?role(i)+' '+(i%6+1)+(big?' · 2 клетки':''):'Пусто';
         b.querySelector('.archer-icon').textContent=isHealer(i)?'✚':isMage(i)?'✦':isWarrior(i)?'⚔':'➶';
         b.querySelector('.health').textContent=max?hp+' / '+max+' HP':'—';
         const values=snap.unit_stats?.[i]??[max,isMage(i)?map.mage_damage:isWarrior(i)?map.warrior_damage:map.archer_damage,100*(isWarrior(i)?(map.warrior_accuracy??.8):map.archer_accuracy),0,isWarrior(i)?map.warrior_initiative:60];
-        b.querySelector('.unit-stats').textContent=max?(isHealer(i)?'Лечение ':'Урон ')+fmt(values[1])+' · Точн. '+fmt(values[2])+'%\nБроня '+fmt(values[3])+'% · Иниц. '+fmt(values[4])+'\nИсточник: '+sourceName(profile(i)?.attack_type)+'\nИммунитеты: '+protectionNames(profile(i)?.immunities||0)+'\nЗащиты: '+protectionNames((profile(i)?.protections||0)&~s.wards_used[i])+((profile(i)?.protections||0)&s.wards_used[i]?' (израсходовано: '+protectionNames(profile(i).protections&s.wards_used[i])+')':''):'';
+        b.querySelector('.unit-stats').textContent=max?(profile(i)?.unit_type==='Succub'?'Массовое превращение · без урона':profile(i)?.unit_type==='Witch'?'Превращение · без урона':(profile(i)?.unit_type==='Alchemist'?'Дополнительный ход':isPowerSupport(i)?'Усиление ×'+({Travnitsa:1.25,Novice:1.5,Dwarfdruid:1.75,Arhidruid:2}[profile(i).unit_type]):(isMassHealer(i)?'Массовое лечение ':isHealer(i)?'Лечение ':'Урон ')+fmt(values[1])))+(profile(i)?.unit_type==='Centaur Savage'?' + критический удар 5% (целые HP)':['Demon','Elfarcher'].includes(profile(i)?.unit_type)?' × 2 удара':'')+' · Точн. '+fmt(values[2])+'%\nБроня '+fmt(values[3])+'% · Иниц. '+fmt(values[4])+'\nИсточник: '+sourceName(profile(i)?.attack_type)+'\nИммунитеты: '+protectionNames(profile(i)?.immunities||0)+'\nЗащиты: '+protectionNames((profile(i)?.protections||0)&~s.wards_used[i])+((profile(i)?.protections||0)&s.wards_used[i]?' (израсходовано: '+protectionNames(profile(i).protections&s.wards_used[i])+')':''):'';
         b.querySelector('.unit-xp').textContent=max?experienceText(snap,i):'';
         b.querySelector('.health-fill').style.width=(max?hp/max*100:0)+'%';
-        b.querySelector('.status').textContent=!max?'':!hp?'Погиб':s.escaped[i]?'Отступил':unreachable?'Вне досягаемости':s.retreating[i]?'Побег':s.defended[i]?'Защита':s.turn_phase[i]===1?'Ожидание':s.turn_phase[i]===2?'Ход завершён':'';
+        b.querySelector('.status').textContent=!max?'':!hp?'Погиб':s.escaped[i]?'Отступил':unreachable?'Вне досягаемости':s.paralyzed?.[i]?'Паралич':s.long_paralyzed?.[i]?'Долгий паралич':s.feared?.[i]?'Страх':s.retreating[i]?'Побег':s.defended[i]?'Защита':s.imp?.[i]?'Временное превращение':s.decay_form?.[i]?'Понижение формы':s.weakened?.[i]?'Урон ослаблен':s.armor_shreds?.[i]?'Броня повреждена':s.turn_phase[i]===1?'Ожидание':s.turn_phase[i]===2?'Ход завершён':'';
+        if((s.slow_original?.[i]??-1)>=0)b.querySelector('.status').textContent+=' · Инициатива снижена';
+        if(s.powerup?.[i])b.querySelector('.status').textContent+=' · Урон усилен';
+        if(s.poison_turns?.[i])b.querySelector('.status').textContent+=' · Яд '+s.poison_damage[i]+' HP, ходов: '+s.poison_turns[i];
+        if(s.water_turns?.[i])b.querySelector('.status').textContent+=' · Вода '+(s.water_damage[i]||10)+' HP, ходов: '+s.water_turns[i];
+        if(s.burn_turns?.[i])b.querySelector('.status').textContent+=' · Огонь '+(s.burn_damage[i]||10)+' HP, ходов: '+s.burn_turns[i];
         b.disabled=!targetTurn||mode!=='manual'||busy||s.done||!session||!mask[8+i%6];
-        b.setAttribute('aria-label',(isHealer(s.actor)&&i<6?'Лечить: '+unitName(i):i>=6?(isMage(s.actor)?'Заклинание по всем врагам: противник ':isWarrior(s.actor)?'Удар мечом: противник ':'Стрелять: противник ')+(i%6+1):unitName(i))+', '+hp+' из '+max+' здоровья'+(unreachable?', вне досягаемости':''));
+        b.setAttribute('aria-label',(isHealer(s.actor)&&i<6?(profile(s.actor)?.unit_type==='Alchemist'?'Дать дополнительный ход: ':profile(s.actor)?.unit_type==='Patriach'&&!hp?'Воскресить: ':isPowerSupport(s.actor)?'Усилить: ':'Лечить: ')+unitName(i):i>=6?(profile(s.actor)?.unit_type==='Succub'?'Превращение всех доступных врагов: противник ':profile(s.actor)?.unit_type==='Witch'?'Превращение: противник ':isMage(s.actor)?'Заклинание по всем врагам: противник ':isWarrior(s.actor)?'Удар мечом: противник ':'Стрелять: противник ')+(i%6+1):unitName(i))+', '+hp+' из '+max+' здоровья'+(unreachable?', вне досягаемости':''));
       });
-      const queue=Array.from({length:12},(_,i)=>i).filter(i=>s.hp[i]>0&&!s.escaped[i]&&s.turn_phase[i]<2);
-      const priority=i=>s.turn_phase[i]===0?s.priority[i]:-s.priority[i];queue.sort((a,b)=>priority(b)-priority(a)||a-b);
+      const queue=Array.from({length:12},(_,i)=>i).filter(i=>s.post_victory?s.pending_healers[i]:s.hp[i]>0&&!s.escaped[i]&&s.turn_phase[i]<2);
+      const priority=i=>s.turn_phase[i]===0?s.priority[i]:-s.priority[i];queue.sort((a,b)=>s.post_victory?a-b:priority(b)-priority(a)||a-b);
       $('queue').replaceChildren(...queue.map(i=>{const e=document.createElement('span');e.className='queue-unit'+(i>=6?' foe':'')+(i===s.actor?' current':'');e.textContent=(isHealer(i)?'✚':isMage(i)?'М':isWarrior(i)?'⚔':i<6?'Л':'П')+(i%6+1);e.title=unitName(i)+(basic?' · инициатива раунда '+Math.floor(s.priority[i]):'');return e;}));
     }else drawMap(s);
     $('events').replaceChildren(...messages.slice(-6).reverse().map(text=>{const li=document.createElement('li');li.textContent=text;return li;}));

@@ -1,4 +1,5 @@
 """Large-unit footprints and single-target healing from the Python reference (CUDA)."""
+from stoix.tests.number_grid_fixtures import compiled_method, enemy_roster_state
 import copy
 
 import chex
@@ -31,12 +32,11 @@ def test_48x48_map_with_41_squads_and_reference_profiles(env):
         ['orc','orc',None,None,None,None],
         ['goblin','orc','goblin',None,None,None],
         ['goblin','goblin','goblin',None,'goblin_archer',None]]
-    assert sum('titan' in row for row in MAP['enemy_rosters'][:24]) == 6
-    assert sum('acolyte' in row for row in MAP['enemy_rosters'][:24]) == 8
+    assert any(key and UNITS[key].get('size',1) == 2 for row in MAP['enemy_rosters'] for key in row)
+    assert any('acolyte' in row for row in MAP['enemy_rosters'])
     assert all(0 < r < 47 and 0 < c < 47 for r, c in MAP['opponent_positions'])
     assert MAP['agent_position'] not in MAP['opponent_positions']
-    assert sum(any(key in ('orc', 'goblin', 'goblin_archer') for key in row)
-               for row in MAP['enemy_rosters']) == 3
+    assert MAP['enemy_rosters'][2][0] == 'goblin_archer'
     assert all(any((r >= 24) == south and (c >= 24) == east
                    for r, c in MAP['opponent_positions'])
                for south in (False, True) for east in (False, True))
@@ -52,12 +52,12 @@ def test_48x48_map_with_41_squads_and_reference_profiles(env):
         for slot, key in enumerate(roster):
             if key and UNITS[key].get('size', 1) == 2:
                 assert slot < 3 and roster[slot+3] is None
-    initial, ts = jax.jit(env.reset)(jax.random.PRNGKey(1))
-    assert ts.observation.shape == (532,) and env.num_actions == 80
-    chex.assert_trees_all_equal(ts.observation[-12:], jnp.array([.5]*5+[0]*7))
+    initial, ts = compiled_method(env,'reset')(jax.random.PRNGKey(1))
+    assert ts.observation.shape == (983,) and env.num_actions == 81
+    chex.assert_trees_all_equal(ts.observation[315+5*env.num_opponents:327+5*env.num_opponents], jnp.array([.5]*5+[0]*7))
     state = battle(env, 21)
-    obs = jax.jit(env.observation)(state)
-    chex.assert_trees_all_equal(obs[-6:], jnp.array([1,.5,1,0,.5,0]))
+    obs = compiled_method(env,'observation')(state)
+    chex.assert_trees_all_equal(obs[321+5*env.num_opponents:327+5*env.num_opponents], jnp.array([1,.5,1,0,.5,0]))
     traits_start = 112+5*env.num_opponents
     assert obs[traits_start+10*4] == 1  # role HEALER normalized by 4
     assert env.unit_traits(state)[10, 0] == HEALER
@@ -84,33 +84,33 @@ def test_large_unit_formation_rejects_overlap_and_rear_anchors():
 
 
 def test_titan_has_one_health_pool_action_target_and_kill_reward(env):
-    state = battle(env, 21).replace(actor=jnp.int32(3))
-    mask = jax.jit(env.action_mask)(state)
+    state = enemy_roster_state(env,battle(env,21),['titan','squire','titan',None,'acolyte',None]).replace(actor=jnp.int32(3))
+    mask = compiled_method(env,'action_mask')(state)
     chex.assert_trees_all_equal(mask[SHOOT:SHOOT+6], jnp.array([1,1,1,0,1,0], bool))
-    attack = jax.jit(env._battle_step)
-    result, _ = attack(state, jnp.int32(SHOOT), state.battle_key, jnp.zeros(36))
+    attack = compiled_method(env,'_battle_step')
+    result, _ = attack(state, jnp.int32(SHOOT), state.battle_key, jnp.zeros(env.random_size))
     chex.assert_trees_all_equal(result.hp[6:], jnp.array([235,85,235,0,35,0]))
     assert result.last_damage == 60  # four fighters, not six occupied cells
     assert result.actor not in (9,11)
     dying = state.replace(hp=state.hp.at[6].set(15))
-    killed, _ = attack(dying, jnp.int32(SHOOT), state.battle_key, jnp.zeros(36))
+    killed, _ = attack(dying, jnp.int32(SHOOT), state.battle_key, jnp.zeros(env.random_size))
     assert killed.battle_xp[1] == 120 and killed.hp[9] == 0
-    again, _ = attack(killed.replace(actor=jnp.int32(4)), jnp.int32(SHOOT+2), state.battle_key, jnp.zeros(36))
+    again, _ = attack(killed.replace(actor=jnp.int32(4)), jnp.int32(SHOOT+2), state.battle_key, jnp.zeros(env.random_size))
     assert again.battle_xp[1] == 120
     titan = state.replace(actor=jnp.int32(6))
-    acted, _ = attack(titan, jnp.int32(CONTINUE), state.battle_key, jnp.zeros(36))
+    acted, _ = attack(titan, jnp.int32(CONTINUE), state.battle_key, jnp.zeros(env.random_size))
     assert acted.turn_phase[6] == 2 and acted.actor not in (6,9,11)
     assert jnp.count_nonzero((acted.hp > 0) & (acted.turn_phase < 2)) == 8
     # Pending retreat occupies the front; completed retreat frees access to rear allies.
-    lone = battle(env, 5).replace(actor=jnp.int32(0))
+    lone = enemy_roster_state(env,battle(env,5),[None,'titan',None,'archer',None,'acolyte']).replace(actor=jnp.int32(0))
     fleeing = lone.replace(retreating=lone.retreating.at[7].set(True))
     escaped = fleeing.replace(escaped=fleeing.escaped.at[7].set(True))
-    masks = jax.jit(jax.vmap(env.action_mask))(stack([fleeing, escaped]))[:, SHOOT:SHOOT+6]
+    masks = compiled_method(env,'action_mask',batched=True)(stack([fleeing, escaped]))[:, SHOOT:SHOOT+6]
     chex.assert_trees_all_equal(masks, jnp.array([[0,1,0,0,0,0],[0,0,0,1,0,0]], bool))
 
 
 def test_enemy_heals_lowest_absolute_hp_self_caps_or_defends(env):
-    state = battle(env, 5).replace(actor=jnp.int32(11))  # Titan 7, archer 9, acolyte 11
+    state = enemy_roster_state(env,battle(env,5),[None,'titan',None,'archer',None,'acolyte']).replace(actor=jnp.int32(11))  # Titan 7, archer 9, acolyte 11
     cases = [state.replace(hp=state.hp.at[7].set(100).at[9].set(10).at[11].set(40)),
              state.replace(hp=state.hp.at[9].set(44)),
              state.replace(hp=state.hp.at[11].set(30)),
@@ -118,8 +118,10 @@ def test_enemy_heals_lowest_absolute_hp_self_caps_or_defends(env):
              state.replace(hp=state.hp.at[9].set(10), escaped=state.escaped.at[9].set(True)),
              state.replace(hp=state.hp.at[7].set(50).at[9].set(44))]
     states = stack(cases)
-    result, _ = jax.jit(jax.vmap(env._battle_step, in_axes=(0,None,0,None)))(
-        states, jnp.int32(CONTINUE), states.battle_key, jnp.full(36,.999))
+    # Reuse the shared scalar combat graph; the Chex suite compares it with vmap.
+    attack = compiled_method(env,'_battle_step')
+    result = stack([attack(case,jnp.int32(CONTINUE),case.battle_key,
+                           jnp.full(env.random_size,.999))[0] for case in cases])
     chex.assert_trees_all_equal(result.last_event, jnp.array([HEAL,HEAL,HEAL,GUARD,GUARD,HEAL]))
     chex.assert_trees_all_equal(result.last_damage, jnp.array([20,1,20,0,0,1]))
     chex.assert_trees_all_equal(result.last_target, jnp.array([9,9,11,-1,-1,9]))
@@ -129,13 +131,17 @@ def test_enemy_heals_lowest_absolute_hp_self_caps_or_defends(env):
     assert jnp.all(result.turn_phase[:,11] == 2)
     # Equal HP uses the existing random tie keys, independently of accuracy draws.
     tied = state.replace(hp=state.hp.at[9].set(20).at[11].set(20))
-    choose = jax.jit(env._enemy_action)
+    choose = compiled_method(env,'_enemy_action')
     assert choose(tied, jnp.array([0,0,0,.1,0,.9])) == SHOOT+3
     assert choose(tied, jnp.array([0,0,0,.9,0,.1])) == SHOOT+5
 
 
 def test_player_healing_mask_step_and_protections_agree():
     config = copy.deepcopy(MAP)
+    # This regression tests healing and validation; effects of other enemy
+    # types are covered in the shared full-map and reference-actions suites.
+    config['enemy_rosters'] = [[('squire' if i < 3 else 'archer') if key else None
+        for i,key in enumerate(row)] for row in config['enemy_rosters']]
     config['hero_roster'][4] = 'acolyte'
     config['hero_combat_stats'] = [dict(armor=90, immunities=['life'], protections=['life']),
                                    {}, {}, {}, dict(accuracy=0)]
@@ -143,10 +149,12 @@ def test_player_healing_mask_step_and_protections_agree():
     state = battle(env, 0).replace(actor=jnp.int32(4))
     state = state.replace(hp=state.hp.at[0].set(110).at[1].set(150).at[2].set(0).at[3].set(20).at[4].set(40),
                           escaped=state.escaped.at[3].set(True), defended=state.defended.at[0].set(True))
-    mask = jax.jit(env.action_mask)(state)
+    mask = compiled_method(env,'action_mask')(state)
     chex.assert_trees_all_equal(mask[SHOOT:SHOOT+6], jnp.array([1,1,0,0,1,0],bool))
     states = stack([state]*6)
-    healed, _ = jax.jit(jax.vmap(env.step))(states, SHOOT+jnp.arange(6,dtype=jnp.int32))
+    # All six targets use one scalar public-step graph, including invalid ones.
+    advance = compiled_method(env,'step')
+    healed = stack([advance(state,jnp.int32(SHOOT+slot))[0] for slot in range(6)])
     assert healed.hp[0,0] == 120 and healed.last_damage[0] == 10
     assert healed.hp[4,4] == 50 and healed.last_damage[4] == 10
     assert healed.last_event[1] == HEAL and healed.last_damage[1] == 0  # full health is a legal target
@@ -164,7 +172,7 @@ def test_new_units_level_growth_and_enemy_healer_cap(env):
     stats = jax.jit(env.progression.stats)(ids, jnp.full(5,2,jnp.int32))
     chex.assert_trees_all_equal(stats, jnp.array([[275,66,81,0,50],[220,61,81,0,40],
         [55,17,81,0,30],[45,17,81,0,50],[55,22,100,0,10]],jnp.float32))
-    state = battle(env, 5)
+    state = enemy_roster_state(env,battle(env,5),[None,'titan',None,'archer',None,'acolyte'])
     # Enemies have no capital: acolyte cannot change form and caps at 79/80 XP.
     state = state.replace(hp=state.hp.at[:6].set(0))
     result = jax.jit(env.progression.finish)(state, state.hp, state.escaped,

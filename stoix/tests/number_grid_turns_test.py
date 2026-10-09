@@ -1,18 +1,17 @@
 """Strategic turns, movement budget and rest are executed only on CUDA."""
+from stoix.tests.number_grid_fixtures import compiled_method, basic_environment
 import chex
 import jax
 import jax.numpy as jnp
 import pytest
 
-from numbergrid_config import make_config
-from stoix.tests.number_grid_fixtures import MAP
+from stoix.tests.number_grid_fixtures import MAP, replace_base_state
 from stoix.envs.number_grid import NumberGrid, SHOOT, DEFEND, CONTINUE, REST, RESTED
-from stoix.utils.make_env import make
 
 
 @pytest.fixture(scope='module')
 def env():
-    return NumberGrid(map_config=MAP)
+    return basic_environment()
 
 
 def test_ten_moves_exhaust_budget_without_income_or_automatic_turn(env):
@@ -44,8 +43,8 @@ def test_rest_penalty_is_linear_for_every_remaining_budget_and_free_at_zero(env)
     points = jnp.arange(0, 21, 2, dtype=jnp.int32)
     states = jax.tree.map(lambda x: jnp.broadcast_to(x, (11,)+x.shape), state)
     states = states.replace(movement_points=points, built_today=jnp.ones(11, jnp.bool_))
-    assert jnp.all(jax.jit(jax.vmap(env.action_mask))(states)[:, REST])
-    following, ts = jax.jit(jax.vmap(env.step))(states, jnp.full(11, REST, jnp.int32))
+    assert jnp.all(compiled_method(env,'action_mask',batched=True)(states)[:, REST])
+    following, ts = compiled_method(env,'step',batched=True)(states, jnp.full(11, REST, jnp.int32))
     chex.assert_trees_all_close(ts.reward, -.001*points)
     assert float(ts.reward[0]) == 0.
     chex.assert_trees_all_close(ts.extras['rest_penalty'], .001*points)
@@ -66,9 +65,9 @@ def test_every_direction_costs_two_and_insufficient_points_rejects_the_move(env)
     points = jnp.repeat(jnp.array([2, 1, 0], jnp.int32), 8)
     states = states.replace(movement_points=points)
     actions = jnp.tile(jnp.arange(8, dtype=jnp.int32), 3)
-    masks = jax.jit(jax.vmap(env.action_mask))(states)
+    masks = compiled_method(env,'action_mask',batched=True)(states)
     chex.assert_trees_all_equal(masks[jnp.arange(24), actions], points >= 2)
-    following, _ = jax.jit(jax.vmap(env.step))(states, actions)
+    following, _ = compiled_method(env,'step',batched=True)(states, actions)
     chex.assert_trees_all_equal(following.position[:8], state.position + env.directions)
     chex.assert_trees_all_equal(following.position[8:], states.position[8:])
     chex.assert_trees_all_equal(following.movement_points, jnp.where(points >= 2, points-2, points))
@@ -85,7 +84,7 @@ def test_invalid_actions_battle_and_terminal_states_cannot_advance_the_day(env):
     )
     actions = jnp.array([0, 2, -1, 44, REST, SHOOT, DEFEND, CONTINUE, REST], jnp.int32)
     batched = jax.tree.map(lambda *xs: jnp.stack(xs), *states)
-    following, ts = jax.jit(jax.vmap(env.step))(batched, actions)
+    following, ts = compiled_method(env,'step',batched=True)(batched, actions)
     for field in ('gold', 'map_steps', 'day', 'movement_points', 'built_today'):
         chex.assert_trees_all_equal(getattr(following, field), getattr(batched, field))
     assert not jnp.any(ts.extras['turn_ended'])
@@ -97,12 +96,12 @@ def test_invalid_actions_battle_and_terminal_states_cannot_advance_the_day(env):
 def test_last_points_can_attack_and_recovery_does_not_restore_movement(env):
     state, _ = env.reset(jax.random.PRNGKey(42))
     state = state.replace(position=jnp.array([3, 7], jnp.int32), movement_points=jnp.int32(2))
-    state, _ = jax.jit(env.step)(state, jnp.int32(2))
+    state, _ = compiled_method(env,'step')(state, jnp.int32(2))
     assert state.in_battle and state.gold == 0 and state.movement_points == 0
     state = state.replace(actor=jnp.int32(0))
-    won, _ = jax.jit(env._battle_step)(state, jnp.int32(SHOOT), state.battle_key, jnp.zeros(36))
+    won, _ = compiled_method(env,'_battle_step')(state, jnp.int32(SHOOT), state.battle_key, jnp.zeros(36))
     escaping = state.replace(hp=state.hp.at[1:6].set(0), retreating=state.retreating.at[0].set(True))
-    escaped, _ = jax.jit(env._battle_step)(escaping, jnp.int32(CONTINUE), escaping.battle_key, jnp.zeros(36))
+    escaped, _ = compiled_method(env,'_battle_step')(escaping, jnp.int32(CONTINUE), escaping.battle_key, jnp.zeros(36))
     for recovered in (won, escaped):
         assert not recovered.in_battle and recovered.day == 1 and recovered.map_steps == 0
         assert recovered.movement_points == recovered.gold == 0
@@ -124,22 +123,21 @@ def test_repeated_rest_and_exhaustion_cycles_pay_once_per_rest(env):
     assert rewards[12] == rewards[23] == 0
 
 
-def test_training_autoreset_rest_keeps_terminal_income_and_new_turn_observation():
-    config = make_config()
-    config.env.kwargs.max_steps = 11
-    training, _ = make(config)
+def test_training_autoreset_rest_keeps_terminal_income_and_new_turn_observation(current_game, training_autoreset):
+    training, _, advance = training_autoreset
     state, _ = training.reset(jax.random.split(jax.random.PRNGKey(7), 2))
-    advance = jax.jit(training.step)
-    for index in range(10):
-        state, _ = advance(state, jnp.full(2, 2 if index % 2 == 0 else 6, jnp.int32))
+    state = replace_base_state(state, movement_points=jnp.zeros(2,jnp.int32))
     state, ts = advance(state, jnp.full(2, REST, jnp.int32))
     assert jnp.all(ts.truncated())
     chex.assert_trees_all_equal(state.gold, jnp.zeros(2, jnp.int32))
     chex.assert_trees_all_equal(state.day, jnp.ones(2, jnp.int32))
     chex.assert_trees_all_equal(state.movement_points, jnp.full(2, 20, jnp.int32))
     chex.assert_trees_all_equal(ts.reward, jnp.zeros(2))
-    chex.assert_trees_all_close(ts.extras['next_obs']['observation'][:, -14:-12], jnp.array([[.1, 1.], [.1, 1.]]))
-    chex.assert_trees_all_equal(ts.observation['observation'][:, -14:-12], jnp.array([[0., 1.], [0., 1.]]))
+    base_env, base_state, _, _ = current_game
+    delta = base_env.observation(base_state.replace(gold=jnp.int32(100),movement_points=jnp.int32(0)))-base_env.observation(base_state)
+    columns = jnp.concatenate((jnp.nonzero(delta > 0,size=1)[0],jnp.nonzero(delta < 0,size=1)[0]))
+    chex.assert_trees_all_close(ts.extras['next_obs']['observation'][:, columns], jnp.array([[.1, 1.], [.1, 1.]]))
+    chex.assert_trees_all_equal(ts.observation['observation'][:, columns], jnp.array([[0., 1.], [0., 1.]]))
     assert jnp.all(ts.observation['action_mask'][:, REST])
 
 

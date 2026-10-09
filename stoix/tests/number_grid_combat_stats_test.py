@@ -228,3 +228,75 @@ def test_every_current_squad_is_reachable_for_an_attack(current_game):
     selected = commands[jnp.arange(len(enemies)),jnp.array(actions,jnp.int32)]
     np.testing.assert_array_equal(selected[:,0],enemies)
     np.testing.assert_array_equal(selected[:,1],10)
+
+
+def test_current_map_full_route_through_step_combat_and_rest(current_game):
+    """Exercise all 41 encounters and REST under controlled hits, not a PPO win claim."""
+    from collections import deque
+    from stoix.envs.number_grid import DIRECTIONS, MOVE_COST, REST
+    env, initial, _, _ = current_game
+    position = tuple(env.map_config['agent_position'])
+    opponents = [tuple(p) for p in env.map_config['opponent_positions']]
+    remaining, route = set(range(len(opponents))), []
+    while remaining:
+        occupied = {opponents[i]: i for i in remaining}
+        queue, seen, found = deque([(position, [])]), {position}, None
+        while queue and found is None:
+            pos, path = queue.popleft()
+            for action, (dr, dc) in enumerate(DIRECTIONS):
+                dest = (pos[0]+dr, pos[1]+dc)
+                if not all(0 < x < env.size-1 for x in dest):
+                    continue
+                if dest in occupied:
+                    found = pos, path+[action], occupied[dest]
+                    break
+                if dest not in seen:
+                    seen.add(dest)
+                    queue.append((dest, path+[action]))
+        assert found is not None, 'An enemy cannot be reached'
+        position, path, enemy = found
+        route.extend(path)
+        remaining.remove(enemy)
+    route = jnp.array(route, jnp.int32)
+    # A private shallow copy preserves current_game's immutable shared JIT cache.
+    # Only the random outcomes are controlled; movement, combat, recovery and
+    # terminal transitions all go through the public step on the current map.
+    controlled = copy.copy(env)
+    def possible_outcomes(state, action, key, values):
+        values = jnp.full_like(values, jnp.where(state.actor < 6, 0., .999))
+        return env._battle_step(state, action, key, values)
+    controlled._battle_step = possible_outcomes
+
+    @jax.jit
+    def run(state):
+        def advance(carry):
+            state, index, battles, rests, legal = carry
+            mask = env.action_mask(state)
+            targets = mask[SHOOT:DEFEND]
+            target = jnp.argmin(jnp.where(targets, state.hp[6:], jnp.iinfo(jnp.int32).max))
+            attack = jnp.where(jnp.any(targets), SHOOT+target, DEFEND)
+            attack = jnp.where((state.post_victory > 0) & (state.actor < 6), WAIT, attack)
+            attack = jnp.where(mask[CONTINUE], CONTINUE, attack)
+            maximum = env.max_hp(state)[:6]
+            needs_rest = (state.movement_points < MOVE_COST) | jnp.any((state.hp[:6] > 0) & (state.hp[:6] < maximum))
+            move = jnp.where(needs_rest, REST, route[jnp.minimum(index, len(route)-1)])
+            action = jnp.where(state.in_battle, attack, move)
+            following, ts = controlled.step(state, action)
+            rested = ~state.in_battle & (action == REST)
+            rest_ok = ((following.day == state.day+1) & (following.gold == state.gold+100)
+                       & (following.movement_points == 20) & ~following.in_battle)
+            legal &= mask[action] & (~rested | rest_ok) & jnp.all(jnp.isfinite(ts.observation))
+            index += (~state.in_battle & (action < 8)).astype(jnp.int32)
+            battles += jnp.sum(state.alive & ~following.alive)
+            rests += rested.astype(jnp.int32)
+            return following, index, battles, rests, legal
+        return jax.lax.while_loop(lambda carry: ~carry[0].done, advance,
+            (state, jnp.int32(0), jnp.int32(0), jnp.int32(0), jnp.bool_(True)))
+
+    final, index, battles, rests, legal = run(initial)
+    assert legal and final.won and not final.lost and not final.in_battle
+    assert int(index) == len(route) and int(battles) == env.num_opponents
+    assert not np.any(final.alive) and int(rests) > 0
+    occupied = np.asarray(initial.hp[:6]) > 0
+    assert np.all(np.asarray(final.hp[:6])[occupied] > 0)
+    assert np.all(final.hp[:6] <= env.max_hp(final)[:6])

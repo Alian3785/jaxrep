@@ -5,11 +5,80 @@ checkpoint is accepted, so every requested stage starts from random weights.
 """
 import argparse
 import json
+import re
 from pathlib import Path
 import subprocess
 
 
+def map_changes(before, after, path=()):
+    """List exact map edits, including added/removed keys and roster slots."""
+    if isinstance(before, dict) and isinstance(after, dict):
+        changes = []
+        for key in sorted(before.keys() | after.keys()):
+            if key in before and key in after:
+                changes.extend(map_changes(before[key], after[key], (*path, key)))
+            else:
+                change = {'path': list((*path, key))}
+                if key in before:
+                    change['before'] = before[key]
+                if key in after:
+                    change['after'] = after[key]
+                changes.append(change)
+        return changes
+    if isinstance(before, list) and isinstance(after, list) and len(before) == len(after):
+        return [change for i, (old, new) in enumerate(zip(before, after))
+                for change in map_changes(old, new, (*path, i))]
+    return [] if before == after else [{'path': list(path), 'before': before, 'after': after}]
+
+
+def normalized_packages(path):
+    """Compare pinned distributions independently of order, whitespace and name spelling."""
+    packages = {}
+    for line in path.read_text(encoding='utf-8').splitlines():
+        if not line.strip():
+            continue
+        name, separator, version = line.strip().partition('==')
+        name = re.sub(r'[-_.]+', '-', name.strip()).lower()
+        if not separator or not name or not version.strip() or name in packages:
+            raise ValueError('Invalid or duplicate package entry: '+str(path))
+        packages[name] = version.strip()
+    if not packages:
+        raise ValueError('Empty package manifest: '+str(path))
+    return packages
+
+
+def validate_comparison(before_dir, after_dir, declared_map_changes=()):
+    """Reject incompatible runs before interpreting their speed difference."""
+    def read(directory, name):
+        return json.loads((directory/name).read_text(encoding='utf-8'))
+
+    before, after = (read(directory, 'results.json') for directory in (before_dir, after_dir))
+    for key in ('seed', 'training_steps', 'device', 'backend', 'jax', 'python',
+                'cuda_runtime', 'num_envs', 'rollout_length'):
+        if before[key] != after[key]:
+            raise ValueError('Non-comparable baseline: '+key)
+    if before['backend'] != 'gpu':
+        raise ValueError('CUDA baseline required')
+    configs, maps = [], []
+    for directory in (before_dir, after_dir):
+        config, game_map = read(directory, 'config.json'), read(directory, 'map.json')
+        if config['env']['kwargs'].pop('map_config') != game_map:
+            raise ValueError('config.json and map.json disagree: '+str(directory))
+        configs.append(config)
+        maps.append(game_map)
+    if configs[0] != configs[1]:
+        raise ValueError('Non-comparable baseline: config.json (seed, budget, PPO/network settings)')
+    if normalized_packages(before_dir/'packages.txt') != normalized_packages(after_dir/'packages.txt'):
+        raise ValueError('Non-comparable baseline: packages.txt')
+    actual = map_changes(*maps)
+    canonical = lambda changes: sorted(json.dumps(c, sort_keys=True) for c in changes)
+    if canonical(actual) != canonical(declared_map_changes):
+        raise ValueError('Undeclared or mismatched map changes: '+json.dumps(actual, ensure_ascii=False))
+    return before, after
+
+
 def main():
+    """Run fresh CUDA stages and compare only explicitly compatible measurements."""
     parser = argparse.ArgumentParser()
     parser.add_argument('stage')
     parser.add_argument('--root', default='results/unit-actions-20261009')
@@ -17,7 +86,12 @@ def main():
     baseline.add_argument('--baseline', help='Prefix of paired 5M comparison runs')
     baseline.add_argument('--baseline-run', help='Previous stage fresh seed-42 20M run')
     parser.add_argument('--wandb-mode', choices=('online', 'offline'), default='offline')
+    parser.add_argument('--map-changes', type=Path, help='JSON list of exact allowed map edits: path, before, after')
     args = parser.parse_args()
+    declared_map_changes = (json.loads(args.map_changes.read_text(encoding='utf-8'))
+                            if args.map_changes else [])
+    if not isinstance(declared_map_changes, list):
+        parser.error('--map-changes must contain a JSON list')
     workspace = Path(__file__).resolve().parents[1]
     output = (workspace / args.root).resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -41,8 +115,10 @@ def main():
         name = f'{args.stage}-bench-{seed}'
         if run(name, 5_000_000, seed, 'offline'):
             raise SystemExit('Comparison run failed: '+name)
-        before.append(read(f'{args.baseline}-{seed}')['mean_steps_per_second'])
-        after.append(read(name)['mean_steps_per_second'])
+        previous, measured = validate_comparison(
+            output/f'{args.baseline}-{seed}', output/name, declared_map_changes)
+        before.append(previous['mean_steps_per_second'])
+        after.append(measured['mean_steps_per_second'])
     comparison = None
     if before:
         regression = 1-sum(after)/sum(before)
@@ -68,10 +144,8 @@ def main():
             or not trained['checkpoint_roundtrip_verified'] or trained['backend'] != 'gpu'):
         raise SystemExit('20M checkpoint verification failed')
     if args.baseline_run:
-        previous = read(args.baseline_run)
-        for key in ('seed', 'training_steps', 'device', 'jax', 'num_envs', 'rollout_length'):
-            if previous[key] != trained[key]:
-                raise SystemExit('Non-comparable 20M baseline: '+key)
+        previous, trained = validate_comparison(
+            output/args.baseline_run, output/name, declared_map_changes)
         regression = 1-trained['mean_steps_per_second']/previous['mean_steps_per_second']
         comparison = dict(before=[previous['mean_steps_per_second']],
                           after=[trained['mean_steps_per_second']], regression_fraction=regression)

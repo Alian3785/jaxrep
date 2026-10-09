@@ -27,19 +27,12 @@ def stack(*states):
     return jax.tree.map(lambda *xs: jnp.stack(xs), *states)
 
 
-def compiled_winning_battle(env):
-    if not hasattr(env, '_test_winning_battle'):
-        env._test_winning_battle = jax.jit(jax.vmap(env._battle_step, in_axes=(0, None, 0, None)))
-    return env._test_winning_battle
-
-
 def win(env, states):
-    count = states.hp.shape[0]
-    # Reuse one executable for the small independent promotion scenarios.
-    padded = jax.tree.map(lambda x: jnp.concatenate((x, jnp.repeat(x[:1],16-count,axis=0))), states)
-    result = compiled_winning_battle(env)(
-        padded, jnp.int32(SHOOT), padded.battle_key, jnp.zeros(env.random_size))[0]
-    return jax.tree.map(lambda x: x[:count], result)
+    """Reuse the scalar combat oracle for every independent promotion scenario."""
+    attack = compiled_method(env,'_battle_step')
+    cases = [jax.tree.map(lambda x,i=i:x[i],states) for i in range(states.hp.shape[0])]
+    return stack(*(attack(case,jnp.int32(SHOOT),case.battle_key,jnp.zeros(env.random_size))[0]
+                   for case in cases))
 
 
 def test_initial_experience_and_observation_contract(env):

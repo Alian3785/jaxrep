@@ -1071,7 +1071,7 @@ def test_betrezen_empty_secondary_is_untyped_but_zero_accuracy_disables(elementa
     assert not jnp.any(out.paralyzed) and not jnp.any(out.wards_used)
 
 
-def test_uter_melee_secondary_paralysis_only_after_primary_survivor(elemental_attack_game):
+def test_uter_melee_secondary_paralysis_only_after_primary_survivor(elemental_attack_game, current_game):
     env,initial,_ = elemental_attack_game
     assert MAP['enemy_rosters'][29][0] == 'ghoul'
     start = env._begin_battle(initial.replace(enemy=jnp.int32(22))).replace(actor=jnp.int32(1))
@@ -1087,10 +1087,13 @@ def test_uter_melee_secondary_paralysis_only_after_primary_survivor(elemental_at
     chex.assert_trees_all_equal(out.long_paralyzed[jnp.arange(5),targets],jnp.array([0,0,1,0,0],bool))
     assert out.wards_used[0,6] == 64 and not jnp.any(out.paralyzed)
     # A rear Uter remains a melee fighter; the mask and step deny attacks while its front lives.
-    rear = start.replace(actor=jnp.int32(4),unit_ids=start.unit_ids.at[4].set(env.progression.ids['ghoul']),
-        unit_levels=start.unit_levels.at[4].set(1))
-    assert not jnp.any(compiled_method(env,'action_mask')(rear)[SHOOT:SHOOT+6])
-    rejected,_ = compiled_method(env,'step')(rear,jnp.int32(SHOOT))
+    # Reach validation needs no synthetic ward profiles; reuse the public step
+    # already compiled for the current map, retaining the same rear/front case.
+    shared, initial, advance, _ = current_game
+    rear = hero_roster_state(shared,initial,['possessed','duke','possessed','cultist','ghoul',None])
+    rear = shared._begin_battle(rear.replace(enemy=jnp.int32(22))).replace(actor=jnp.int32(4))
+    assert not jnp.any(compiled_method(shared,'action_mask')(rear)[SHOOT:SHOOT+6])
+    rejected,_ = advance(rear,jnp.int32(SHOOT))
     chex.assert_trees_all_equal(rejected.hp,rear.hp)
 
 

@@ -118,8 +118,10 @@ def test_enemy_heals_lowest_absolute_hp_self_caps_or_defends(env):
              state.replace(hp=state.hp.at[9].set(10), escaped=state.escaped.at[9].set(True)),
              state.replace(hp=state.hp.at[7].set(50).at[9].set(44))]
     states = stack(cases)
-    result, _ = compiled_method(env,'_battle_step',batched=True)(
-        states,jnp.full(6,CONTINUE,jnp.int32),states.battle_key,jnp.full((6,env.random_size),.999))
+    # Reuse the shared scalar combat graph; the Chex suite compares it with vmap.
+    attack = compiled_method(env,'_battle_step')
+    result = stack([attack(case,jnp.int32(CONTINUE),case.battle_key,
+                           jnp.full(env.random_size,.999))[0] for case in cases])
     chex.assert_trees_all_equal(result.last_event, jnp.array([HEAL,HEAL,HEAL,GUARD,GUARD,HEAL]))
     chex.assert_trees_all_equal(result.last_damage, jnp.array([20,1,20,0,0,1]))
     chex.assert_trees_all_equal(result.last_target, jnp.array([9,9,11,-1,-1,9]))
@@ -150,7 +152,9 @@ def test_player_healing_mask_step_and_protections_agree():
     mask = compiled_method(env,'action_mask')(state)
     chex.assert_trees_all_equal(mask[SHOOT:SHOOT+6], jnp.array([1,1,0,0,1,0],bool))
     states = stack([state]*6)
-    healed, _ = compiled_method(env,'step',batched=True)(states, SHOOT+jnp.arange(6,dtype=jnp.int32))
+    # All six targets use one scalar public-step graph, including invalid ones.
+    advance = compiled_method(env,'step')
+    healed = stack([advance(state,jnp.int32(SHOOT+slot))[0] for slot in range(6)])
     assert healed.hp[0,0] == 120 and healed.last_damage[0] == 10
     assert healed.hp[4,4] == 50 and healed.last_damage[4] == 10
     assert healed.last_event[1] == HEAL and healed.last_damage[1] == 0  # full health is a legal target

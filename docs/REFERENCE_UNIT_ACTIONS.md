@@ -438,3 +438,9 @@ Area Earth damage followed by independently checked secondary Mind fear on survi
 Melee weapon damage and secondary armor shatter after a positive hit on a survivor; reduce armor by15, ignore secondary power/accuracy, respect guard immunity and source checks.
 
 На карте: Сэр Аллемон, 800 HP, отряд 40, слот 0; заменён squire. Источники: battle_env.py, DATA и GDynUpgr.
+
+## Сопоставимость замеров
+
+`scripts/run_unit_action_stage.py` проверяет оба режима сравнения: конфигурацию PPO и сети, seed, бюджет, GPU, версии Python/JAX/CUDA и нормализованный список пакетов. `config.json` должен содержать ту же карту, что сохранена в `map.json`.
+
+Ожидаемые изменения карты задаются явно через `--map-changes changes.json`. Это список точных изменений с полями `path` (массив ключей/индексов), `before` и `after`; например, `[{"path":["enemy_rosters",0,0],"before":"squire","after":"witch"}]`. Нужно перечислить также изменение имени и версии наблюдения, если они меняются. Для добавления ключа `before` отсутствует, для удаления — `after`. Без этого аргумента карты должны совпадать. Незаявленное изменение карты, настройка PPO или версия пакета останавливает сравнение до вычисления процента замедления.

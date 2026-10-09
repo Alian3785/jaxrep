@@ -128,3 +128,88 @@ def test_smoke_run_shorter_than_interval_still_has_training_chart_point():
     tracking.log_training(row(4, 1), 250_000, 0.5, 0.6, final=True)
     tracking.run.log.assert_called_once()
     assert tracking.run.log.call_args.args[0]['episodes/wins'] == 1
+
+
+@pytest.fixture
+def comparison_runs(tmp_path):
+    """Create complete run metadata without starting a learner."""
+    import copy
+    import json
+    game_map = {'name': 'before', 'size': 48, 'enemy_rosters': [['squire']]}
+    config = {'arch': {'seed': 42, 'total_timesteps': 20_000_000, 'num_envs': 250},
+              'env': {'kwargs': {'map_config': game_map}},
+              'system': {'epochs': 4, 'num_minibatches': 10},
+              'network': {'layers': [128, 128]}}
+    result = dict(seed=42, training_steps=20_000_000, device='test GPU', backend='gpu',
+                  jax='0.8', python='3.12', cuda_runtime='13', num_envs=250, rollout_length=100,
+                  mean_steps_per_second=200_000, weights_changed=True, checkpoint_roundtrip_verified=True)
+    def write(name, *, map_config=None, config_change=None, result_change=None, packages=None):
+        directory = tmp_path/name
+        directory.mkdir(exist_ok=True)
+        settings = copy.deepcopy(config)
+        if map_config is not None:
+            settings['env']['kwargs']['map_config'] = map_config
+        if config_change:
+            config_change(settings)
+        for filename, data in [('results.json', {**result, **(result_change or {})}),
+                               ('config.json', settings), ('map.json', settings['env']['kwargs']['map_config'])]:
+            (directory/filename).write_text(json.dumps(data), encoding='utf-8')
+        (directory/'packages.txt').write_text(packages or 'jax==0.8\noptax==0.2\nnvidia_cuda_runtime==13\n', encoding='utf-8')
+        return directory
+    return write, game_map
+
+
+def test_comparison_accepts_normalized_packages_and_only_declared_map_change(comparison_runs):
+    """Expected unit replacements remain comparable without hiding other configuration edits."""
+    from scripts.run_unit_action_stage import map_changes, validate_comparison
+    write, original = comparison_runs
+    changed = {**original, 'name': 'after', 'enemy_rosters': [['witch']]}
+    before = write('before')
+    after = write('after', map_config=changed, packages=' OPTAX==0.2 \nNVIDIA-CUDA-Runtime==13\nJAX==0.8\n')
+    declaration = map_changes(original, changed)
+    validate_comparison(before, after, list(reversed(declaration)))
+    with pytest.raises(ValueError, match='map changes'):
+        validate_comparison(before, after)
+    write('after', map_config={**changed, 'size': 49})
+    with pytest.raises(ValueError, match='map changes'):
+        validate_comparison(before, after, declaration)
+
+
+def test_comparison_rejects_ppo_seed_budget_dependency_and_metadata_drift(comparison_runs):
+    """Settings omitted by the former six-field check must invalidate speed comparisons."""
+    import json
+    from scripts.run_unit_action_stage import validate_comparison
+    write, _ = comparison_runs
+    before = write('before')
+    for section, key, value in [('system', 'epochs', 2), ('system', 'num_minibatches', 5),
+                                ('network', 'layers', [64, 64]), ('arch', 'seed', 43),
+                                ('arch', 'total_timesteps', 5_000_000)]:
+        after = write('after', config_change=lambda c, s=section, k=key, v=value: c[s].update({k: v}))
+        with pytest.raises(ValueError, match='config.json'):
+            validate_comparison(before, after)
+    after = write('after', packages='jax==0.8\noptax==0.3\nnvidia_cuda_runtime==13\n')
+    with pytest.raises(ValueError, match='packages.txt'):
+        validate_comparison(before, after)
+    after = write('after', result_change={'seed': 43})
+    with pytest.raises(ValueError, match='seed'):
+        validate_comparison(before, after)
+    after = write('after')
+    (after/'map.json').write_text(json.dumps({'name': 'unrelated'}))
+    with pytest.raises(ValueError, match='disagree'):
+        validate_comparison(before, after)
+
+
+@pytest.mark.parametrize('mode', ['--baseline', '--baseline-run'])
+def test_both_stage_modes_validate_saved_artifacts_before_reporting_regression(comparison_runs, monkeypatch, mode):
+    """Both CLI paths reject incompatible runs before writing a regression percentage."""
+    import sys
+    from scripts import run_unit_action_stage as stage
+    write, _ = comparison_runs
+    before = write('before-42' if mode == '--baseline' else 'before')
+    write('after-bench-42' if mode == '--baseline' else 'after-20m',
+          config_change=lambda c: c['system'].update(epochs=2))
+    monkeypatch.setattr(sys, 'argv', ['stage', 'after', '--root', str(before.parent), mode, 'before'])
+    monkeypatch.setattr(stage.subprocess, 'run', lambda *a, **k: Namespace(returncode=0))
+    with pytest.raises(ValueError, match='config.json'):
+        stage.main()
+    assert not (before.parent/'after-comparison.json').exists()

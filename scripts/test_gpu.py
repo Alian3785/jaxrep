@@ -1,4 +1,4 @@
-"""Run the complete configured suite in two CUDA processes within ten minutes.
+"""Run the complete configured suite in one CUDA process within fifteen minutes.
 
 Usage: bash scripts/run_gpu.sh scripts/test_gpu.py --output results/gpu-tests/RUN
 All fixtures and compilation are inside the timed region; no warm-up is hidden.
@@ -30,29 +30,11 @@ def main():
     actions = 'stoix/tests/number_grid_reference_actions_test.py'
     if actions not in paths or len(paths) != len(set(paths)):
         raise SystemExit('Unexpected testpaths; refuse an incomplete/duplicate suite.')
-    # Construction has independent faction graphs. Balance their compilation
-    # against reference actions; keeping shared current-map tests together avoids
-    # repeating their cached graph and leaves headroom under the wall-time limit.
-    first = [actions,'stoix/tests/number_grid_buildings_test.py']
-    if any(p not in paths for p in first):
-        raise SystemExit('Missing configured construction/reference tests.')
-    # Reuse the environment group's already compiled auto-reset graph.
-    # Shared wrapper node IDs are excluded from actions, so every test runs once.
-    shared = ('test_training_autoreset_retains_final_build_in_terminal_observation',)
-    # The custom healer graph otherwise leaves the environment worker trailing.
-    # Keep exactly one execution of it, after the actions group's shared graphs.
-    healer = 'test_player_healing_mask_step_and_protections_agree'
-    groups = {
-        'actions':first+['stoix/tests/number_grid_variety_test.py::'+healer,
-                         '-k',' and '.join('not '+name for name in shared)],
-        'environment':[p for p in paths if p not in first]
-                      +[first[1]+'::'+name for name in shared]+['-k','not '+healer],
-    }
+    groups = {'suite': paths}
     output = args.output.resolve()
     output.mkdir(parents=True,exist_ok=False)
     started = time.monotonic()
-    # Fresh per-run cache: both CUDA workers can reuse each other's compiled
-    # graphs, while all compilation stays inside this measured cold run.
+    # A fresh per-run cache keeps compilation inside the measured cold run.
     cache = output/'compilation-cache'
     cache.mkdir()
     worker_env = {**os.environ,'JAX_ENABLE_COMPILATION_CACHE':'true',
@@ -64,9 +46,10 @@ def main():
     # A parent timestamp measures the actual end-to-end command. Keep six
     # seconds for termination/reporting. Native WSL invocations use the same
     # budget; Windows launchers can include their startup with the timestamp.
-    execution_limit = (594. if args.wall_started_at is None else
-                       max(0.,594.-(time.time()-args.wall_started_at)))
+    execution_limit = (894. if args.wall_started_at is None else
+                       max(0.,894.-(time.time()-args.wall_started_at)))
     deadline = started+execution_limit
+    wall_deadline = time.time()+execution_limit
     try:
         for name,files in groups.items():
             stream = (output/(name+'.log')).open('w')
@@ -83,7 +66,7 @@ def main():
                     print(json.dumps(dict(phase='finished',group=name,**results[name])),flush=True)
             if len(results) == len(workers):
                 break
-            if time.monotonic() >= deadline:
+            if time.monotonic() >= deadline or time.time() >= wall_deadline:
                 print(f'Full CUDA suite exceeded its {execution_limit:.1f}s execution budget.',flush=True)
                 break
             time.sleep(.25)
@@ -102,10 +85,11 @@ def main():
                 worker.wait()
         for stream in streams:
             stream.close()
-        summary = dict(seconds=time.monotonic()-started,execution_limit=execution_limit,wall_limit=600,
+        total_seconds = time.monotonic()-started if args.wall_started_at is None else time.time()-args.wall_started_at
+        summary = dict(seconds=time.monotonic()-started,wall_seconds=total_seconds,execution_limit=execution_limit,wall_limit=900,
                        parent_started_at=args.wall_started_at,backend='cuda',groups=results,
                        compilation_cache=str(cache),cold_cache=True,
-                       passed=len(results)==len(groups) and all(r['exit_code']==0 for r in results.values()))
+                       passed=total_seconds <= 900 and len(results)==len(groups) and all(r['exit_code']==0 for r in results.values()))
         (output/'results.json').write_text(json.dumps(summary,indent=2)+'\n')
         print(json.dumps(summary),flush=True)
     raise SystemExit(0 if summary['passed'] else 1)

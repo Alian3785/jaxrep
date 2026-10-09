@@ -16,6 +16,7 @@ from stoix.envs.number_grid_combat import (
 from stoix.envs.number_grid_capital import CapitalRules, HEAL_START, REVIVE_START, CAPITAL_ACTIONS
 from stoix.envs.number_grid_potions import PotionRules, POTION_START, POTION_ACTIONS
 from stoix.envs.number_grid_progression import ProgressionRules
+from stoix.envs.number_grid_summoning import Summoning, COPY_ALLY, COPY_ACTIONS, advance_linked_queue
 from stoix.envs.number_grid_chests import ChestRules
 from stoix.envs.number_grid_wards import ward_tags, grant_wards, expire_wards
 from stoix.envs.number_grid_effects import armor_after_shreds, source_protection, advance_poison_queue, advance_periodic_queue, vampiric_heal
@@ -31,14 +32,14 @@ MAP = json.loads((Path(__file__).resolve().parents[2] / 'number_grid_map.json').
 SHOOT, DEFEND, WAIT, RETREAT, CONTINUE = 8, 14, 15, 16, 17
 REST = BUILD_START + BUILD_SLOTS
 BASE_ACTIONS, FENRIR = REST + 1, POTION_START + POTION_ACTIONS
-ACTIONS = FENRIR + 1
+ACTIONS = COPY_ALLY + COPY_ACTIONS
 MAX_MOVEMENT_POINTS, MOVE_COST = 20, 2
 BATTLE_ENTRY_COST = (MAX_MOVEMENT_POINTS + 1) // 2
 ACTION_NAMES = ('N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW') + tuple(
     f'shoot_{i}' for i in range(6)) + ('defend', 'wait', 'retreat', 'continue') + tuple(
         f'build_{i}' for i in range(BUILD_SLOTS)) + ('rest',) + tuple(
             f'heal_{i}' for i in range(6)) + tuple(f'revive_{i}' for i in range(6)) + tuple(
-                f'potion_{kind}_{slot}' for kind in range(4) for slot in range(6)) + ('transform_fenrir',)
+                f'potion_{kind}_{slot}' for kind in range(4) for slot in range(6)) + ('transform_fenrir',) + tuple(f'copy_ally_{slot}' for slot in range(6))
 MOVE, ENGAGE, HIT, MISS, GUARD, DELAY, FLEE, ESCAPE, VICTORY, DEFEAT, WITHDRAW, LIMIT = range(12)
 BUILD, RESTED, IMMUNE, WARD, HEAL = 12, 13, 14, 15, 16
 TRANSFORMED = 22
@@ -56,6 +57,14 @@ PARALYSIS_SKIP = 26
 
 @struct.dataclass
 class BattleState(NumberGridState):
+    native_ids: jax.Array
+    native_levels: jax.Array
+    native_xp: jax.Array
+    copied: jax.Array
+    copy_stats: jax.Array
+    copy_traits: jax.Array
+    summon_owner: jax.Array
+    preparation: jax.Array
     initiative_override: jax.Array  # native or exact temporary form/slow base
     saved_initiative_override: jax.Array
     slow_original: jax.Array  # -1: no Hermit slow; otherwise pre-slow base
@@ -150,7 +159,7 @@ class BattleState(NumberGridState):
     enemy_turns: jax.Array
 
 
-class NumberGrid(NumericNumberGrid):
+class NumberGrid(Summoning, NumericNumberGrid):
     def __init__(self, max_steps=None, map_config=None):
         game_map = MAP if map_config is None else map_config
         super().__init__(max_steps=max_steps, map_config=game_map)
@@ -161,6 +170,8 @@ class NumberGrid(NumericNumberGrid):
         if type(self.combat_rules_version) is not int or self.combat_rules_version not in (1, 2):
             raise ValueError('Unsupported combat_rules_version')
         self.basic_combat = self.combat_rules_version == 2
+        self.has_copies = False
+        self.has_summons = False
         self.has_wolf_lord = False
         self.has_shatterers = False
         self.has_witches = False
@@ -347,6 +358,9 @@ class NumberGrid(NumericNumberGrid):
             self.hero_full = self.stats_table[0, :6, HP].astype(jnp.int32)
         if self.progression_enabled:
             self.progression = ProgressionRules(game_map, self.construction)
+            self.has_healers = self.progression.has_healers
+            self.has_copies = self.progression.has_copies
+            self.has_summons = self.progression.has_summons
             self.has_cures = self.progression.has_cures
             self.has_powerups = self.progression.has_powerups
             self.has_patriarchs = self.progression.has_patriarchs
@@ -373,7 +387,7 @@ class NumberGrid(NumericNumberGrid):
             self.has_water = self.progression.has_water
             self.has_fire = self.progression.has_fire
             self.priority_scale = 110.
-        if self.has_wolf_lord:
+        if self.has_wolf_lord or self.has_copies or self.has_summons:
             self.num_actions = ACTIONS
         if self.has_witches:
             self.random_size = 37
@@ -381,38 +395,40 @@ class NumberGrid(NumericNumberGrid):
             self.random_size = 67
         if self.has_paralysis:
             self.random_size = 68
+        if self.has_copies or self.has_summons:
+            self.random_size = 80
         if self.capital_enabled:
             self.capital = CapitalRules(self.progression, self.construction, game_map['agent_position'])
         self.restored_hp = jnp.concatenate((self.hero_full, jnp.zeros(6, jnp.int32)))
         # User-defined prototype rule: ceil(10% max HP) once per strategic rest.
         self.rest_healing = jnp.concatenate(((self.hero_full + 9) // 10, jnp.zeros(6, jnp.int32)))
         self.observation_version = int(game_map.get('battle_observation_version', 1))
-        if self.basic_combat and self.observation_version not in (7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27):
+        if self.basic_combat and self.observation_version not in (7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28):
             raise ValueError('Combat rules version 2 requires observation version 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 or 18')
-        if not self.basic_combat and self.observation_version in (4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27):
+        if not self.basic_combat and self.observation_version in (4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28):
             raise ValueError('Observation versions 7–18 require combat rules version 2')
-        if (self.warrior_slot >= 0 or self.has_enemy_warriors) and self.observation_version not in (3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27):
+        if (self.warrior_slot >= 0 or self.has_enemy_warriors) and self.observation_version not in (3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28):
             raise ValueError('Warrior maps require battle_observation_version 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 or 18')
-        self.observation_size = (4 + 5 * self.num_opponents + (141 if self.basic_combat else 48) + 6 if self.observation_version in (2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27)
+        self.observation_size = (4 + 5 * self.num_opponents + (141 if self.basic_combat else 48) + 6 if self.observation_version in (2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28)
                                  else self.observation_size + 2 * self.num_opponents + 12 * 8 + 6)
 
-        if self.observation_version in (8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27):
+        if self.observation_version in (8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28):
             self.observation_size += 48
-        if self.progression_enabled != (self.observation_version in (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27)):
+        if self.progression_enabled != (self.observation_version in (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28)):
             raise ValueError('Unit progression requires observation version 9, 10, 11, 12, 13, 14, 15, 16, 17 or 18')
         if self.progression_enabled:
             self.observation_size += 60
         if self.observation_version >= 10:
             self.observation_size += 12
-        if self.capital_enabled != (self.observation_version in (11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27)):
+        if self.capital_enabled != (self.observation_version in (11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28)):
             raise ValueError("Capital services require observation version 11, 12, 13, 14, 15, 16, 17 or 18")
         if self.capital_enabled:
             self.observation_size += 17
-        if self.potions_enabled != (self.observation_version in (12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27)):
+        if self.potions_enabled != (self.observation_version in (12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28)):
             raise ValueError("Map potions require observation version 12, 13, 14, 15, 16, 17 or 18")
         if self.potions_enabled:
             self.observation_size += 4
-        if self.chests_enabled != (self.observation_version in (13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27)):
+        if self.chests_enabled != (self.observation_version in (13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28)):
             raise ValueError('Map chests require observation version 13, 14, 15, 16, 17 or 18')
         if self.chests_enabled:
             self.observation_size += 7*self.chest_rules.count
@@ -440,6 +456,8 @@ class NumberGrid(NumericNumberGrid):
             self.observation_size += 24
         if self.observation_version >= 27:
             self.observation_size += 36
+        if self.observation_version >= 28:
+            self.observation_size += 48
 
     def reset(self, rng_key, env_params=None):
         if not self.battle_mode:
@@ -451,6 +469,10 @@ class NumberGrid(NumericNumberGrid):
             visited = visited.at[cell // 32].set(jnp.uint32(1 << (cell % 32)))
         zero = jnp.int32(0)
         state = BattleState(
+            native_ids=jnp.zeros(12,jnp.int32), native_levels=jnp.zeros(12,jnp.int32),
+            native_xp=jnp.zeros(12,jnp.int32), copied=jnp.zeros(12,bool),
+            copy_stats=jnp.zeros((12,5),jnp.float32), copy_traits=jnp.zeros((12,4),jnp.uint32),
+            summon_owner=jnp.full(12,-1,jnp.int32), preparation=jnp.zeros(12,bool),
             fenrir=jnp.zeros(12, jnp.bool_),
             armor_shreds=jnp.zeros(12, jnp.int32),
             imp=jnp.zeros(12, jnp.bool_), imp_wards=jnp.zeros(12, jnp.uint32),
@@ -546,6 +568,12 @@ class NumberGrid(NumericNumberGrid):
             values = self.progression.stats(state.unit_ids, state.unit_levels)
             if self.has_weakening or self.has_powerups:
                 values = values.at[:,DAMAGE].set(self.progression.raw_stats(state.unit_ids,state.unit_levels)[:,DAMAGE])
+            if self.has_copies:
+                values = jnp.where(state.copied[:,None],state.copy_stats,values)
+                uncopied = self.progression.doppelgangers[state.unit_ids]
+                fallback = uncopied & ~jnp.any(self._copy_targets(state))
+                alternate_accuracy = jnp.minimum(100.,self.progression.raw_stats(state.unit_ids,state.unit_levels)[:,ACCURACY]-20)
+                values = values.at[:,ACCURACY].set(jnp.where(fallback,alternate_accuracy,values[:,ACCURACY]))
             if self.has_wights:
                 values = jnp.where((state.decay_form > 0)[:, None],
                                    self.progression.base_stats[state.decay_form], values)
@@ -686,6 +714,11 @@ class NumberGrid(NumericNumberGrid):
     def _base_combat_traits(self, state):
         if self.progression_enabled:
             traits = self.progression.traits[self._effective_ids(state)]
+            if self.has_copies:
+                traits = jnp.where((state.copied & (state.decay_form == 0))[:,None],state.copy_traits,traits)
+                fallback = self.progression.doppelgangers[self._effective_ids(state)] & ~jnp.any(self._copy_targets(state))
+                traits = traits.at[:,0].set(jnp.where(fallback,MELEE,traits[:,0]))
+                traits = traits.at[:,1].set(jnp.where(fallback,1,traits[:,1]))
         else:
             traits = self.combat_traits[jnp.maximum(state.enemy, 0)]
         if self.has_wolf_lord:
@@ -783,6 +816,8 @@ class NumberGrid(NumericNumberGrid):
         recover = enabled & ~leaving & (state.imp[actor] | lowered) & ~state.activation_done[actor] & (roll < jnp.where(lowered, .01, .3))
         natural = (self.progression.stats(state.unit_ids[actor], state.unit_levels[actor])
                    if self.progression_enabled else self.stats_table[state.enemy, actor])
+        if self.has_copies:
+            natural = jnp.where(state.copied[actor],state.copy_stats[actor],natural)
         initiative, maximum = natural[INITIATIVE], natural[HP]
         if self.has_wolf_lord:
             initiative = jnp.where(state.fenrir[actor], 65., initiative)
@@ -810,6 +845,10 @@ class NumberGrid(NumericNumberGrid):
         if not self.progression_enabled:
             return jnp.zeros((12, 4), jnp.int32)
         values = self.progression.experience(state.unit_ids, state.unit_levels, state.unit_xp)
+        if self.has_copies or self.has_summons:
+            native = self.progression.experience(state.native_ids,state.native_levels,state.native_xp)
+            values = jnp.where(state.copied[:,None],native,values)
+            values = jnp.where((state.summon_owner >= 0)[:,None],0,values)
         return jnp.where(((self.slots < 6) | state.in_battle)[:, None], values, 0)
 
     def unit_traits(self, state):
@@ -820,6 +859,8 @@ class NumberGrid(NumericNumberGrid):
     def unit_sizes(self, state):
         sizes = (self.progression.sizes[self._effective_ids(state)] if self.progression_enabled
                  else self.size_table[jnp.maximum(state.enemy, 0)])
+        if self.has_copies:
+            sizes = jnp.where(state.copied,1,sizes)
         return jnp.where((self.slots < 6) | state.in_battle, sizes, 0)
 
     def _actor_mass_healer(self, state):
@@ -853,7 +894,7 @@ class NumberGrid(NumericNumberGrid):
         if self.basic_combat:
             context = jnp.concatenate((context, self.construction.observation(state), jnp.asarray(
                 [state.gold / 1000., state.movement_points / MAX_MOVEMENT_POINTS], jnp.float32)))
-        if self.observation_version in (2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27):
+        if self.observation_version in (2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28):
             # No duplicate max-HP arrays or obsolete numeric battle strengths.
             # Signed queue priority contains both order and waiting/acted status.
             world = jnp.stack((self.opponent_positions[:,0] / (self.size-1),
@@ -862,7 +903,7 @@ class NumberGrid(NumericNumberGrid):
             active = (state.hp > 0) & ~state.escaped
             queue = jnp.where(active & (state.turn_phase == 0), state.priority,
                              jnp.where(active & (state.turn_phase == 1), -state.priority, 0.))
-            hp_scale = (jnp.maximum(self.max_hp(state), 1) if self.observation_version in (3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27)
+            hp_scale = (jnp.maximum(self.max_hp(state), 1) if self.observation_version in (3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28)
                         else self.hero_hp)
             if self.basic_combat:
                 queue /= self.priority_scale
@@ -883,7 +924,7 @@ class NumberGrid(NumericNumberGrid):
                 growth = jnp.stack((ids / (len(self.progression.rows)-1), xp[:, 0]/100.,
                                    xp[:, 1]/1000., xp[:, 2]/10000., xp[:, 3]/jnp.maximum(xp[:, 2], 1)), axis=1)
                 context = jnp.concatenate((growth.reshape(-1), context))
-            if self.observation_version in (8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27):
+            if self.observation_version in (8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28):
                 # Compact exact source/bitset encoding; keeps the GPU policy input small.
                 context = jnp.concatenate((self.unit_traits(state).reshape(-1) /
                                            jnp.tile(jnp.array([4. if self.observation_version >= 10 else 3., 9., 511., 511.]), 12), context))
@@ -922,6 +963,9 @@ class NumberGrid(NumericNumberGrid):
                 context = jnp.concatenate((context,state.waited,state.bonus_turns/10.))
             if self.observation_version >= 27:
                 context = jnp.concatenate((context,state.initiative_override/100.,state.saved_initiative_override/100.,state.slow_original/100.))
+            if self.observation_version >= 28:
+                context = jnp.concatenate((context,state.copied,(state.summon_owner+1)/12.,state.preparation,
+                    jnp.where(state.copied | (state.summon_owner >= 0),state.native_ids,0)/(len(self.progression.rows)-1)))
             return jnp.concatenate((state.position / (self.size-1),
                                     jnp.asarray([state.number / self.number_scale,
                                                  state.step_count / self.max_steps],jnp.float32),
@@ -1010,7 +1054,19 @@ class NumberGrid(NumericNumberGrid):
             mask = jnp.concatenate((mask, self.potion_rules.available(state, self.max_hp(state)).reshape(-1)))
         if self.num_actions == ACTIONS:
             mask = jnp.concatenate((mask, jnp.zeros(FENRIR-mask.shape[0], jnp.bool_),
-                                    jnp.asarray([controlled & ~state.second_strike & self._actor_is_wolf_lord(state)])))
+                                    jnp.asarray([controlled & ~state.second_strike & self._actor_is_wolf_lord(state)]),
+                                    jnp.zeros(COPY_ACTIONS,bool)))
+        if self.has_copies:
+            copy = self._actor_copies(state) & controlled
+            valid_copy = self._copy_targets(state)
+            mask = mask.at[SHOOT:DEFEND].set(jnp.where(copy,valid_copy[6:],mask[SHOOT:DEFEND]))
+            mask = mask.at[COPY_ALLY:].set(copy & valid_copy[:6])
+            preparing = jnp.zeros(self.num_actions,bool).at[SHOOT:DEFEND].set(copy & valid_copy[6:])
+            preparing = preparing.at[COPY_ALLY:].set(copy & valid_copy[:6]).at[DEFEND].set(controlled).at[CONTINUE].set(~controlled)
+            mask = jnp.where(state.in_battle & (state.round == 0),preparing,mask)
+        if self.has_summons:
+            mask = mask.at[SHOOT:DEFEND].set(jnp.where(self._actor_summons(state) > 0,
+                controlled & self._summon_targets(state)[:6],mask[SHOOT:DEFEND]))
         if self.progression_enabled and self.has_healers:
             post = jnp.zeros(self.num_actions,jnp.bool_).at[SHOOT:DEFEND].set(
                 (state.hp[:6] > 0) & ~state.escaped[:6] & (state.actor < 6))
@@ -1033,7 +1089,9 @@ class NumberGrid(NumericNumberGrid):
         return ts
 
     def _begin_battle(self, state, key=None, random_values=None):
-        state = state.replace(primary_override=jnp.full(12,-1,jnp.int32),preweak_damage=jnp.full(12,-1,jnp.int32),
+        state = state.replace(copied=jnp.zeros(12,bool),summon_owner=jnp.full(12,-1,jnp.int32),
+                              preparation=jnp.zeros(12,bool),
+                              primary_override=jnp.full(12,-1,jnp.int32),preweak_damage=jnp.full(12,-1,jnp.int32),
                               powerup=jnp.zeros(12,bool),powerup_layered=jnp.zeros(12,bool),
                               saved_primary_override=jnp.full(12,-1,jnp.int32),saved_preweak_damage=jnp.full(12,-1,jnp.int32),
                               saved_powerup=jnp.zeros(12,bool),saved_powerup_layered=jnp.zeros(12,bool),
@@ -1072,7 +1130,7 @@ class NumberGrid(NumericNumberGrid):
             enemy_hp = self._combat_stats(state)[6:, HP].astype(jnp.int32)
         hp = jnp.concatenate((state.hp[:6] if self.basic_combat else self.hero_full, enemy_hp))
         actor = jnp.argmax(jnp.where(hp > 0, priority, -100)).astype(jnp.int32)
-        return state.replace(
+        state = state.replace(
             battle_key=key, in_battle=jnp.bool_(True), hp=hp, priority=priority,
             enemy_initial_hp=enemy_hp,
             activation_done=state.activation_done.at[actor].set(True),
@@ -1082,6 +1140,18 @@ class NumberGrid(NumericNumberGrid):
             actor=actor, round=jnp.int32(1), last_event=jnp.int32(ENGAGE),
             last_actor=jnp.int32(-1), last_target=jnp.int32(-1), last_damage=jnp.int32(0),
         )
+        if self.has_copies or self.has_summons:
+            state = state.replace(native_ids=state.unit_ids,native_levels=state.unit_levels,native_xp=state.unit_xp)
+        if self.has_copies:
+            pending = self.progression.doppelgangers[state.unit_ids] & (hp > 0)
+            # All uncopied doppelgangers are excluded as targets independently of actor.
+            targets = (hp > 0) & (self.progression.sizes[state.unit_ids] == 1) & ~self.progression.copy_forbidden[state.unit_ids] & ~pending
+            pending &= jnp.any(targets)
+            preparing = jnp.any(pending)
+            state = state.replace(preparation=pending,round=jnp.where(preparing,0,1),
+                actor=jnp.where(preparing,jnp.argmax(jnp.where(pending,priority,-1e9)),actor).astype(jnp.int32),
+                activation_done=jnp.where(preparing,False,state.activation_done))
+        return state
 
     def _world_step(self, state, action, key, random_values):
         state = state.replace(last_poison_damage=jnp.zeros(12, jnp.int32),
@@ -1209,6 +1279,8 @@ class NumberGrid(NumericNumberGrid):
             score = jnp.where(valid,-raw[:,DAMAGE]+random_values[:6]*.5,1e9)
             support = jnp.where(jnp.any(valid),SHOOT+jnp.argmin(score),DEFEND)
             action = jnp.where(self._alchemist_units(state)[state.actor],support,action)
+        if self.has_copies or self.has_summons:
+            action = self._special_enemy_action(state,action,random_values)
         return action
 
     def _cleanse(self,state,hp,wards_used,mask):
@@ -1221,6 +1293,8 @@ class NumberGrid(NumericNumberGrid):
         state = self._restore_initiative_form(state,transformed)
         natural = (self.progression.stats(state.unit_ids,state.unit_levels) if self.progression_enabled
                    else self.stats_table[state.enemy])
+        if self.has_copies:
+            natural = jnp.where(state.copied[:,None],state.copy_stats,natural)
         maximum = jnp.where(state.fenrir,275.,natural[:,HP])
         if self.has_wights:
             current_max = self.progression.base_stats[state.decay_form,HP]
@@ -1250,6 +1324,12 @@ class NumberGrid(NumericNumberGrid):
         return state.replace(**updates),hp,wards_used
 
     def _battle_step(self, state, action, key, random_values):
+        if self.has_copies:
+            return jax.lax.cond(state.round == 0,self._prepare_copies,self._battle_step_regular,
+                                state,action,key,random_values)
+        return self._battle_step_regular(state,action,key,random_values)
+
+    def _battle_step_regular(self, state, action, key, random_values):
         actor = state.actor
         post_turn = state.post_victory > 0
         skipping = (state.paralyzed[actor] | state.long_paralyzed[actor]) & ~post_turn
@@ -1261,6 +1341,9 @@ class NumberGrid(NumericNumberGrid):
         action = jnp.where(actor >= 6, self._enemy_action(
             state, random_values[30:36] if self.basic_combat else random_values[1:]), action)
         action = jnp.where(escaping | skipping, CONTINUE, action)
+        special_event = jnp.int32(-1)
+        if self.has_copies or self.has_summons:
+            state,action,special_event = self._special_action(state,action,random_values)
         attack = (action >= SHOOT) & (action < DEFEND)
         healer = self._actor_is_healer(state) if self.basic_combat and self.has_healers else jnp.bool_(False)
         target = jnp.clip(action - SHOOT, 0, 5) + jnp.where((actor < 6) ^ healer, 6, 0)
@@ -1619,10 +1702,12 @@ class NumberGrid(NumericNumberGrid):
             state = state.replace(fenrir=state.fenrir.at[actor].set(state.fenrir[actor] | transformed),
                 weakened=state.weakened.at[actor].set(state.weakened[actor] & ~transformed))
         another_strike = attack & self._actor_double_strike(state) & ~state.second_strike & ~escaping
+        if self.has_summons:
+            hp = self._linked_summon_hp(state,hp)
         state = state.replace(waited=state.waited.at[actor].set(state.waited[actor] | (action == WAIT)))
         state = self._expire_powerups(state,(self.slots == actor) & ~another_strike)
         phases = state.turn_phase.at[actor].set(jnp.where(another_strike, state.turn_phase[actor], jnp.where(action == WAIT, 1, 2)))
-        defended = state.defended.at[actor].set(action == DEFEND)
+        defended = state.defended.at[actor].set((action == DEFEND) & (special_event < 0))
         retreating = state.retreating.at[actor].set(jnp.where(skipping,state.retreating[actor],action == RETREAT))
         escaped = state.escaped.at[actor].set(escaping)
         active = (hp > 0) & ~escaped
@@ -1642,16 +1727,18 @@ class NumberGrid(NumericNumberGrid):
         before_queue_activated = state.activation_done
         queue_round = round_number
         visited = jnp.zeros(12,bool).at[next_actor].set(~another_strike & jnp.any(active[:6]) & jnp.any(active[6:]))
-        if self.has_water or self.has_fire:
+        if self.has_summons or self.has_water or self.has_fire:
             # Effects tick in reference order: poison, fire, then water; a lethal
             # earlier effect suppresses later ticks and any following actor.
             turns = jnp.stack((state.poison_turns,state.burn_turns,state.water_turns),axis=1)
             damage = jnp.stack((state.poison_damage,state.burn_damage,state.water_damage),axis=1)
             source = jnp.stack((state.poison_source,state.burn_source,state.water_source),axis=1)
-            (hp,phases,priority,round_number,activated,turns,damage,source,next_actor,losses,visited) = advance_periodic_queue(
+            queue = advance_linked_queue if self.has_summons else advance_periodic_queue
+            linked = {'summon_owner':state.summon_owner} if self.has_summons else {}
+            (hp,phases,priority,round_number,activated,turns,damage,source,next_actor,losses,visited) = queue(
                 hp,escaped,phases,priority,round_number,state.activation_done,turns,damage,source,
                 self._combat_traits(state)[:,2],self._combat_stats(state)[:,INITIATIVE]+random_values[55:67]*10,
-                next_actor,another_strike,self.max_rounds,jnp.array([16,4,8],jnp.uint32),jnp.array([0,10,10],jnp.int32))
+                next_actor,another_strike,self.max_rounds,jnp.array([16,4,8],jnp.uint32),jnp.array([0,10,10],jnp.int32),**linked)
             state = state.replace(activation_done=activated,poison_turns=turns[:,0],poison_damage=damage[:,0],
                 poison_source=source[:,0],last_poison_damage=losses[:,0],
                 burn_turns=turns[:,1],burn_damage=damage[:,1],burn_source=source[:,1],last_burn_damage=losses[:,1],
@@ -1670,6 +1757,11 @@ class NumberGrid(NumericNumberGrid):
             defended = defended.at[next_actor].set(False)
             active = (hp > 0) & ~escaped
         state,priority = self._restore_slow(state,priority,phases,visited & (~before_queue_activated | (round_number != queue_round)))
+        if self.has_summons:
+            hp = self._linked_summon_hp(state,hp)
+            active = (hp > 0) & ~escaped
+            next_actor = jnp.where(active[next_actor],next_actor,jnp.argmax(jnp.where(
+                active & (phases == 0),priority,jnp.where(active & (phases == 1),-priority,-1e9)))).astype(jnp.int32)
         state = state.replace(waited=jnp.where(round_number != state.round,False,state.waited))
         lost = ~jnp.any(hp[:6] > 0)
         victory = ~jnp.any(active[6:]) & ~lost
@@ -1680,6 +1772,8 @@ class NumberGrid(NumericNumberGrid):
         post_team = jnp.int32(0)
         if self.progression_enabled and self.has_healers:
             eligible = self.progression.post_healers[state.unit_ids] & (hp > 0) & ~escaped
+            if self.has_copies or self.has_summons:
+                eligible &= ~state.copied & (state.summon_owner < 0)
             eligible &= jnp.where(victory,self.slots < 6,self.slots >= 6) & (victory | withdrawal | lost)
             pending = jnp.where(post_turn,state.pending_healers.at[actor].set(False),eligible)
             # The episode budget remains a hard bound even during this final phase.
@@ -1709,6 +1803,7 @@ class NumberGrid(NumericNumberGrid):
         event = jnp.where(transformed, TRANSFORMED, event)
         event = jnp.where(jnp.any(transformed_slots), IMP_TRANSFORMED, event)
         event = jnp.where(jnp.any(decayed_slots), DECAY_TRANSFORMED, event)
+        event = jnp.where(special_event >= 0,special_event,event)
         event = jnp.where(attack & (applied == 0) & (immune_slots != 0), IMMUNE, event)
         event = jnp.where(attack & (applied == 0) & (ward_slots != 0), WARD, event)
         event = jnp.where(victory, VICTORY, jnp.where(lost, DEFEAT,
@@ -1746,6 +1841,8 @@ class NumberGrid(NumericNumberGrid):
             ended = raw_ended
             lowered = state.decay_form > 0
             natural_hp = self.progression.stats(state.unit_ids, state.unit_levels)[:, HP]
+            if self.has_copies:
+                natural_hp = jnp.where(state.copied,state.copy_stats[:,HP],natural_hp)
             natural_hp = jnp.where(state.fenrir, 275., natural_hp)
             current_hp = self.progression.base_stats[state.decay_form, HP]
             restored = jnp.rint(hp / jnp.maximum(current_hp, 1) * natural_hp).astype(jnp.int32)
@@ -1781,14 +1878,18 @@ class NumberGrid(NumericNumberGrid):
             ended = raw_ended
             natural = (self.progression.stats(state.unit_ids, state.unit_levels)[:, HP]
                        if self.progression_enabled else self.stats_table[state.enemy, :, HP])
+            if self.has_copies:
+                natural = jnp.where(state.copied,state.copy_stats[:,HP],natural)
             restored = jnp.rint(hp / 275. * natural).astype(jnp.int32)
             restored = jnp.where(hp > 0, jnp.maximum(restored, 1), 0)
             hp = jnp.where(ended & state.fenrir, restored, hp)
             state = state.replace(fenrir=state.fenrir & ~ended)
         if self.progression_enabled:
             killed = (state.hp > 0) & (hp == 0)
-            kill_xp = self.progression.experience(state.unit_ids, state.unit_levels, state.unit_xp)[:, 1]
+            kill_xp = self.unit_experience(state)[:,1]
             bank = state.battle_xp + jnp.sum(jnp.where(killed, kill_xp, 0).reshape(2, 6), axis=1)
+            if self.has_copies or self.has_summons:
+                state,hp = self._restore_roster(state,hp,raw_ended)
             ids, levels, xp, enemies, hp, gains, promoted = self.progression.finish(
                 state, hp, escaped, victory, lost, withdrawal, bank)
             progress = dict(unit_ids=ids, unit_levels=levels, unit_xp=xp,
@@ -1872,7 +1973,19 @@ class NumberGrid(NumericNumberGrid):
         attack_valid &= (self._actor_power_factor(state) == 0) | (target != state.actor) | self._actor_power_cures(state)
         unit_valid = attack_valid | (~state.second_strike & ((action == DEFEND) | (action == RETREAT) | ((action == WAIT) & (state.turn_phase[state.actor] == 0) & ~state.waited[state.actor])))
         unit_valid |= (action == FENRIR) & ~state.second_strike & self._actor_is_wolf_lord(state)
-        battle_valid = jnp.where(controlled, unit_valid, action == CONTINUE)
+        if self.has_copies:
+            copying = self._actor_copies(state)
+            ally = (action >= COPY_ALLY) & (action < COPY_ALLY+COPY_ACTIONS)
+            copy_slot = jnp.clip(jnp.where(ally,action-COPY_ALLY,action-SHOOT),0,5)
+            copy_valid = ((ally | ((action >= SHOOT) & (action < DEFEND)))
+                          & self._copy_targets(state)[copy_slot+jnp.where(ally,0,6)])
+            unit_valid = jnp.where(copying & ((action >= SHOOT) & (action < DEFEND) | ally),copy_valid,unit_valid)
+            unit_valid = jnp.where(state.round == 0,(copying & copy_valid) | (action == DEFEND),unit_valid)
+        if self.has_summons:
+            summoning = self._actor_summons(state) > 0
+            unit_valid = jnp.where(summoning & (action >= SHOOT) & (action < DEFEND),
+                                  self._summon_targets(state)[target_slot],unit_valid)
+        battle_valid = jnp.where(controlled,unit_valid,action == CONTINUE)
         if self.progression_enabled and self.has_healers:
             post_valid = jnp.where(state.actor < 6,
                 ((action >= SHOOT) & (action < DEFEND) & (state.hp[target_slot] > 0) & ~state.escaped[target_slot]) | (action == WAIT),

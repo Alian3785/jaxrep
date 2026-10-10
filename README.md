@@ -57,7 +57,7 @@ wsl -d Ubuntu-24.04 -u minigrid --cd C:\jaxjax -- bash scripts/run_gpu.sh serve_
 ## Обучение и записи
 
 ```powershell
-wsl -d Ubuntu-24.04 -u minigrid --cd C:\jaxjax -- bash scripts/run_gpu.sh benchmark_number_grid.py --total-timesteps 33000000 --output results/warrior-new-run --wandb-mode online
+wsl -d Ubuntu-24.04 -u minigrid --cd C:\jaxjax -- bash scripts/run_gpu.sh benchmark_number_grid.py --total-timesteps 33000000 --output results/warrior-new-run
 wsl -d Ubuntu-24.04 -u minigrid --cd C:\jaxjax -- bash scripts/run_gpu.sh export_number_grid.py --results results/warrior-new-run
 ```
 
@@ -67,23 +67,24 @@ wsl -d Ubuntu-24.04 -u minigrid --cd C:\jaxjax -- bash scripts/run_gpu.sh export
 
 По умолчанию запускается 5 млн переходов с seed 42. Папка результатов должна быть новой. --smoke выполняет 250 тысяч переходов. Скорость измеряется по синхронизированным вызовам всего learner, включая симуляцию, выбор действий и обновления PPO; компиляция, оценка и сохранение учитываются отдельно. Вместе с весами сохраняются карта, настройки, версии библиотек, хеши исходников и метрики боёв.
 
-## Графики Weights & Biases
+## Графики Weights & Biases или Comet
 
 Для тестов и проверочных замеров используйте `benchmark_number_grid.py --test-run`: максимум **1 млн переходов на запуск**, суммарно по всем средам. Более длинные команды ниже предназначены только для отдельно запрошенного целевого обучения. [Правила тестирования](docs/TESTING.md).
 
-W&B 0.30.0 подключён к обычному запуску `benchmark_number_grid.py`. Один раз войдите в аккаунт из PowerShell (ключ вводится в терминале):
+W&B 0.30.0 и Comet 3.58.8 подключены к обычному запуску `benchmark_number_grid.py`. Один раз сохраните ключи (вводятся в терминале): `login-wandb.cmd` и `login-comet.cmd`, или из PowerShell:
 
 ```powershell
 wsl -d Ubuntu-24.04 -u minigrid -- /home/minigrid/.venvs/numbergrid-cuda13/bin/python -m wandb login --verify
+wsl -d Ubuntu-24.04 -u minigrid -- /home/minigrid/.venvs/numbergrid-cuda13/bin/comet login
 ```
 
-После входа каждый запуск создаёт запись в проекте `numbergrid` и выводит ссылку на графики. Например:
+Режим по умолчанию `--tracking auto` выбирает сервис при старте: облако W&B, если оно отвечает и принимает сохранённый ключ; иначе Comet, если сохранён его ключ; иначе офлайн-запись W&B. Причина пропуска сервиса выводится в консоль и сохраняется в `tracking.json`. Каждый онлайн-запуск создаёт запись в проекте `numbergrid` и выводит ссылку на графики в начале и в конце. Например:
 
 ```powershell
-wsl -d Ubuntu-24.04 -u minigrid --cd C:\jaxjax -- bash scripts/run_gpu.sh benchmark_number_grid.py --total-timesteps 5000000 --output results/archer-wandb-run --wandb-name archers-24-squads
+wsl -d Ubuntu-24.04 -u minigrid --cd C:\jaxjax -- bash scripts/run_gpu.sh benchmark_number_grid.py --total-timesteps 5000000 --output results/archer-wandb-run --run-name archers-24-squads
 ```
 
-По оси X — суммарное число переходов всех 250 сред. Сводки в W&B и консоли обновляются каждые **1 млн переходов**. Они объединяют четыре существующих блока по 250 тысяч: счётчики суммируются, средние длина и награда взвешиваются по числу завершённых эпизодов. При завершении короткого запуска или неполного интервала также записывается последняя сводка. Размер блоков learner и подробность локального `metrics.csv` сохраняются.
+По оси X — суммарное число переходов всех 250 сред (в Comet — `step`). Сводки в W&B или Comet и консоли обновляются каждые **1 млн переходов**. Они объединяют четыре существующих блока по 250 тысяч: счётчики суммируются, средние длина и награда взвешиваются по числу завершённых эпизодов. При завершении короткого запуска или неполного интервала также записывается последняя сводка. Размер блоков learner и подробность локального `metrics.csv` сохраняются.
 
 | Раздел / метрика | Что показывает |
 | --- | --- |
@@ -99,13 +100,13 @@ wsl -d Ubuntu-24.04 -u minigrid --cd C:\jaxjax -- bash scripts/run_gpu.sh benchm
 
 Если за интервал эпизоды не завершились, средняя длина, награда и доля побед для него не записываются. Победа определяется флагом прохождения карты, а не величиной награды. `episodes/win_rate_total` считает долю побед по всем завершённым эпизодам с начала запуска.
 
-Параметры: `--wandb-project` задаёт проект, `--wandb-entity` — аккаунт/команду, `--wandb-name` — имя запуска; также поддерживаются `WANDB_PROJECT`, `WANDB_ENTITY`, `WANDB_MODE`. Режим по умолчанию `--wandb-mode auto`: при наличии авторизации запись идёт онлайн, иначе офлайн. `--wandb-mode online` требует входа; `offline` сохраняет данные локально; `disabled` отключает W&B. В офлайн-режиме онлайн-графики появятся после входа и синхронизации:
+Параметры: `--run-name` — имя запуска в W&B и Comet; `--wandb-project` и `--wandb-entity` — проект и аккаунт W&B; `--comet-project` и `--comet-workspace` — проект и рабочее пространство Comet. Также поддерживаются `NUMBERGRID_TRACKING`, `WANDB_PROJECT`, `WANDB_ENTITY`, `COMET_PROJECT_NAME`, `COMET_WORKSPACE`, `COMET_API_KEY`. Явные режимы не переключаются на другой сервис: `--tracking wandb` требует облако W&B, `comet` требует Comet, `wandb-offline` сохраняет данные W&B локально, `disabled` отключает запись. Офлайн-запись W&B появится в облаке после синхронизации:
 
 ```powershell
 wsl -d Ubuntu-24.04 -u minigrid --cd C:\jaxjax -- /home/minigrid/.venvs/numbergrid-cuda13/bin/python -m wandb sync results/archer-wandb-run/wandb/offline-run-ИМЯ
 ```
 
-Точный каталог записи, режим и онлайн-ссылка сохраняются в `wandb.json` внутри папки результатов. В W&B передаются готовые сводки на границе существующих блоков обучения; внутри JAX-шагов вызовов W&B нет. `results.json` отдельно сохраняет время learner, всего цикла обучения, инициализации W&B и вызовов логирования. Время завершения W&B сохраняется в `wandb.json`.
+Выбранный сервис, режим, онлайн-ссылка и каталог офлайн-записи сохраняются в `tracking.json` внутри папки результатов и в разделе `tracking` файла `results.json`. В W&B и Comet передаются готовые сводки на границе существующих блоков обучения; внутри JAX-шагов вызовов логирования нет. В Comet карта, итоговые результаты и хеши исходников сохраняются как файлы эксперимента. `results.json` отдельно сохраняет время learner, всего цикла обучения, инициализации логирования и вызовов записи метрик. Время завершения записи сохраняется в `tracking.json`.
 
 Проверка 5 октября 2026: две сопоставимые пары по 5 млн переходов, seeds 42 и 43. Скорость learner — 388 872 → 388 292 перехода/с (−0,15%); всего цикла с логированием — 384 651 → 383 965 (−0,18%). Инициализация W&B заняла 2,15–2,53 с отдельно; 23 вызова записи метрик — 0,015–0,022 с суммарно за запуск. Замер выполнен с офлайн-записью W&B, без сетевой отправки. Сравнение и сверка сохранённых точек с CSV: `results/wandb-20261005/comparison.json` и `history-check.json`. Качество обучения этим сравнением не оценивается.
 

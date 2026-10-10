@@ -14,4 +14,5 @@ gymnasium>=1.1.1
 rich>=13
 pytest>=8
 wandb==0.30.0
+comet_ml==3.58.8
 setuptools>=75

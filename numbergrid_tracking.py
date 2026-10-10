@@ -1,19 +1,59 @@
-"""Host-side W&B logging of already aggregated NumberGrid metrics."""
+"""Host-side W&B or Comet logging of already aggregated NumberGrid metrics."""
+import copy
 import json
 import os
 from pathlib import Path
 import time
 
 SUMMARY_INTERVAL = 1_000_000
+CHART_GROUPS = ('episodes', 'battles', 'construction', 'turns', 'ppo', 'performance', 'eval_argmax', 'eval_sample')
+TAGS = ['numbergrid', 'ppo', 'jax']
 
 
 def add_tracking_arguments(parser):
-    parser.add_argument('--wandb-mode', choices=('auto', 'online', 'offline', 'disabled'),
-                        default=os.environ.get('WANDB_MODE', 'auto'),
-                        help='Auto: online after wandb login, otherwise save offline')
+    parser.add_argument('--tracking', choices=('auto', 'wandb', 'wandb-offline', 'comet', 'disabled'),
+                        default=os.environ.get('NUMBERGRID_TRACKING', 'auto'),
+                        help='Auto: W&B cloud when it accepts the saved login, otherwise Comet with a saved '
+                             'API key, otherwise offline W&B')
+    parser.add_argument('--run-name', help='Optional run name displayed in W&B or Comet')
     parser.add_argument('--wandb-project', default=os.environ.get('WANDB_PROJECT', 'numbergrid'))
     parser.add_argument('--wandb-entity', default=os.environ.get('WANDB_ENTITY'))
-    parser.add_argument('--wandb-name', help='Optional name displayed in W&B')
+    parser.add_argument('--comet-project', default=os.environ.get('COMET_PROJECT_NAME', 'numbergrid'))
+    parser.add_argument('--comet-workspace', default=os.environ.get('COMET_WORKSPACE'))
+
+
+def describe(exc):
+    lines = str(exc).strip().splitlines()
+    return type(exc).__name__ + (': ' + lines[0][:200] if lines else '')
+
+
+def wandb_cloud_reason(wandb):
+    """None when the W&B cloud accepts the saved key; otherwise why it cannot be used."""
+    try:  # wandb verifies with a 10 s HTTP timeout
+        return None if wandb.login(prompt=False, verify=True) else 'not logged in'
+    except Exception as exc:  # blocked (HTTP 403), unreachable or rejected key
+        return describe(exc)
+
+
+class CometRun:
+    """The W&B calls used below, sent to a Comet experiment."""
+
+    def __init__(self, experiment):
+        self.experiment = experiment
+
+    def log(self, data):
+        data = dict(data)
+        step = data.pop('training_steps')
+        self.experiment.log_metrics(data, step=step)
+
+    def finish(self, exit_code=0):
+        self.experiment.log_other('exit_code', exit_code)
+        self.experiment.end()
+
+    def update_summary(self, result):
+        self.experiment.log_others({key: value for key, value in result.items()
+                                    if isinstance(value, (bool, int, float, str))})
+        self.experiment.log_asset_data(json.dumps(result, indent=2, ensure_ascii=False), name='results.json')
 
 
 class NumberGridTracking:
@@ -45,49 +85,100 @@ class NumberGridTracking:
             self._save_metadata()
 
     def _save_metadata(self):
-        (self.output / 'wandb.json').write_text(
+        (self.output / 'tracking.json').write_text(
             json.dumps(self.metadata, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
 
     def start(self, output, config, game_map, source_hashes):
+        """Auto: W&B cloud, then Comet, then offline W&B; explicit choices never fall back."""
         self.output = Path(output)
-        requested = self.args.wandb_mode
-        self.metadata = {'requested_mode': requested, 'mode': requested, 'status': 'running',
-                         'summary_interval': SUMMARY_INTERVAL}
+        requested = self.args.tracking
+        self.metadata = {'requested': requested, 'service': None, 'mode': 'disabled', 'url': None,
+                         'skipped': [], 'status': 'running', 'summary_interval': SUMMARY_INTERVAL}
+        name = self.args.run_name or self.output.name
+        settings = {'training': config, 'environment': game_map, 'source_hashes': source_hashes,
+                    'logging': {'summary_interval': SUMMARY_INTERVAL}}
         begin = time.perf_counter()
-        if requested != 'disabled':
+        if requested in ('auto', 'wandb'):
             import wandb
-
-            mode = requested
-            if mode == 'auto':
-                mode = 'online' if wandb.login(prompt=False, verify=False) else 'offline'
-            elif mode == 'online' and not wandb.login(prompt=False, verify=False):
-                raise RuntimeError('W&B online requires authentication: run python -m wandb login')
-            self.run = wandb.init(
-                project=self.args.wandb_project,
-                entity=self.args.wandb_entity,
-                name=self.args.wandb_name or self.output.name,
-                dir=str(self.output.resolve()), mode=mode,
-                config={'training': config, 'environment': game_map, 'source_hashes': source_hashes,
-                        'logging': {'summary_interval': SUMMARY_INTERVAL}},
-                job_type='train', tags=['numbergrid', 'ppo', 'jax'],
-                settings=wandb.Settings(disable_git=True, save_code=False, console='off',
-                                        x_disable_stats=True, init_timeout=30),
-            )
-            self.run.define_metric('training_steps', hidden=True)
-            for group in ('episodes', 'battles', 'construction', 'turns', 'ppo', 'performance', 'eval_argmax', 'eval_sample'):
-                self.run.define_metric(f'{group}/*', step_metric='training_steps')
-            self.metadata.update(mode=mode, id=self.run.id, project=self.run.project,
-                                 directory=str(Path(self.run.dir).parent),
-                                 url=self.run.url if mode == 'online' else None,
-                                 wandb_version=wandb.__version__)
-            if mode == 'offline':
-                print('W&B: offline recording. Log in with python -m wandb login for live charts; '
-                      'sync this run later with python -m wandb sync ' + self.metadata['directory'],
-                      flush=True)
-            else:
-                print('W&B charts: ' + self.metadata['url'], flush=True)
+            reason = wandb_cloud_reason(wandb)
+            if reason is None:
+                try:
+                    self._start_wandb(wandb, name, settings, 'online')
+                except Exception as exc:
+                    if requested == 'wandb':
+                        raise
+                    reason = describe(exc)
+            if reason is not None:
+                if requested == 'wandb':
+                    raise RuntimeError('W&B cloud is unavailable (' + reason + '); check python -m wandb login')
+                self.metadata['skipped'].append('W&B cloud: ' + reason)
+        if self.run is None and requested in ('auto', 'comet'):
+            try:
+                self._start_comet(name, settings)
+            except Exception as exc:
+                if requested == 'comet':
+                    raise
+                self.metadata['skipped'].append('Comet: ' + describe(exc))
+        if self.run is None and requested in ('auto', 'wandb-offline'):
+            import wandb
+            self._start_wandb(wandb, name, settings, 'offline')
+        for reason in self.metadata['skipped']:
+            print('Charts: skipped ' + reason, flush=True)
+        if self.metadata['service'] == 'comet':
+            print('Comet charts: ' + self.metadata['url'], flush=True)
+        elif self.metadata['mode'] == 'online':
+            print('W&B charts: ' + self.metadata['url'], flush=True)
+        elif self.metadata['mode'] == 'offline':
+            print('W&B: offline recording; sync later with python -m wandb sync ' + self.metadata['directory'],
+                  flush=True)
         self.metadata['init_seconds'] = time.perf_counter() - begin
         self._save_metadata()
+
+    def _start_wandb(self, wandb, name, settings, mode):
+        run = wandb.init(
+            project=self.args.wandb_project, entity=self.args.wandb_entity, name=name,
+            dir=str(self.output.resolve()), mode=mode, config=settings,
+            job_type='train', tags=TAGS,
+            settings=wandb.Settings(disable_git=True, save_code=False, console='off',
+                                    x_disable_stats=True, init_timeout=30),
+        )
+        run.define_metric('training_steps', hidden=True)
+        for group in CHART_GROUPS:
+            run.define_metric(f'{group}/*', step_metric='training_steps')
+        self.run = run
+        self.metadata.update(service='wandb', mode=mode, id=run.id, project=run.project,
+                             directory=str(Path(run.dir).parent),
+                             url=run.url if mode == 'online' else None,
+                             version=wandb.__version__)
+
+    def _start_comet(self, name, settings):
+        os.environ.setdefault('COMET_DISABLE_AUTO_LOGGING', '1')  # no framework hooks
+        import comet_ml
+
+        if not comet_ml.get_config().get_string(None, 'comet.api_key'):
+            raise RuntimeError('API key is not configured; run login-comet.cmd')
+        experiment = comet_ml.start(
+            workspace=self.args.comet_workspace, project_name=self.args.comet_project,
+            mode='create', online=True,
+            experiment_config=comet_ml.ExperimentConfig(
+                name=name, tags=TAGS, display_summary_level=0, parse_args=False,
+                log_code=False, log_graph=False, log_git_metadata=False, log_git_patch=False,
+                log_env_details=False, log_env_gpu=False, log_env_cpu=False, log_env_host=False,
+                log_env_network=False, log_env_disk=False, auto_output_logging=False,
+                auto_param_logging=False, auto_metric_logging=False, auto_log_co2=False))
+        if not experiment.alive:
+            experiment.end()
+            raise RuntimeError('experiment was not created on the Comet server')
+        self.run = CometRun(experiment)
+        training = copy.deepcopy(settings['training'])
+        training.get('env', {}).get('kwargs', {}).pop('map_config', None)  # logged as map.json
+        experiment.log_parameters({'training': training, 'logging': settings['logging']})
+        for asset, value in (('map.json', settings['environment']),
+                             ('source_hashes.json', settings['source_hashes'])):
+            experiment.log_asset_data(json.dumps(value, indent=2, ensure_ascii=False), name=asset)
+        self.metadata.update(service='comet', mode='online', id=experiment.get_key(),
+                             project=experiment.project_name, url=experiment.url,
+                             version=comet_ml.__version__)
 
     def log_training(self, row, step_size, elapsed, loop_seconds, final=False):
         """Combine existing host summaries; leave learner chunk sizes unchanged."""
@@ -180,5 +271,7 @@ class NumberGridTracking:
                 ('length_mean', 'mean_length'), ('return_mean', 'mean_return'))}})
 
     def summary(self, result):
-        if self.run is not None:
+        if isinstance(self.run, CometRun):
+            self.run.update_summary(result)
+        elif self.run is not None:
             self.run.summary.update(result)

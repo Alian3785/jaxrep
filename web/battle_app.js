@@ -403,13 +403,13 @@
     busy=false;render();
   }
   async function sendAction(action){
-    if(mode!=='manual'||busy||!session||!manual||manual.state.done||!manual.action_mask[action])return;
+    if(mode!=='manual'||busy||!session||!manual||manual.state.done||!manual.action_mask[action])return false;
     busy=true;render();
     try{const result=await request('/api/step',{session,action});
       for(const snapshot of result.events){manual=snapshot;const text=eventText(snapshot);if(text)messages.push(text);render();if(result.events.length>1)await new Promise(r=>setTimeout(r,180));}
       manual=result.snapshot;
-    }catch(error){busy=false;render();showError(error);return;}
-    busy=false;render();
+    }catch(error){busy=false;render();showError(error);return false;}
+    busy=false;render();return true;
   }
   function setMode(next){if(busy)return;stop();mode=next;messages=[];$('manual-tab').setAttribute('aria-selected',String(mode==='manual'));$('replay-tab').setAttribute('aria-selected',String(mode==='replay'));$('manual-controls').hidden=mode!=='manual';$('replay-controls').hidden=mode!=='replay';render();}
   function nextFrame(){const last=records[recordIndex].frames.length-1;if(frame<last){frame++;const text=eventText(current());if(text)messages.push(text);}if(frame>=last)stop();render();}
@@ -458,14 +458,17 @@
     document.querySelectorAll('[data-action="'+agentPick.action+'"],[data-agent-action="'+agentPick.action+'"]').forEach(b=>b.classList.add('agent-pick'));
   }
   const baseRender=render;render=function(){baseRender();showPick();};
-  const baseSend=sendAction;sendAction=async function(action){const before=busy;await baseSend(action);if(!before)actionCount++;showPick();};
+  const baseSend=sendAction;sendAction=async function(action){const ok=await baseSend(action);if(ok)actionCount++;showPick();return ok;};
   async function askAgent(){
     if(!session||!manual||manual.state.done)return null;
-    try{const pick=await request('/api/agent',{session});agentPick={...pick,count:actionCount};
+    const askedSession=session,askedCount=actionCount;
+    try{const pick=await request('/api/agent',{session});
+      if(session!==askedSession||actionCount!==askedCount)return null;
+      agentPick={...pick,count:actionCount};
       $('agent-hint').textContent='Агент выбирает: '+pick.label+' (вероятность '+Math.round(pick.probability*100)+'%).';showPick();return agentPick;}
-    catch(error){$('agent-hint').textContent=error.message;return null;}
+    catch(error){if(session===askedSession)$('agent-hint').textContent=error.message;return null;}
   }
-  async function agentMove(){if(busy)return false;const pick=await askAgent();if(!pick||busy)return false;await sendAction(pick.action);return true;}
+  async function agentMove(){if(busy)return false;const pick=await askAgent();if(!pick||busy)return false;return await sendAction(pick.action);}
   function setAuto(on){agentAuto=on;$('agent-auto').textContent=on?'Ⅱ Остановить агента':'▶ Агент играет сам';}
   $('reset').addEventListener('click',()=>{agentPick=null;setAuto(false);showPick();});
   $('agent-suggest').onclick=askAgent;$('agent-move').onclick=agentMove;

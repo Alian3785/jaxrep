@@ -69,8 +69,9 @@ class Agent:
         checkpoint = (results / 'params.msgpack').read_bytes()
         if hashlib.sha256(checkpoint).hexdigest() != result['checkpoint_sha256']:
             raise ValueError('params.msgpack does not match results.json')
-        if json.loads((results / 'map.json').read_text(encoding='utf-8'))['name'] != MAP['name']:
-            raise ValueError('The checkpoint was trained on a different map version.')
+        # The whole map defines observations and actions, not just its name.
+        if json.loads((results / 'map.json').read_text(encoding='utf-8')) != MAP:
+            raise ValueError('The checkpoint was trained on a different map.')
         config = OmegaConf.load(results / 'config.json')
         self.params = jax.tree.map(jnp.asarray, serialization.msgpack_restore(checkpoint)['actor_params'])
         self.actor = FeedForwardActor(
@@ -89,7 +90,7 @@ class Agent:
             def choose(state):
                 mask = env.action_mask(state)
                 obs = {'observation': env.observation(state)[None], 'action_mask': mask[None]}
-                probs = self.actor.apply(self.params, obs).probs[0]
+                probs = jax.nn.softmax(self.actor.apply(self.params, obs).logits[0])
                 probs = jnp.where(mask, probs, 0.)
                 return jnp.argmax(probs), probs
             self.policies[id(env)] = choose

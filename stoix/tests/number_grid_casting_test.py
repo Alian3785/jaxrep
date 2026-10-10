@@ -241,8 +241,8 @@ def test_support_spells_heal_moves_buffs_wards_health_and_terrain(current_game):
             np.testing.assert_array_equal(out.hp[:4], [120, 0, 120, 45])
             assert out.last_spell_amount == 30 and reward == pytest.approx(CAST_REWARD) and not summon
         if 'moves' in checks:
-            i = index['moves']  # Acceleration: 50% of 20 points
-            assert rules.metadata['spells'][i]['restore'] == 10
+            i = index['moves']  # Acceleration: 50% of the full allowance, 20 here
+            assert rules.metadata['spells'][i]['percent'] == 50
             out, _, _ = apply(base.replace(movement_points=jnp.int32(4)), jnp.int32(195+i), max_hp, 20)
             assert out.movement_points == 14
             out, _, _ = apply(base.replace(movement_points=jnp.int32(15)), jnp.int32(195+i), max_hp, 20)

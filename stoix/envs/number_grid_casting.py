@@ -21,7 +21,6 @@ MOD_STATS = ('health', 'damage', 'accuracy', 'armor', 'initiative')
 NEUTRAL = (0., 1., 1., 0., 1.)
 CAST_REWARD = .005  # reward_spell_cast; magic kills use reward_magic_enemy_defeat_multiplier=0.
 SUMMON_ENGAGE_REWARD = .05  # reward_summon_hero_battle_engage
-BASE_MOVEMENT = 20  # MOVES_PER_TURN: restore basis, independent of boots and hero level.
 FRONT_SLOT, REAR_SLOT = 0, 3  # reference positions 7 and 10
 FIELD_REGENERATION, OWN_LAND_REGENERATION = 15, 5
 
@@ -75,8 +74,9 @@ class SpellCastRules:
         self.amounts = jnp.array([c.get('amount', 0) for c in casts], jnp.int32)
         self.element_bits = jnp.array([1 << ATTACK_TYPES.index(c['element']) if 'element' in c and k == DAMAGE else 0
                                        for c, k in zip(casts, kinds)], jnp.uint32)
-        restore = [int(round(BASE_MOVEMENT * c.get('percent', 0) / 100)) for c in casts]
-        self.restore = jnp.array(restore, jnp.int32)
+        # Original game: a percentage of the hero's full allowance (boots and level
+        # included), fraction dropped like boots; the reference uses MOVES_PER_TURN.
+        self.percents = jnp.array([c.get('percent', 0) for c in casts], jnp.int32)
         mods = np.tile(np.array(NEUTRAL, np.float32), (self.count, 1))
         wards, forest, water = [0] * self.count, 0, 0
         for i, (c, k) in enumerate(zip(casts, kinds)):
@@ -135,7 +135,7 @@ class SpellCastRules:
         self.observation_size = 2 * self.count + 2 * self.enemy_count + 5
         self.metadata = dict(start=start, daily_limit=self.limit, reward=CAST_REWARD,
             summon_engage_reward=SUMMON_ENGAGE_REWARD,
-            spells=[dict(id=row['id'], name=row['name'], action=start + i, **row['cast'], restore=restore[i],
+            spells=[dict(id=row['id'], name=row['name'], action=start + i, **row['cast'],
                          level=row['level'], description=row['description'], foreign=i >= len(own), sold=row['id'] in sold,
                          daily_limit=self.limit if i < len(own) else 1,
                          summon_slot=slots[i] if kinds[i] == SUMMON else None,
@@ -215,7 +215,8 @@ class SpellCastRules:
         living = (state.hp[:6] > 0) & (state.unit_ids[:6] != 0)
         healing = valid & (kind == HEAL) & living
         healed = jnp.where(healing, jnp.minimum(max_hp[:6], state.hp[:6] + self.amounts[index]), state.hp[:6])
-        movement = jnp.where(valid & (kind == MOVES), jnp.minimum(cap, state.movement_points + self.restore[index]),
+        restore = cap * self.percents[index] // 100
+        movement = jnp.where(valid & (kind == MOVES), jnp.minimum(cap, state.movement_points + restore),
                              state.movement_points)
         summon = valid & (kind == SUMMON)
         amount = jnp.where(striking, jnp.sum(current - remaining), jnp.where(

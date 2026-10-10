@@ -57,7 +57,7 @@
       case 'damage':return 'Урон '+c.amount+' магией '+elementNames[c.element]+' каждому бойцу ближайшего отряда вне городов, руин и столиц; иммунитет и защита блокируют.';
       case 'debuff':return 'Ближайший отряд вне городов, руин и столиц: '+statNames[c.stat]+' '+change+' до следующего хода.';
       case 'summon_battle':return 'Призыв: '+c.unit_name+' один сражается с ближайшим отрядом. Отряд героя не участвует.';
-      case 'moves':return '+'+c.restore+' очков перемещения, не выше максимума.';
+      case 'moves':return '+'+c.percent+'% от максимума очков перемещения с учётом сапог и уровня героя, дробная часть отбрасывается.';
       case 'heal':return 'Лечение '+c.amount+' HP каждому живому бойцу героя.';
       case 'buff':return c.stat==='terrain'?(c.terrain==='forest'?'Лес':'Вода')+' стоит 2 очка, как равнина, до следующего хода.':'Отряд героя: '+statNames[c.stat]+' '+change+' в боях до следующего хода.';
       case 'ward':return 'Отряд героя: защита от '+elementNames[c.element]+' в боях до следующего хода.';

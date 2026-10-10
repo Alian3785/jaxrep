@@ -5,7 +5,7 @@
   const canvas=$('board'), ctx=canvas.getContext('2d');
   let mode='manual', session=null, manual=null, manualMap=null, busy=false, frame=0, recordIndex=0, timer=null, messages=[];
   let manualConstruction=null, manualTurnRules=null, manualCombat=null, manualCapital=null, manualPotions=null, capitalOpen=false, potionsOpen=false, selectedPotion=0, capitalKey=null;
-  let manualEquipment=null, manualSites=null, manualRecruitment=null, manualTerritory=null, manualRuins=null, manualSpells=null, spellsOpen=false;
+  let manualEquipment=null, manualSites=null, manualRecruitment=null, manualTerritory=null, manualRuins=null, manualSpells=null, manualCasting=null, spellsOpen=false;
   const records=data.records||[];
   const combatInfo=()=>mode==='manual'?(manualCombat||data.combat):data.combat;
   const profile=i=>{
@@ -47,7 +47,24 @@
   const recruitmentInfo=()=>mode==='manual'?(manualRecruitment||data.recruitment):data.recruitment;
   const territoryInfo=()=>mode==='manual'?(manualTerritory||data.territory):data.territory;
   const spellInfo=()=>mode==='manual'?(manualSpells||data.spell_research):data.spell_research;
+  const castInfo=()=>mode==='manual'?(manualCasting||data.spell_casting):data.spell_casting;
   const manaNames=['Преисподняя','Жизнь','Смерть','Руны','Природа'];
+  const elementNames={weapon:'оружия',earth:'Земли',fire:'Огня',water:'Воды',poison:'яда',death:'Смерти',mind:'Разума',life:'Жизни',air:'Воздуха'};
+  const statNames={armor:'броня',damage:'урон',accuracy:'точность',initiative:'инициатива'};
+  function castEffect(c){
+    const change=c.stat==='armor'?(c.amount>0?'+':'')+c.amount:'×'+c.multiplier;
+    switch(c.kind){
+      case 'damage':return 'Урон '+c.amount+' магией '+elementNames[c.element]+' каждому бойцу ближайшего отряда вне городов и руин; иммунитет и защита блокируют.';
+      case 'debuff':return 'Ближайший отряд вне городов и руин: '+statNames[c.stat]+' '+change+' до следующего хода.';
+      case 'summon_battle':return 'Призыв: '+c.unit_name+' один сражается с ближайшим отрядом. Отряд героя не участвует.';
+      case 'moves':return '+'+c.restore+' очков перемещения, не выше максимума.';
+      case 'heal':return 'Лечение '+c.amount+' HP каждому живому бойцу героя.';
+      case 'buff':return c.stat==='terrain'?(c.terrain==='forest'?'Лес':'Вода')+' стоит 2 очка, как равнина, до следующего хода.':'Отряд героя: '+statNames[c.stat]+' '+change+' в боях до следующего хода.';
+      case 'ward':return 'Отряд героя: защита от '+elementNames[c.element]+' в боях до следующего хода.';
+      case 'health_bonus':return 'Отряд героя: +'+c.amount+' HP в боях до следующего хода.';
+    }
+    return '';
+  }
   function renderSpells(snap){
     const info=spellInfo(),lord=construction()?.lord;
     $('spells-view').hidden=!info;
@@ -59,7 +76,9 @@
     $('spells-title').textContent='Заклинания · '+construction().name;
     $('spell-rules').textContent=lord.description;
     const learned=(snap.spell_status||[]).filter(c=>c===1).length;
-    $('spell-status').textContent='Изучено '+learned+' / '+info.spells.length+' · '+(snap.state.spell_researched_today?'Сегодня заклинание уже изучено.':'Дневной лимит свободен.');
+    const casting=castInfo(),quotes=snap.cast_quotes;
+    $('spell-status').textContent='Изучено '+learned+' / '+info.spells.length+' · '+(snap.state.spell_researched_today?'Сегодня заклинание уже изучено.':'Дневной лимит свободен.')+(casting?' · Одно заклинание можно применить '+(casting.daily_limit===2?'дважды':'один раз')+' за ход.':'');
+    const castLabels=['Можно применить','Не изучено','Лимит применений на этот ход исчерпан','Недостаточно маны','Нет цели или эффект уже действует','Недоступно во время боя','Игра завершена'];
     const labels=['Можно изучить','Изучено','V уровень доступен только правителю-магу','Нужна башня магии','Недостаточно маны','Сегодня уже изучено заклинание','Недоступно во время боя','Игра завершена'];
     $('spell-list').replaceChildren(...info.spells.map((spell,i)=>{
       const card=document.createElement('article');card.className='spell-card'+(snap.spell_status?.[i]===1?' is-learned':'');
@@ -72,7 +91,19 @@
       const status=document.createElement('p');status.className='spell-state';status.textContent=labels[snap.spell_status?.[i]??7];
       const button=document.createElement('button');button.dataset.action=spell.action;button.textContent=snap.spell_status?.[i]===1?'Изучено':'Изучить';button.setAttribute('aria-label','Изучить: '+spell.name);
       button.disabled=mode!=='manual'||busy||!session||!snap.action_mask[spell.action];button.onclick=()=>sendAction(spell.action);
-      card.append(title,description,original,cost,status,button);return card;
+      card.append(title,description,original,cost,status,button);
+      const cast=casting?.spells[i];
+      if(cast){
+        const effect=document.createElement('p');effect.className='spell-effect';effect.textContent=castEffect(cast);
+        const price=document.createElement('p');price.className='spell-cost';price.textContent='Применение: '+cast.cast_mana.map((n,j)=>n?manaNames[j]+' '+fmt(n):null).filter(Boolean).join(' · ');
+        const code=quotes?.status?.[i]??6,target=quotes?.target?.[i]??-1;
+        const castState=document.createElement('p');castState.className='spell-state';
+        castState.textContent=castLabels[code]+(code===0&&target>=0?' · цель: отряд № '+(target+1):'')+(snap.state.spell_casts?.[i]?' · применено сегодня: '+snap.state.spell_casts[i]:'');
+        const castButton=document.createElement('button');castButton.dataset.action=cast.action;castButton.textContent='Применить';castButton.setAttribute('aria-label','Применить: '+spell.name);
+        castButton.disabled=mode!=='manual'||busy||!session||!snap.action_mask[cast.action];castButton.onclick=()=>sendAction(cast.action);
+        card.append(effect,price,castState,castButton);
+      }
+      return card;
     }));
   }
   const ruinInfo=()=>mode==='manual'?(manualRuins||data.ruins):data.ruins;
@@ -463,10 +494,26 @@
     const sale=snapshot.state.last_sale_gold>0?' Драгоценности проданы автоматически: '+snapshot.state.last_sold_count+' шт., +'+fmt(snapshot.state.last_sale_gold)+' золота.':'';
     return (actionEventText(snapshot)||'')+(ticks.length?' '+ticks.join('; ')+'.':'')+sale;
   }
+  // A summon battle ends before any world step clears the cast record.
+  const summonEnded=s=>castInfo()?.spells[s.last_cast_spell]?.kind==='summon_battle';
+  function castText(s){
+    const spell=castInfo()?.spells[s.last_cast_spell];if(!spell)return '';
+    const stack='отряд № '+(s.last_spell_target+1);
+    if(s.last_event===50)return 'Заклинание «'+spell.name+'»: '+spell.unit_name+' вступает в отдельный бой, '+stack+'.';
+    if(s.last_event===49)return 'Заклинание «'+spell.name+'» уничтожило '+stack+' (−'+s.last_spell_amount+' HP). Награды за победу нет.';
+    switch(spell.kind){
+      case 'damage':return 'Заклинание «'+spell.name+'»: '+stack+' теряет '+s.last_spell_amount+' HP. Раны сохраняются, враг восстанавливает их каждый ход.';
+      case 'debuff':return 'Заклинание «'+spell.name+'» ослабило '+stack+' до следующего хода.';
+      case 'heal':return 'Заклинание «'+spell.name+'»: восстановлено '+s.last_spell_amount+' HP.';
+      case 'moves':return 'Заклинание «'+spell.name+'»: +'+s.last_spell_amount+' очков перемещения.';
+    }
+    return 'Заклинание «'+spell.name+'» действует на отряд героя до следующего хода.';
+  }
   function actionEventText(snapshot){
     const s=snapshot.state,a=unitName(s.last_actor),t=unitName(s.last_target);
     switch(s.last_event){
       case 47:return 'Изучено заклинание: '+spellInfo()?.spells[s.last_researched_spell]?.name+'. Следующее исследование доступно завтра.';
+      case 48:case 49:case 50:return castText(s);
       case 43:return 'Город захвачен: '+(territoryInfo()?.cities||[]).filter((c,i)=>s.last_captured_cities[i]).map(c=>c.name).join(', ')+'. Доступны найм, храм и рост земли.';
       case 44:return 'Город улучшен: '+territoryInfo()?.cities[s.last_upgraded_city]?.name+' · −'+fmt(s.last_service_cost)+' золота.';
       case 45:return 'Путь закрыт препятствием.';
@@ -488,9 +535,9 @@
       case 5:return a+(s.post_victory?' пропускает заключительное лечение.':' ждёт конца раунда.');
       case 6:return a+' готовится отступить.';
       case 7:return a+' покинул бой.';
-      case 8:return 'Победа! Ранения и потери сохранены.'+xpSummary(snapshot)+((s.last_ruin??-1)>=0?' Руины разграблены. Получено: '+lootText(ruinInfo().ruins[s.last_ruin])+'.':'');
+      case 8:return (summonEnded(s)?'Призванный боец победил: отряд № '+(s.enemy+1)+' уничтожен. Отряд героя вернулся без изменений.':'Победа! Ранения и потери сохранены.'+xpSummary(snapshot))+((s.last_ruin??-1)>=0?' Руины разграблены. Получено: '+lootText(ruinInfo().ruins[s.last_ruin])+'.':'');
       case 9:return 'Ваш отряд погиб. Игра завершена.';
-      case 10:return 'Отступление завершено. Ранения и потери сохранены.';
+      case 10:return summonEnded(s)?'Бой призванного бойца окончен без победы. Отряд № '+(s.enemy+1)+' сохраняет раны до регенерации.':'Отступление завершено. Ранения и потери сохранены.';
       case 11:return 'Бой достиг лимита раундов. Эпизод завершён.';
       case 12:{const b=construction()?.buildings[s.last_building];return b?'Построено: '+b.name+' (−'+b.gold+' золота).':null;}
       case 13:return 'Отдых. Начался ход '+s.day+', +'+(snapshot.territory_quotes?.income[0]??turnRules().income)+' золота; очки перемещения восстановлены, живые бойцы получили регенерацию. Штраф: '+fmt(Math.max(0,-snapshot.reward))+'.';
@@ -612,7 +659,7 @@
   function showError(error){$('connection').textContent='Игра недоступна';$('message').textContent=error.message+' Для игры запустите open-numbergrid.cmd.';}
   async function resetGame(){
     if(busy)return;busy=true;render();
-    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||data.map.faction||'legions',lord_type:$('lord-type').value||data.map.lord_type||'warrior'});session=result.session;manualMap=result.map;manualConstruction=result.construction;manualTurnRules=result.turn_rules;manualCombat=result.combat;manualCapital=result.capital;manualPotions=result.potions;manualEquipment=result.equipment;manualSites=result.sites;manualRecruitment=result.recruitment;manualTerritory=result.territory;manualRuins=result.ruins;manualSpells=result.spell_research;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
+    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||data.map.faction||'legions',lord_type:$('lord-type').value||data.map.lord_type||'warrior'});session=result.session;manualMap=result.map;manualConstruction=result.construction;manualTurnRules=result.turn_rules;manualCombat=result.combat;manualCapital=result.capital;manualPotions=result.potions;manualEquipment=result.equipment;manualSites=result.sites;manualRecruitment=result.recruitment;manualTerritory=result.territory;manualRuins=result.ruins;manualSpells=result.spell_research;manualCasting=result.spell_casting;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
     catch(error){busy=false;render();showError(error);return;}
     busy=false;render();
   }

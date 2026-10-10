@@ -215,8 +215,8 @@ def test_human_sessions_build_with_shared_actions_and_isolate_factions(human_ser
         sessions.append(token)
         assert game['construction']['buildings'][0]['name'] == first_building
         assert game['map']['faction'] == faction
-        assert ACTIONS == 212
-        assert len(game['snapshot']['action_mask']) == {'legions':212,'elves':215}[faction]
+        assert ACTIONS == 229
+        assert len(game['snapshot']['action_mask']) == {'legions':229,'elves':235}[faction]
         stored_faction, state, total = service.sessions[token]
         assert stored_faction == (faction, 'warrior') and state.gold == state.buildings == 0
         if faction == 'elves':

@@ -133,6 +133,7 @@ class GameService:
                 'max_hp': np.asarray(env.max_hp(state)).tolist(),
                 'building_status': np.asarray(env.construction.status(state)).tolist(),
                 'spell_status': np.asarray(env.spell_research.status(state)).tolist() if env.spell_research_enabled else [],
+                'cast_quotes': {k: np.asarray(v).tolist() for k, v in env.cast_quotes(state).items()} or None,
                 'rest_penalty': float(env.rest_penalty(state)),
                 'movement_cap': int(env.movement_cap(state)),
                 'travel_costs': np.asarray(env.travel_costs(state)).tolist(),
@@ -164,6 +165,7 @@ class GameService:
                     'territory': env.territory.metadata if env.territory_enabled else None,
                     'ruins': env.ruins.metadata if env.ruins_enabled else None,
                     'spell_research': env.spell_research.metadata if env.spell_research_enabled else None,
+                    'spell_casting': env.casting.metadata if env.spell_casting_enabled else None,
                     'sites': env.site_rules.metadata if env.sites_enabled else None,
                     'snapshot': self.snapshot(env, state, 0.), 'events': []}
 

@@ -1,4 +1,4 @@
-"""CUDA contracts: reference research rules and original ruler bonuses (no casts)."""
+"""CUDA contracts: reference research rules and original ruler bonuses."""
 import chex
 import jax
 import jax.numpy as jnp
@@ -9,6 +9,7 @@ from stoix.envs.number_grid import MAP, NumberGrid, ACTION_NAMES, BUILD_START, R
 from stoix.envs.number_grid_buildings import BuildingRules, FACTIONS
 from stoix.envs.number_grid_lords import LORDS
 from stoix.envs.number_grid_spells import CATALOG, SPELL_LEARNED, SpellResearchRules, research_action_names
+from stoix.envs.number_grid_casting import cast_action_names
 from stoix.envs.number_grid_territory import TerritoryRules
 from stoix.tests.number_grid_fixtures import compiled_method, replace_base_state
 
@@ -31,8 +32,8 @@ def test_catalog_is_exact_supported_reference_subset_and_preserves_original_text
     # DBF GspellR: Great Chronos uses infernal/death/runes; reference wrongly uses life.
     chronos = next(r for r in rows if r['id'] == 'g000ss0091')
     assert chronos['research_mana'] == [1200,0,600,600,0]
-    assert len(ACTION_NAMES) == 212 and ACTION_NAMES[195:] == research_action_names(MAP)
-    assert not any(name.startswith('cast_') for name in ACTION_NAMES)
+    assert len(ACTION_NAMES) == 229 and ACTION_NAMES[195:212] == research_action_names(MAP)
+    assert ACTION_NAMES[212:] == cast_action_names(MAP) == tuple('cast_'+n[6:] for n in research_action_names(MAP))
 
 
 @pytest.mark.parametrize('faction', FACTIONS)
@@ -105,9 +106,10 @@ def test_research_full_step_daily_reset_independent_build_limit_and_observation(
     denied,_ = step(learned,jnp.int32(rules.start+1))
     assert denied.learned_spells == learned.learned_spells
     chex.assert_trees_all_equal(denied.mana,learned.mana)
-    assert observe(learned).shape == (1547,) and env.num_actions == 212
-    np.testing.assert_array_equal(observe(learned)[-rules.count-4:-rules.count-1],[1,0,0])
-    np.testing.assert_array_equal(observe(learned)[-rules.count-1:], [1]+[0]*(rules.count-1)+[1])
+    assert observe(learned).shape == (1678,) and env.num_actions == 229
+    research = observe(learned)[:-env.casting.observation_size]  # map casts follow research
+    np.testing.assert_array_equal(research[-rules.count-4:-rules.count-1],[1,0,0])
+    np.testing.assert_array_equal(research[-rules.count-1:], [1]+[0]*(rules.count-1)+[1])
     rested,_ = step(learned,jnp.int32(REST))
     assert rested.day == ready.day+1 and not rested.spell_researched_today
     assert rested.learned_spells == 1 and mask(rested)[rules.start+1] and not mask(rested)[rules.start]
@@ -149,13 +151,13 @@ def test_lords_free_buildings_regeneration_city_prices_and_reset(current_game):
         state,ts = compiled_method(other,'reset')(jax.random.PRNGKey(42))
         assert state.buildings == other.construction.initial_built and state.gold == 0
         assert not state.built_today and not state.spell_researched_today and state.learned_spells == 0
-        assert state.day == 1 and ts.observation.shape == (1547,)
+        assert state.day == 1 and ts.observation.shape == (1678,)
         chex.assert_trees_all_equal(state.unit_ids,initial.unit_ids)
-        np.testing.assert_array_equal(ts.observation[-21:-18],other.construction.lord_observation)
+        np.testing.assert_array_equal(ts.observation[:-other.casting.observation_size][-21:-18],other.construction.lord_observation)
         rules = other.spell_research
         funded = state.replace(mana=jnp.full(5,5000,jnp.int32),buildings=state.buildings | rules.tower_bit)
         mask = compiled_method(other,'action_mask')(funded)
-        assert bool(jnp.all(mask[rules.start:])) == (lord == 'mage')
+        assert bool(jnp.all(mask[rules.start:rules.end])) == (lord == 'mage')
         fifth = next(i for i,r in enumerate(rules.rows) if r['level']==5)
         out,reward = jax.jit(rules.apply)(funded,jnp.int32(rules.start+fifth))
         assert bool(reward) == (lord=='mage')
@@ -186,9 +188,10 @@ def test_research_autoreset_preserves_final_observation_and_changes_prng(current
     assert jnp.all(ts.truncated()) and jnp.all(state.learned_spells == 0)
     assert not jnp.any(state.spell_researched_today) and not jnp.any(state.mana)
     assert not jnp.array_equal(state.battle_key,before_key)
-    assert jnp.all(ts.extras['next_obs']['observation'][:,-18] == 1)
-    assert jnp.all(ts.extras['next_obs']['observation'][:,-1] == 1)
-    assert jnp.all(ts.observation['observation'][:,-18:] == 0)
+    cast = env.casting.observation_size
+    assert jnp.all(ts.extras['next_obs']['observation'][:,-18-cast] == 1)
+    assert jnp.all(ts.extras['next_obs']['observation'][:,-1-cast] == 1)
+    assert jnp.all(ts.observation['observation'][:,-18-cast:-cast] == 0)
 
 
 def test_human_spell_book_masks_and_ruler_session_isolation(human_service):
@@ -204,7 +207,9 @@ def test_human_spell_book_masks_and_ruler_session_isolation(human_service):
     service.sessions[game['session']] = (key,state,total)
     learned = service.act(game['session'],env.spell_research.start)['snapshot']
     assert learned['state']['learned_spells'] == 1 and learned['spell_status'][0] == 1
-    assert not any(learned['action_mask'][env.spell_research.start:])
+    assert not any(learned['action_mask'][env.spell_research.start:env.spell_research.end])
+    # The learned summon is castable at once on the nearest stack.
+    assert learned['action_mask'][env.casting.start] and learned['cast_quotes']['status'][0] == 0
     for lord in ('mage','guildmaster'):
         other = service.create(42,'legions',lord)
         assert other['map']['lord_type'] == lord and other['snapshot']['state']['learned_spells'] == 0

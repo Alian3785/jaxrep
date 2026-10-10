@@ -143,7 +143,9 @@ def build(layout):
                      site('H2', roster=[{'unit': 'goblin', 'stock': 1},
                                         {'unit': 'goblin_archer', 'stock': 1}])],
         spell_shop=site('M1', spells=SPELLS),
-        cities=[dict(name=c['name'], position=cell(c['position']), level=c['level']) for c in layout['cities']],
+        # Reference goal "cities": capture FINAL_OBJECTIVE_CITIES (Порт Полонис, Соругирилла).
+        cities=[dict(name=c['name'], position=cell(c['position']), level=c['level'], objective=c['objective'])
+                for c in layout['cities']],
         mines=([dict(kind='gold', position=cell(p)) for p in layout['gold_mines']]
                + [dict(kind=m['kind'], position=cell(m['position'])) for m in layout['mana']]),
         obstacles=obstacles,

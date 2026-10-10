@@ -519,9 +519,13 @@ class NumberGrid(Summoning, NumericNumberGrid):
             self.num_actions = self.territory.end
             self.capital.territory = self.territory
             self.recruitment.territory = self.territory
-        # Capital guards stay on the map but are never required for victory.
-        self.goal_enemies = (~self.territory.capital_guards
-                             if self.territory_enabled and self.territory.has_capital_guards else None)
+        # Capital guards stay on the map but are never required for victory. With
+        # objective cities only their capture counts, so no stack has to fall.
+        self.goal_enemies = None
+        if self.territory_enabled and self.territory.objective_cities:
+            self.goal_enemies = jnp.zeros(self.territory.enemy_count, bool)
+        elif self.territory_enabled and self.territory.has_capital_guards:
+            self.goal_enemies = ~self.territory.capital_guards
         self.spell_research_enabled = bool(game_map.get('spell_research', False))
         if self.spell_research_enabled:
             if not self.territory_enabled:

@@ -79,7 +79,7 @@ def test_spell_shop_sells_armageddon_and_verdant(default_game):
     assert [env.progression.rows[int(i)]['game_id'] for i in summoned.unit_ids[:6] if i] == ['g000uu8039']
 
 
-def test_capital_guard_armor_regeneration_and_goal(default_game):
+def test_capital_guard_armor_and_regeneration(default_game):
     env, initial, step, _ = default_game
     guard = DEFAULT['opponent_positions'][GUARD]
     assert not env.casting.field[GUARD]  # damage and weakening never target the capital
@@ -93,11 +93,36 @@ def test_capital_guard_armor_regeneration_and_goal(default_game):
     wounds = initial.enemy_wounds.at[GUARD, 4].set(800).at[DRAGON, 1].set(500)
     rested, _ = step(initial.replace(enemy_wounds=wounds), jnp.int32(REST))
     assert rested.enemy_wounds[GUARD, 4] == 350 and rested.enemy_wounds[DRAGON, 1] == 0
-    # Victory: every stack but the capital guard, and every defended city.
-    owned = jnp.ones_like(initial.city_owned)
-    only_guard = jnp.zeros_like(initial.alive).at[GUARD].set(True)
-    won, ts = step(initial.replace(alive=only_guard, city_owned=owned), jnp.int32(REST))
+
+
+def test_capturing_both_objective_cities_wins(default_game):
+    """Reference goal "cities" (maps/default.py FINAL_OBJECTIVE_CITIES)."""
+    env, initial, step, _ = default_game
+    names = [c['name'] for c in DEFAULT['cities']]
+    goals = [names.index('Порт Полонис'), names.index('Соругирилла')]
+    assert jnp.flatnonzero(env.territory.goal_cities).tolist() == goals
+    # Other stacks, cities and the capital guard may remain.
+    both = initial.city_owned.at[jnp.array(goals)].set(True)
+    won, ts = step(initial.replace(city_owned=both), jnp.int32(REST))
     assert won.won and won.done and float(ts.reward) > 2
-    one_left = only_guard.at[0].set(True)
-    open_, _ = step(initial.replace(alive=one_left, city_owned=owned), jnp.int32(REST))
+    one = initial.city_owned.at[goals[0]].set(True)
+    cleared = initial.replace(alive=jnp.zeros_like(initial.alive),
+                              city_owned=jnp.ones_like(one).at[goals[1]].set(False))
+    open_, _ = step(cleared, jnp.int32(REST))
     assert not open_.won and not open_.done
+    # Entering the last objective city after its defenders fell captures it and wins.
+    city = DEFAULT['cities'][goals[1]]['position']
+    blocked = env.territory.blocked_grid.reshape(50, 50)
+    direction, (dr, dc) = next((i, d) for i, d in enumerate(DIRECTIONS)
+                               if not blocked[city[0]-d[0], city[1]-d[1]])
+    near = initial.replace(position=jnp.array([city[0]-dr, city[1]-dc], jnp.int32), city_owned=one,
+                           alive=initial.alive & ~env.territory.city_enemies[goals[1]])
+    entered, ts = step(near, jnp.int32(direction))
+    assert entered.city_owned[goals[1]] and entered.won and entered.done and float(ts.reward) > 2
+
+
+def test_without_objective_cities_the_capital_guard_is_not_a_goal():
+    env = NumberGrid(map_config={**DEFAULT, 'cities': [dict(c, objective=False) for c in DEFAULT['cities']]})
+    only_guard = jnp.zeros(len(DEFAULT['opponent_positions']), bool).at[GUARD].set(True)
+    assert not env.territory.objective_cities
+    assert not env._goals_left(only_guard) and env._goals_left(only_guard.at[0].set(True))

@@ -223,11 +223,11 @@
   ],
   "spell_shop": {"name": "Лавка заклинаний Маллавиена", "position": [3, 43], "spells": [{"spell": "g000ss0019", "price": 1000, "stock": 1}, {"spell": "g000ss0117", "price": 1000, "stock": 1}]},
   "cities": [
-    {"name": "Стагириас", "position": [5, 7], "level": 1},
-    {"name": "Порт Бирмингем", "position": [41, 5], "level": 1},
-    {"name": "Кордилия", "position": [10, 41], "level": 2},
-    {"name": "Порт Полонис", "position": [34, 29], "level": 2},
-    {"name": "Соругирилла", "position": [26, 41], "level": 2}
+    {"name": "Стагириас", "position": [5, 7], "level": 1, "objective": false},
+    {"name": "Порт Бирмингем", "position": [41, 5], "level": 1, "objective": false},
+    {"name": "Кордилия", "position": [10, 41], "level": 2, "objective": false},
+    {"name": "Порт Полонис", "position": [34, 29], "level": 2, "objective": true},
+    {"name": "Соругирилла", "position": [26, 41], "level": 2, "objective": true}
   ],
   "mines": [
     {"kind": "gold", "position": [32, 3]},

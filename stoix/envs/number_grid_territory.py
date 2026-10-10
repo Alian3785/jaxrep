@@ -125,6 +125,13 @@ class TerritoryRules:
         self.city_defenders = self.armies_by_cell[self.positions[:,0]*self.size+self.positions[:,1]]
         self.city_enemies = jnp.array([[tuple(p)==tuple(c['position']) for p in enemy_positions] for c in self.cities],bool).reshape(self.count,len(enemy_positions))
         self.goal_cities = jnp.any(self.city_enemies,axis=1)
+        # Reference FINAL_OBJECTIVE_CITIES ("cities" goal): when cities are marked,
+        # capturing exactly those wins; no other stack or city is required.
+        if any(type(c.get('objective',False)) is not bool for c in self.cities):
+            raise ValueError('City objective must be true or false')
+        self.objective_cities = any(c.get('objective',False) for c in self.cities)
+        if self.objective_cities:
+            self.goal_cities = jnp.array([c.get('objective',False) for c in self.cities])
         self.enemy_city = jnp.array([next((i for i,c in enumerate(self.cities) if tuple(p)==tuple(c['position'])),-1) for p in enemy_positions],jnp.int32)
         # Enemy capitals: an obstacle footprint and one guard stack on its open tile.
         # The guard is never a victory goal and has no scripted bot or land spread.

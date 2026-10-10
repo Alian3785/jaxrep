@@ -612,8 +612,11 @@
     renderMapCommands(snap);
     $('phase-label').textContent=s.in_battle?'Бой · отряд № '+(s.enemy+1):'Карта '+map.size+' × '+map.size;
     // A capital guard is not a victory goal; count only the stacks that must fall.
+    // With objective cities (reference "cities" goal) count those cities instead.
     const guards=new Set((territoryInfo()?.enemy_capitals||[]).map(c=>c.guard));
-    $('remaining').textContent=s.alive.filter((a,i)=>a&&!guards.has(i)).length;
+    const goalCities=(territoryInfo()?.cities||[]).map((c,i)=>c.objective?i:-1).filter(i=>i>=0);
+    $('remaining').textContent=goalCities.length?goalCities.filter(i=>!s.city_owned?.[i]).length:s.alive.filter((a,i)=>a&&!guards.has(i)).length;
+    $('remaining-label').textContent=goalCities.length?'целевых городов осталось ('+goalCities.map(i=>territoryInfo().cities[i].name).join(', ')+')':'отрядов осталось';
     $('chest-status').hidden=!(map.chests||[]).length;
     $('chest-status').textContent=(s.last_event===21?eventText(snap)+' ':'')+'Сундуков осталось: '+(s.chest_alive||[]).filter(Boolean).length+' / '+(map.chests||[]).length+'. Подойдите на соседнюю клетку, включая диагональ: всё содержимое попадёт в инвентарь.';
     $('wins').textContent=s.alive.filter(v=>!v).length;
@@ -643,7 +646,7 @@
     $('attack-hint').textContent=profile(s.actor)?.unit_type==='Succub'?'Массовое превращение в бесов без урона: выберите любого доступного живого противника.':profile(s.actor)?.unit_type==='Witch'?'Превращение: выберите живого противника.':profile(s.actor)?.unit_type==='Alchemist'?'Дополнительный ход: выберите живого союзника, кроме алхимика и отступающего.':profile(s.actor)?.unit_type==='Patriach'?'Выберите союзника: лечение живого или однократное воскрешение погибшего с 50% HP.':isPowerSupport(s.actor)?(['Dwarfdruid','Arhidruid'].includes(profile(s.actor)?.unit_type)?'Выберите союзника для усиления и очищения; себя — только для очищения.':'Усиление: выберите другого живого союзника.'):isMassHealer(s.actor)?'Массовое лечение всех живых союзников, кроме самого лекаря. Выберите любую доступную карточку.':isHealer(s.actor)?'Лечение: выберите живого союзника.':isMage(s.actor)?'Массовая атака: выберите любого живого врага.':isWarrior(s.actor)?(mask.slice(8,14).some(Boolean)?'Ход воина: выберите подсвеченного врага для удара мечом.':'Воин не достаёт до врагов. Можно защищаться, ждать или отступить.'):'Нажмите на живого противника, чтобы выстрелить.';
     if(isCopier(s.actor))$('attack-hint').textContent='Копирование: выберите доступного бойца любой стороны. Большие юниты и стражи недоступны.';
     if(isSummoner(s.actor))$('attack-hint').textContent='Призыв: выберите свободную клетку своего отряда. Большое существо занимает переднюю и заднюю клетки линии.';
-    const message=s.won?'Победа! Карта очищена.':s.lost?'Ваш отряд погиб. Начните новую игру.':s.done?'Достигнут лимит. Начните новую игру.':s.in_battle?'Выбирайте цели и берегите свой отряд.':!s.movement_points?'Очки перемещения закончились. Можно использовать зелья, строить или отдохнуть.':'Шаг на клетку врага — атака. Рядом с отрядом можно пройти без боя.';
+    const message=s.won?(goalCities.length?'Победа! Целевые города захвачены.':'Победа! Карта очищена.'):s.lost?'Ваш отряд погиб. Начните новую игру.':s.done?'Достигнут лимит. Начните новую игру.':s.in_battle?'Выбирайте цели и берегите свой отряд.':!s.movement_points?'Очки перемещения закончились. Можно использовать зелья, строить или отдохнуть.':'Шаг на клетку врага — атака. Рядом с отрядом можно пройти без боя.';
     $('message').textContent=message;
     $('map-controls').hidden=s.in_battle||capitalOpen||potionsOpen||spellsOpen;$('battle-controls').hidden=!s.in_battle||capitalOpen||potionsOpen||spellsOpen;
     $('continue').hidden=!s.in_battle||!mask[17];

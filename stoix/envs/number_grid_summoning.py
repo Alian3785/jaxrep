@@ -133,7 +133,7 @@ class Summoning:
         updates = dict(unit_ids=form, unit_levels=level, hp=hp,
                        copied=jnp.bool_(True), copy_stats=stats, copy_traits=traits,
                        copy_secondary=self._secondary_stats(state,target,temporary=False),
-                       armor_shreds=jnp.int32(0), weakened=jnp.bool_(False),
+                       armor_shreds=jnp.int32(0), weakened=jnp.bool_(False), item_weakened=jnp.bool_(False),
                        primary_override=jnp.int32(-1), preweak_damage=jnp.int32(-1),
                        powerup=jnp.bool_(False), powerup_layered=jnp.bool_(False),
                        initiative_override=jnp.int32(-1), slow_original=jnp.int32(-1),
@@ -207,7 +207,8 @@ class Summoning:
 
     def _empty_summon_fields(self, state):
         zero = ('defended','retreating','escaped','copied','fenrir','imp','imp_wards','decay_form',
-            'decay_shreds','armor_shreds','feared','weakened','saved_weakened','paralyzed','long_paralyzed',
+            'decay_shreds','armor_shreds','feared','weakened','saved_weakened','item_weakened',
+            'saved_item_weakened','lycanthrope','paralyzed','long_paralyzed',
             'waited','bonus_turns','battle_revived','revival_xp_cutoff','powerup','powerup_layered',
             'saved_powerup','saved_powerup_layered','healer_wards','saved_healer_wards',
             'ward_native_used','saved_ward_native_used','wards_used')

@@ -1,13 +1,11 @@
 """CUDA contracts: the Python reference Default map, its spell shop and capital guard."""
-import jax
 import jax.numpy as jnp
-import pytest
 
 from stoix.envs.number_grid import NumberGrid, REST, action_names, load_map
+from stoix.envs.number_grid_battle_items import battle_item_action_names
 from stoix.envs.number_grid_casting import SPELL_CAST, SPELL_KILL, SUMMON_CAST
 from stoix.envs.number_grid_sites import SPELL_BOUGHT
 from stoix.envs.number_grid_territory import CAPITAL_ARMOR
-from stoix.tests.number_grid_fixtures import compiled_method
 
 DEFAULT = load_map('default')
 SHOP = (4, 46)  # spell shop at [3, 43], approach offset (1, 3)
@@ -16,25 +14,19 @@ GUARD, DRAGON = 74, 30  # reference enemy ids 75 (Myzrael) and 31 (Green Dragon)
 DIRECTIONS = ((-1, 0), (-1, 1), (0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1))
 
 
-@pytest.fixture(scope='module')
-def default_game():
-    env = NumberGrid(map_config=DEFAULT)
-    state, _ = compiled_method(env, 'reset')(jax.random.PRNGKey(42))
-    return env, state, compiled_method(env, 'step'), compiled_method(env, 'action_mask')
-
-
 def test_default_map_layout_and_actions(default_game):
     env, state, _, _ = default_game
     names = action_names(DEFAULT)
     assert DEFAULT['size'] == 50 and len(DEFAULT['opponent_positions']) == 75
-    assert env.num_actions == len(names) == 229 and env.observation_size == 2432
+    assert env.num_actions == len(names) == 261 and env.observation_size == 2452
     assert [s['kind'] for s in env.site_rules.sites] == [
         'merchant', 'merchant', 'trainer', 'mercenary', 'mercenary', 'spell_shop']
     assert env.territory.count == 5 and len(env.territory.mines) == 12 and env.ruins.count == 5
     assert len(DEFAULT['chests']) == 18 and env.item_rules.capacity == 15
     shop = env.site_rules
     assert names[shop.spell_start:shop.end] == ('buy_spell_'+ARMAGEDDON, 'buy_spell_'+VERDANT)
-    assert names[env.casting.start:][-1] == 'cast_'+VERDANT and env.casting.count == 23
+    assert names[env.casting.start:env.casting.end][-1] == 'cast_'+VERDANT and env.casting.count == 23
+    assert names[env.casting.end:] == battle_item_action_names(DEFAULT)  # docs/BATTLE_ITEMS.md
     # Alar sells the reference merchant stock; Tralar only buys valuables.
     assert names[shop.buy_start:shop.train_start] == tuple('buy_'+k for k in DEFAULT['merchants'][0]['potions'])
     assert [int(i) for i in env.recruitment.offer_sites] == [3, 4, 4]

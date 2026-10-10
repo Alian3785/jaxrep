@@ -64,6 +64,11 @@ def action_label(action):
         return f'облик союзника {slot}'
     if kind == 'potion':
         return f'зелье {rest.rsplit("_", 1)[0]} → боец {slot}'
+    if kind == 'equip':
+        return f'боевой слот героя: {rest}'
+    if kind in ('item1', 'item2'):
+        side = 'союзник' if rest.startswith('ally') else 'враг'
+        return f'боевой предмет {kind[-1]} → {side} {slot}'
     return name
 
 
@@ -155,6 +160,8 @@ class GameService:
                                 if env.sites_enabled else None),
                 'territory_quotes': ({k: np.asarray(v).tolist() for k,v in env.territory_quotes(state).items()}
                                      if env.territory_enabled else None),
+                'battle_item_quotes': ({k: np.asarray(v).tolist() for k,v in env.battle_item_rules.quotes(env, state).items()}
+                                       if env.battle_items_enabled else None),
                 'unit_experience': np.asarray(env.unit_experience(state)).tolist(),
                 'unit_stats': (np.asarray(env.unit_stats(state)).tolist()
                                if env.basic_combat else None)}
@@ -176,6 +183,7 @@ class GameService:
                     'ruins': env.ruins.metadata if env.ruins_enabled else None,
                     'spell_research': env.spell_research.metadata if env.spell_research_enabled else None,
                     'spell_casting': env.casting.metadata if env.spell_casting_enabled else None,
+                    'battle_items': env.battle_item_rules.metadata if env.battle_items_enabled else None,
                     'sites': env.site_rules.metadata if env.sites_enabled else None,
                     'snapshot': self.snapshot(env, state, 0.), 'events': []}
 

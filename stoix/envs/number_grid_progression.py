@@ -15,6 +15,7 @@ from stoix.envs.number_grid_combat import (
 from stoix.envs.number_grid_buildings import CATALOG
 from stoix.envs.number_grid_effects import CAPITAL_GUARDS
 from stoix.envs.number_grid_casting import cast_summon_keys
+from stoix.envs.number_grid_battle_items import battle_item_unit_keys
 
 
 @lru_cache(maxsize=8)
@@ -124,6 +125,8 @@ class ProgressionRules:
         used_ids |= reached
         # Summon spells bring their unit into a battle of its own.
         used_ids |= {self.ids[key] for key in cast_summon_keys(game_map)}
+        # Hero orbs and talismans summon or polymorph into catalogue units.
+        used_ids |= {self.ids[key] for key in battle_item_unit_keys(game_map)}
         # Enemy forms never promote, but their summons can introduce additional
         # combat behavior. Follow those pools without enabling enemy upgrades.
         pending = list(used_ids)
@@ -139,6 +142,8 @@ class ProgressionRules:
         self.has_hermits = any(rows[i].get('unit_type') == 'Hermit' for i in used_ids)
         self.has_alchemists = any(rows[i].get('unit_type') == 'Alchemist' for i in used_ids)
         self.has_patriarchs = any(rows[i].get('unit_type') == 'Patriach' for i in used_ids)
+        # Revival items (Orb/Talisman of Life, Life Potion) set it from number_grid.
+        self.revival_cutoffs = False
         self.has_powerups = any(rows[i].get('unit_type') in power_types for i in used_ids)
         self.has_healer_wards = any(rows[i].get('unit_type') in ward_types for i in used_ids)
         self.has_cures = any(rows[i].get('unit_type') in ('Patriach','Dwarfdruid','Arhidruid') or (rows[i].get('unit_type') == 'Profit' and rows[i]['name'] in ('Аббатиса','Прорицательница','Matriarch','Prophetess')) for i in used_ids)
@@ -343,7 +348,7 @@ class ProgressionRules:
         fraction=jnp.where(scale==5,whole%4,0)*count+remainder*scale
         award=whole+extra+(fraction+2*count)//(4*count)
         gains = jnp.where(recipients, award, 0)
-        if self.has_patriarchs:
+        if self.has_patriarchs or self.revival_cutoffs:
             cutoffs = state.revival_xp_cutoff.reshape(2,6)
             masks = recipients.reshape(2,6)
             gains = jax.vmap(revival_xp_shares,in_axes=(None,0,0,None))(total,cutoffs,masks,scale).reshape(12)

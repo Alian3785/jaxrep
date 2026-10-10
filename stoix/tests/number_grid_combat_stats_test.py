@@ -55,14 +55,10 @@ def test_default_stats_and_observation_are_individual_and_finite():
 
 def test_non_progression_recognizes_russian_unit_names():
     game_map = copy.deepcopy(MAP)
-    game_map['hero_combat_stats'] = [
-        dict(name='Аббатиса', unit_type='Profit'),
-        dict(name='Прорицательница', unit_type='Profit'),
-        dict(name='Ниддог', unit_type='Demon'),
-        dict(name='Русалка', unit_type='Uter Demon'),
-        dict(name='Тёмный эльф призрак', unit_type='Ghost'),
-        dict(name='Обычный призрак', unit_type='Ghost'),
-    ]
+    # Catalog units carry the Russian names and unit types; overrides cannot set them.
+    # Niddog is large in the catalog, so it is shrunk to fit a full six-unit formation.
+    game_map['hero_roster'] = ['abbess', 'prophetess', 'niddog', 'mermaid', 'dark_elf_gast', 'spectre']
+    game_map['hero_combat_stats'] = [{}, {}, dict(size=1), {}, {}, {}]
     env = NumberGrid(map_config=game_map)
     assert not env.progression_enabled
     np.testing.assert_array_equal(env.mass_cures[0, :6], [True, True, False, False, False, False])

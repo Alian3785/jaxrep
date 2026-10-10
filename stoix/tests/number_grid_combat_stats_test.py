@@ -55,14 +55,10 @@ def test_default_stats_and_observation_are_individual_and_finite():
 
 def test_non_progression_recognizes_russian_unit_names():
     game_map = copy.deepcopy(MAP)
-    game_map['hero_combat_stats'] = [
-        dict(name='Аббатиса', unit_type='Profit'),
-        dict(name='Прорицательница', unit_type='Profit'),
-        dict(name='Ниддог', unit_type='Demon'),
-        dict(name='Русалка', unit_type='Uter Demon'),
-        dict(name='Тёмный эльф призрак', unit_type='Ghost'),
-        dict(name='Обычный призрак', unit_type='Ghost'),
-    ]
+    # Catalog units carry the Russian names and unit types; overrides cannot set them.
+    # Niddog is large in the catalog, so it is shrunk to fit a full six-unit formation.
+    game_map['hero_roster'] = ['abbess', 'prophetess', 'niddog', 'mermaid', 'dark_elf_gast', 'spectre']
+    game_map['hero_combat_stats'] = [{}, {}, dict(size=1), {}, {}, {}]
     env = NumberGrid(map_config=game_map)
     assert not env.progression_enabled
     np.testing.assert_array_equal(env.mass_cures[0, :6], [True, True, False, False, False, False])
@@ -217,18 +213,21 @@ def test_every_current_squad_is_reachable_for_an_attack(current_game):
     env, initial, _, _ = current_game
     position = tuple(env.map_config['agent_position'])
     opponents = [tuple(p) for p in env.map_config['opponent_positions']]
+    blocked = set(env.territory.obstacle_cells)
+    ruin_approaches = {tuple(r['entrance']): set(r['interaction_tiles']) for r in env.ruins.ruins}
     remaining = set(range(len(opponents)))
-    origins, actions, enemies = [], [], []
+    origins, actions, enemies, living = [], [], [], []
     # Map preparation only: the planner is never passed into PPO. This checks
     # geometry and attack commands, not a fictitious guaranteed combat win.
     while remaining:
-        occupied = {opponents[i]: i for i in remaining}
+        occupied = {opponents[i]: i for i in sorted(remaining,reverse=True)}
         queue, seen, found = deque([position]), {position}, None
         while queue and found is None:
             pos = queue.popleft()
             for action, (dr, dc) in enumerate(DIRECTIONS):
                 dest = (pos[0]+dr, pos[1]+dc)
-                if not all(0 < x < env.size-1 for x in dest):
+                ruin_attack = dest in occupied and pos in ruin_approaches.get(dest,set())
+                if (dest in blocked and not ruin_attack) or not all(0 < x < env.size-1 for x in dest):
                     continue
                 if dest in occupied:
                     found = pos, action, occupied[dest]
@@ -238,12 +237,13 @@ def test_every_current_squad_is_reachable_for_an_attack(current_game):
                     seen.add(dest)
         assert found is not None, 'An enemy has no reachable adjacent attack cell'
         position, action, enemy = found
+        living.append([i in remaining for i in range(len(opponents))])
         origins.append(position)
         actions.append(action)
         enemies.append(enemy)
         remaining.remove(enemy)
     states = jax.tree.map(lambda x:jnp.broadcast_to(x,(len(enemies),)+x.shape),initial)
-    states = states.replace(position=jnp.array(origins,jnp.int32))
+    states = states.replace(position=jnp.array(origins,jnp.int32),alive=jnp.array(living,bool))
     commands = compiled_method(env,'map_commands',batched=True)(states)
     selected = commands[jnp.arange(len(enemies)),jnp.array(actions,jnp.int32)]
     np.testing.assert_array_equal(selected[:,0],enemies)
@@ -251,21 +251,24 @@ def test_every_current_squad_is_reachable_for_an_attack(current_game):
 
 
 def test_current_map_full_route_through_step_combat_and_rest(current_game):
-    """Exercise all 41 encounters and REST under controlled hits, not a PPO win claim."""
+    """Exercise all 46 encounters and REST under controlled hits, not a PPO win claim."""
     from collections import deque
     from stoix.envs.number_grid import DIRECTIONS, MOVE_COST, REST
     env, initial, _, _ = current_game
     position = tuple(env.map_config['agent_position'])
     opponents = [tuple(p) for p in env.map_config['opponent_positions']]
+    blocked = set(env.territory.obstacle_cells)
+    ruin_approaches = {tuple(r['entrance']): set(r['interaction_tiles']) for r in env.ruins.ruins}
     remaining, route = set(range(len(opponents))), []
     while remaining:
-        occupied = {opponents[i]: i for i in remaining}
+        occupied = {opponents[i]: i for i in sorted(remaining,reverse=True)}
         queue, seen, found = deque([(position, [])]), {position}, None
         while queue and found is None:
             pos, path = queue.popleft()
             for action, (dr, dc) in enumerate(DIRECTIONS):
                 dest = (pos[0]+dr, pos[1]+dc)
-                if not all(0 < x < env.size-1 for x in dest):
+                ruin_attack = dest in occupied and pos in ruin_approaches.get(dest,set())
+                if (dest in blocked and not ruin_attack) or not all(0 < x < env.size-1 for x in dest):
                     continue
                 if dest in occupied:
                     found = pos, path+[action], occupied[dest]
@@ -277,6 +280,9 @@ def test_current_map_full_route_through_step_combat_and_rest(current_game):
         position, path, enemy = found
         route.extend(path)
         remaining.remove(enemy)
+        if opponents[enemy] in {tuple(c['position']) for c in env.map_config.get('cities',[])} and all(opponents[i] != opponents[enemy] for i in remaining):
+            route.append(path[-1])  # Enter only after both defending armies are gone.
+            position = opponents[enemy]
     route = jnp.array(route, jnp.int32)
     # A private shallow copy preserves current_game's immutable shared JIT cache.
     # Only the random outcomes are controlled; movement, combat, recovery and
@@ -303,7 +309,7 @@ def test_current_map_full_route_through_step_combat_and_rest(current_game):
             action = jnp.where(state.in_battle, attack, move)
             following, ts = controlled.step(state, action)
             rested = ~state.in_battle & (action == REST)
-            rest_ok = ((following.day == state.day+1) & (following.gold == state.gold+100)
+            rest_ok = ((following.day == state.day+1) & (following.gold == state.gold+env.territory.income(following)[0])
                        & (following.movement_points == env.movement_cap(following)) & ~following.in_battle)
             legal &= mask[action] & (~rested | rest_ok) & jnp.all(jnp.isfinite(ts.observation))
             index += (~state.in_battle & (action < 8)).astype(jnp.int32)
@@ -316,7 +322,8 @@ def test_current_map_full_route_through_step_combat_and_rest(current_game):
     final, index, battles, rests, legal = run(initial)
     assert legal and final.won and not final.lost and not final.in_battle
     assert int(index) == len(route) and int(battles) == env.num_opponents
-    assert not np.any(final.alive) and int(rests) > 0
+    assert not np.any(final.alive) and np.all(final.city_owned) and int(rests) > 0
+    assert np.all(final.ruin_looted) and final.potions[env.potion_rules.keys.index('strength')] == 1
     occupied = np.asarray(initial.hp[:6]) > 0
     assert np.all(np.asarray(final.hp[:6])[occupied] > 0)
     assert np.all(final.hp[:6] <= env.max_hp(final)[:6])

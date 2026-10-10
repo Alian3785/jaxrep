@@ -1,5 +1,5 @@
 {
-  "name": "NumberGrid-48x48-v74-hero-equipment",
+  "name": "NumberGrid-48x48-v82-spell-research",
   "size": 48,
   "agent_position": [
     2,
@@ -170,6 +170,26 @@
     [
       24,
       3
+    ],
+    [
+      14,
+      16
+    ],
+    [
+      14,
+      16
+    ],
+    [
+      32,
+      36
+    ],
+    [
+      32,
+      36
+    ],
+    [
+      9,
+      25
     ]
   ],
   "opponent_numbers": [
@@ -213,7 +233,12 @@
     12,
     3,
     11,
-    12
+    12,
+    1,
+    1,
+    1,
+    1,
+    1
   ],
   "max_steps": 5000,
   "step_cost": 0.001,
@@ -221,9 +246,9 @@
   "mask_walls": true,
   "map_seed": 42,
   "number_generation": "Historical labels retained and copied with added squads. Numbers do not affect battles.",
-  "reconstruction_note": "48x48 map with 41 squads (27 Р“вЂ” 1.5 rounded up). Starting capital and first nearby Squire retained; other original positions scaled by two. Fourteen additional human squads spread into the largest gaps, reusing existing compositions. The original three Orc/Goblin groups are unchanged. Titans occupy both slots of their formation line.",
+  "reconstruction_note": "48x48: 41 field armies plus two cities, each with a guard and garrison on its entrance tile. Static obstacles leave accessible approaches. Five mana types and one gold mine use territorial ownership. One 3x3 ruin at [7,23] holds Troll and Goblin Archer and grants one Potion of Strength; cleared ruins remain blocked. Terrain: 26 road cells, 32 forest cells, and one connected empty 50-cell lake at rows 13-18 / columns 2-11. Living flight costs 2 everywhere; dead leaders double terrain costs.",
   "battle_mode": true,
-  "hero_units": 5,
+  "hero_units": 4,
   "hero_hp": 120,
   "battle_max_rounds": 75,
   "enemy_units": [
@@ -267,7 +292,12 @@
     6,
     3,
     4,
-    6
+    6,
+    2,
+    1,
+    3,
+    3,
+    2
   ],
   "enemy_hp": [
     100,
@@ -310,10 +340,15 @@
     100,
     100,
     100,
+    100,
+    100,
+    100,
+    100,
+    100,
     100
   ],
-  "battle_recovery": "Victory or retreat preserves all hero HP, including dead units at 0 HP. Full defeat ends the episode. Enemies reset after retreat. Rest heals living heroes by ceil(10% max HP). Paid healing and revival to 1 HP require the temple and exact starting cell (capital).",
-  "battle_observation_version": 30,
+  "battle_recovery": "Living units regenerate by native unit + lord + either fort or own-land bonus, rounded up once. City/capital recovery and recruitment require ownership; paid healing/revival still require the capital temple. Victory preserves wounds. Entry with a living hero captures cities only after both defenders are defeated.",
+  "battle_observation_version": 38,
   "combat_rules_version": 2,
   "faction": "legions",
   "building_reward": 0.05,
@@ -325,7 +360,7 @@
     "duke",
     "possessed",
     "cultist",
-    "cultist",
+    null,
     null
   ],
   "enemy_rosters": [
@@ -656,6 +691,46 @@
       "archer",
       "novice",
       "archer"
+    ],
+    [
+      "squire",
+      null,
+      null,
+      "archer",
+      null,
+      null
+    ],
+    [
+      null,
+      "squire",
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      "knight",
+      "squire",
+      null,
+      "acolyte",
+      null,
+      null
+    ],
+    [
+      "squire",
+      "squire",
+      null,
+      "archer",
+      null,
+      null
+    ],
+    [
+      null,
+      "g000uu5016",
+      null,
+      "goblin_archer",
+      null,
+      null
     ]
   ],
   "unit_progression": true,
@@ -760,5 +835,644 @@
   ],
   "initial_items": {},
   "equipment_auto_equip": "price",
-  "equipment_requires_skills": false
+  "equipment_requires_skills": false,
+  "merchant": {
+    "name": "Торговец",
+    "position": [
+      8,
+      3
+    ],
+    "potions": {
+      "invulnerability": 1,
+      "healing": 10,
+      "life": 10
+    }
+  },
+  "trainer": {
+    "name": "Тренировочный лагерь",
+    "position": [
+      5,
+      10
+    ]
+  },
+  "faction_recruitment": true,
+  "territory": true,
+  "lord_type": "warrior",
+  "cities": [
+    {
+      "name": "Пепельный дозор",
+      "position": [
+        14,
+        16
+      ],
+      "level": 1
+    },
+    {
+      "name": "Каменная застава",
+      "position": [
+        32,
+        36
+      ],
+      "level": 3
+    }
+  ],
+  "mines": [
+    {
+      "kind": "gold",
+      "position": [
+        5,
+        3
+      ]
+    },
+    {
+      "kind": "infernal",
+      "position": [
+        4,
+        6
+      ]
+    },
+    {
+      "kind": "life",
+      "position": [
+        14,
+        19
+      ]
+    },
+    {
+      "kind": "death",
+      "position": [
+        17,
+        14
+      ]
+    },
+    {
+      "kind": "runes",
+      "position": [
+        32,
+        39
+      ]
+    },
+    {
+      "kind": "elves",
+      "position": [
+        35,
+        34
+      ]
+    }
+  ],
+  "obstacles": [
+    [
+      1,
+      1
+    ],
+    [
+      1,
+      2
+    ],
+    [
+      1,
+      3
+    ],
+    [
+      1,
+      4
+    ],
+    [
+      2,
+      1
+    ],
+    [
+      3,
+      1
+    ],
+    [
+      4,
+      1
+    ],
+    [
+      4,
+      2
+    ],
+    [
+      4,
+      4
+    ],
+    [
+      13,
+      15
+    ],
+    [
+      13,
+      16
+    ],
+    [
+      13,
+      17
+    ],
+    [
+      14,
+      15
+    ],
+    [
+      14,
+      17
+    ],
+    [
+      31,
+      35
+    ],
+    [
+      31,
+      36
+    ],
+    [
+      31,
+      37
+    ],
+    [
+      32,
+      35
+    ],
+    [
+      32,
+      37
+    ]
+  ],
+  "city_defender_roles": {
+    "41": "guard",
+    "42": "garrison",
+    "43": "guard",
+    "44": "garrison"
+  },
+  "mercenary": {
+    "name": "Лагерь наёмников",
+    "position": [
+      6,
+      6
+    ],
+    "roster": [
+      {
+        "unit": "g000uu5040",
+        "stock": 1
+      },
+      {
+        "unit": "goblin_archer",
+        "stock": 1
+      }
+    ]
+  },
+  "ruins": [
+    {
+      "name": "Забытые руины",
+      "position": [
+        7,
+        23
+      ],
+      "potions": {
+        "strength": 1
+      },
+      "gold": 0
+    }
+  ],
+  "terrain": {
+    "road": [
+      [
+        2,
+        3
+      ],
+      [
+        3,
+        3
+      ],
+      [
+        4,
+        3
+      ],
+      [
+        5,
+        4
+      ],
+      [
+        5,
+        5
+      ],
+      [
+        4,
+        6
+      ],
+      [
+        3,
+        7
+      ],
+      [
+        2,
+        8
+      ],
+      [
+        3,
+        9
+      ],
+      [
+        4,
+        10
+      ],
+      [
+        4,
+        11
+      ],
+      [
+        4,
+        12
+      ],
+      [
+        4,
+        13
+      ],
+      [
+        5,
+        14
+      ],
+      [
+        6,
+        14
+      ],
+      [
+        7,
+        14
+      ],
+      [
+        8,
+        14
+      ],
+      [
+        9,
+        15
+      ],
+      [
+        10,
+        16
+      ],
+      [
+        11,
+        17
+      ],
+      [
+        12,
+        18
+      ],
+      [
+        13,
+        18
+      ],
+      [
+        14,
+        18
+      ],
+      [
+        15,
+        17
+      ],
+      [
+        15,
+        16
+      ],
+      [
+        14,
+        16
+      ]
+    ],
+    "forest": [
+      [
+        5,
+        16
+      ],
+      [
+        5,
+        17
+      ],
+      [
+        5,
+        18
+      ],
+      [
+        5,
+        19
+      ],
+      [
+        6,
+        16
+      ],
+      [
+        6,
+        17
+      ],
+      [
+        6,
+        18
+      ],
+      [
+        6,
+        19
+      ],
+      [
+        7,
+        16
+      ],
+      [
+        7,
+        17
+      ],
+      [
+        7,
+        18
+      ],
+      [
+        7,
+        19
+      ],
+      [
+        23,
+        39
+      ],
+      [
+        23,
+        40
+      ],
+      [
+        23,
+        41
+      ],
+      [
+        23,
+        42
+      ],
+      [
+        24,
+        39
+      ],
+      [
+        24,
+        40
+      ],
+      [
+        24,
+        41
+      ],
+      [
+        24,
+        42
+      ],
+      [
+        25,
+        39
+      ],
+      [
+        25,
+        40
+      ],
+      [
+        25,
+        41
+      ],
+      [
+        25,
+        42
+      ],
+      [
+        26,
+        39
+      ],
+      [
+        26,
+        40
+      ],
+      [
+        26,
+        41
+      ],
+      [
+        26,
+        42
+      ],
+      [
+        27,
+        39
+      ],
+      [
+        27,
+        40
+      ],
+      [
+        27,
+        41
+      ],
+      [
+        27,
+        42
+      ]
+    ],
+    "water": [
+      [
+        13,
+        4
+      ],
+      [
+        13,
+        5
+      ],
+      [
+        13,
+        6
+      ],
+      [
+        13,
+        7
+      ],
+      [
+        13,
+        8
+      ],
+      [
+        13,
+        9
+      ],
+      [
+        14,
+        3
+      ],
+      [
+        14,
+        4
+      ],
+      [
+        14,
+        5
+      ],
+      [
+        14,
+        6
+      ],
+      [
+        14,
+        7
+      ],
+      [
+        14,
+        8
+      ],
+      [
+        14,
+        9
+      ],
+      [
+        14,
+        10
+      ],
+      [
+        15,
+        2
+      ],
+      [
+        15,
+        3
+      ],
+      [
+        15,
+        4
+      ],
+      [
+        15,
+        5
+      ],
+      [
+        15,
+        6
+      ],
+      [
+        15,
+        7
+      ],
+      [
+        15,
+        8
+      ],
+      [
+        15,
+        9
+      ],
+      [
+        15,
+        10
+      ],
+      [
+        15,
+        11
+      ],
+      [
+        16,
+        2
+      ],
+      [
+        16,
+        3
+      ],
+      [
+        16,
+        4
+      ],
+      [
+        16,
+        5
+      ],
+      [
+        16,
+        6
+      ],
+      [
+        16,
+        7
+      ],
+      [
+        16,
+        8
+      ],
+      [
+        16,
+        9
+      ],
+      [
+        16,
+        10
+      ],
+      [
+        16,
+        11
+      ],
+      [
+        17,
+        2
+      ],
+      [
+        17,
+        3
+      ],
+      [
+        17,
+        4
+      ],
+      [
+        17,
+        5
+      ],
+      [
+        17,
+        6
+      ],
+      [
+        17,
+        7
+      ],
+      [
+        17,
+        8
+      ],
+      [
+        17,
+        9
+      ],
+      [
+        17,
+        10
+      ],
+      [
+        17,
+        11
+      ],
+      [
+        18,
+        4
+      ],
+      [
+        18,
+        5
+      ],
+      [
+        18,
+        6
+      ],
+      [
+        18,
+        7
+      ],
+      [
+        18,
+        8
+      ],
+      [
+        18,
+        9
+      ]
+    ]
+  },
+  "spell_research": true
 }

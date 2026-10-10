@@ -1,4 +1,5 @@
 """Mixed five-bottle chests, one-shot adjacent pickup and compact inventory."""
+from stoix.tests.number_grid_fixtures import compiled_method
 import chex
 import jax.numpy as jnp
 import pytest
@@ -15,12 +16,14 @@ def test_chest_loot_and_observation_contract(current_game):
     assert jnp.all(jnp.sum(env.chest_rules.loot,axis=1)==5)
     assert int(jnp.sum(env.chest_rules.loot))==25
     start=220+5*env.num_opponents
-    encoded=env.observation(state)[start:start+100].reshape(5,20)
+    width=env.potion_rules.count+3
+    end=start+env.chest_rules.count*width
+    encoded=compiled_method(env,'observation')(state)[start:end].reshape(5,width)
     chex.assert_trees_all_close(encoded[:,:2],env.chest_rules.positions/47)
     chex.assert_trees_all_equal(encoded[:,2:-1],env.chest_rules.loot)
     chex.assert_trees_all_equal(encoded[:,-1],state.chest_alive)
     collected=state.replace(chest_alive=jnp.zeros(5,bool))
-    assert not jnp.any(env.observation(collected)[start:start+100].reshape(5,20)[:,-1])
+    assert not jnp.any(compiled_method(env,'observation')(collected)[start:end].reshape(5,width)[:,-1])
     for chests in (None,[None],[dict(position=[0,4],potions={'life':1})],
                    [dict(position=MAP['agent_position'],potions={'life':1})],
                    [MAP['chests'][0]]*2,[dict(position=[5,4],potions={})],
@@ -55,9 +58,9 @@ def test_pickup_makes_new_type_usable_and_nonmovement_does_not_collect(current_g
     picked,_=advance(beside,jnp.int32(2))
     kind=env.potion_rules.keys.index('might')
     action=POTION_START+6*kind
-    assert picked.potions[kind]==1 and env.action_mask(picked)[action]
+    assert picked.potions[kind]==1 and compiled_method(env,'action_mask')(picked)[action]
     used,_=advance(picked,jnp.int32(action))
-    assert used.potions[kind]==0 and env.unit_stats(used)[0,1]==38
+    assert used.potions[kind]==0 and compiled_method(env,'unit_stats')(used)[0,1]==38
     for action in (REST,-1,POTION_START):
         before=state.replace(position=jnp.array([5,3]),hp=state.hp.at[0].set(1))
         after,_=advance(before,jnp.int32(action))

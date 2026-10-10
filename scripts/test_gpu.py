@@ -41,7 +41,7 @@ def main():
     cache = output/'compilation-cache' if args.cold_cache else root/'results/gpu-tests/compilation-cache'
     cache.mkdir(parents=True,exist_ok=True)
     cache_populated = any(cache.glob('*-cache'))
-    worker_env = {**os.environ,'JAX_ENABLE_COMPILATION_CACHE':'true',
+    worker_env = {**os.environ,'NUMBERGRID_TEST_RUN':'1','JAX_ENABLE_COMPILATION_CACHE':'true',
                   'JAX_COMPILATION_CACHE_DIR':str(cache),
                   'JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS':'1'}
     workers = {}

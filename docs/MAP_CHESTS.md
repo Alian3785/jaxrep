@@ -1,4 +1,4 @@
-# Сундуки карты v74
+# Сундуки текущей карты
 
 На карте пять одноразовых сундуков: **пять бутылок и три предмета в каждом**,
 всего 25 зелий и 15 предметов. [Состав вещей и автоэкипировка](HERO_ITEMS.md).
@@ -31,7 +31,7 @@ Selecting Items; подтверждается несколькими строк�
 для одного `SBag`. Python-референс: `CHEST_PICKUP_RADIUS = 1` в
 `campaign_env_data.py` и инвентарь `_static_chests` в `campaign_env_inventory.py`.
 
-Состояние: `chest_alive` bool[5], `potions` и `last_loot` int32[17],
+Состояние: `chest_alive` bool[5], `potions` и `last_loot` int32[18],
 `item_inventory` и `last_item_loot` int32[15], `equipped` int32[5].
 В JSON содержимое именованное; в JAX оно уплотнено по каталогу сценария.
 Визуализация показывает все предметы при наведении и перечисляет всю добычу

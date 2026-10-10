@@ -36,7 +36,7 @@ ITEMS = (
     _item('thanatos_blade','Thanatos Blade','3019',ARTIFACT,1500,'После попадания: яд 20 HP, 80%, 1–6 ходов',status='poison',chance=.8,source=6,poison=20),
     _item('skull_of_thanatos','Skull of Thanatos','3020',ARTIFACT,3750,'После попадания: яд 35 HP, 80%, 1–6 ходов',status='poison',chance=.8,source=6,poison=35),
     _item('hags_ring',"Hag's Ring",'3021',ARTIFACT,2500,'После попадания: превращение, 70%, Разум',status='imp',chance=.7,source=7),
-    _item('lute_of_charming','Lute of Charming','3022',ARTIFACT,1500,'Скидка 10% у торговцев; торговцев на текущей карте нет',discount=10),
+    _item('lute_of_charming','Lute of Charming','3022',ARTIFACT,1500,'Скидка 10% у торговцев',discount=10),
     _item('banner_protection','Banner of Protection','1001',BANNER,1000,'Отряду: +10 брони',armor=10,priority=3),
     _item('banner_resistance','Banner of Resistance','1002',BANNER,3000,'Отряду: +15 брони',armor=15,priority=7),
     _item('banner_striking','Banner of Striking','1003',BANNER,1000,'Отряду: +10% точности',accuracy_percent=10,priority=2),
@@ -56,13 +56,13 @@ ITEMS = (
     _item('tome_arcanum','Tome of Arcanum','4006',BOOK,900,'Разрешает сферы; сферы пока не реализованы',orbs=True),
     _item('tome_sorcery','Tome of Sorcery','4007',BOOK,1200,'Разрешает талисманы; талисманы пока не реализованы',talismans=True),
     _item('tome_mind','Tome of Thought','4008',BOOK,900,'Герою: защита от первой атаки Разума',ward=64),
-    _item('elven_boots','Elven Boots','1010',BOOTS,1200,'Движение по лесу: 2 очка; леса на текущей карте нет',forest=True),
-    _item('elemental_boots','Boots of the Elements','1011',BOOTS,1600,'Движение по воде: 2 очка; воды на текущей карте нет',water=True),
+    _item('elven_boots','Elven Boots','1010',BOOTS,1200,'Движение по лесу: 2 очка',forest=True),
+    _item('elemental_boots','Boots of the Elements','1011',BOOTS,1600,'Движение по воде: 2 очка',water=True),
     _item('boots_speed','Boots of Speed','8003',BOOTS,400,'Отряду: +20% очков движения',movement_percent=20),
     _item('boots_traveling','Boots of Traveling','8004',BOOTS,1200,'Отряду: +40% очков движения',movement_percent=40),
     _item('boots_seven_leagues','Boots of Seven Leagues','8005',BOOTS,2000,'Отряду: +60% очков движения',movement_percent=60),
     *(_item(key,name,str(7001+i),VALUABLE,price,
-            f'Цена продажи: {price//5} золота; торговцев на текущей карте нет',sell_price=price//5)
+            f'Цена продажи: {price//5} золота',sell_price=price//5)
       for i,(key,name,price) in enumerate((
           ('bronze_ring','Bronze Ring',250),('silver_ring','Silver Ring',500),
           ('emerald','Emerald',750),('gold_ring','Gold Ring',1000),('ruby','Ruby',1250),
@@ -85,6 +85,8 @@ class ItemRules:
     def __init__(self, game_map):
         inventories = [item_counts(game_map.get('initial_items',{}),'initial_items')]
         inventories += [item_counts(c.get('items',{}),'Chest items') for c in game_map.get('chests',[])]
+        chest_count = len(inventories)-1
+        inventories += [item_counts(r.get('items',{}),'Ruin items') for r in game_map.get('ruins',[])]
         used = {key for contents in inventories for key,count in contents.items() if count}
         self.items = tuple(p for p in ITEMS if p['key'] in used)
         self.keys = tuple(p['key'] for p in self.items)
@@ -113,8 +115,13 @@ class ItemRules:
         self.has_drain = any(p.get('drain') for p in self.items)
         initial = [self.keys.index(key) for key,count in inventories[0].items() for _ in range(count)]
         self.initial_inventory = jnp.array(initial+[-1]*(self.capacity-len(initial)),jnp.int32)
-        self.chest_loot = jnp.array([[c.get(key,0) for key in self.keys] for c in inventories[1:]],jnp.int32).reshape(len(inventories)-1,self.count)
-        tokens = [(chest,self.keys.index(key)) for chest,c in enumerate(inventories[1:]) for key,count in c.items() for _ in range(count)]
+        self.chest_loot = jnp.array([[c.get(key,0) for key in self.keys] for c in inventories[1:chest_count+1]],jnp.int32).reshape(chest_count,self.count)
+        ruins = inventories[chest_count+1:]
+        self.ruin_loot = jnp.array([[c.get(key,0) for key in self.keys] for c in ruins],jnp.int32).reshape(len(ruins),self.count)
+        ruin_tokens = [(r,self.keys.index(key)) for r,c in enumerate(ruins) for key,count in c.items() for _ in range(count)]
+        self.loot_ruins = jnp.array([r for r,_ in ruin_tokens],jnp.int32)
+        self.ruin_items = jnp.array([i for _,i in ruin_tokens],jnp.int32)
+        tokens = [(chest,self.keys.index(key)) for chest,c in enumerate(inventories[1:chest_count+1]) for key,count in c.items() for _ in range(count)]
         self.loot_chests = jnp.array([c for c,_ in tokens],jnp.int32)
         self.loot_items = jnp.array([i for _,i in tokens],jnp.int32)
 
@@ -130,13 +137,19 @@ class ItemRules:
         return base_points+base_points*percent//100
 
     def collect(self, state, collected):
-        if not len(self.loot_items):
+        return self._collect(state,collected,self.loot_chests,self.loot_items,self.chest_loot)
+
+    def collect_ruins(self, state, collected):
+        return self._collect(state,collected,self.loot_ruins,self.ruin_items,self.ruin_loot)
+
+    def _collect(self, state, collected, sources, tokens, contents):
+        if not len(tokens):
             return state
-        gained = collected[self.loot_chests]
+        gained = collected[sources]
         offset = jnp.sum(state.item_inventory >= 0)
         destinations = jnp.where(gained,offset+jnp.cumsum(gained)-1,self.capacity)
-        inventory = state.item_inventory.at[destinations].set(self.loot_items,mode='drop')
-        loot = jnp.sum(jnp.where(collected[:,None],self.chest_loot,0),axis=0)
+        inventory = state.item_inventory.at[destinations].set(tokens,mode='drop')
+        loot = jnp.sum(jnp.where(collected[:,None],contents,0),axis=0)
         return state.replace(item_inventory=inventory,last_item_loot=loot)
 
     def choose(self, state, hero_alive, hero_level):
@@ -161,7 +174,8 @@ class ItemRules:
             if category==BOOK and self.policy=='reference':
                 # Reference books retain the first selection, unlike other gear.
                 first=jnp.argmax(valid)
-                chosen=jnp.where(state.equipped[3]>=0,state.equipped[3],jnp.where(jnp.any(valid),ids[first],-1))
+                retained=(state.equipped[3]>=0)&jnp.any(ids==state.equipped[3])
+                chosen=jnp.where(retained,state.equipped[3],jnp.where(jnp.any(valid),ids[first],-1))
             selected.append(chosen)
         allowed=jnp.full(5,hero_alive)
         if self.require_skills:

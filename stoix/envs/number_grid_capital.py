@@ -13,6 +13,7 @@ CAPITAL_HEAL, CAPITAL_REVIVE = 17, 18
 
 class CapitalRules:
     def __init__(self, progression, construction, position):
+        self.territory = None
         self.position = jnp.asarray(position, jnp.int32)
         self.temple_slot = next(i for i, row in enumerate(construction.rows) if row['name'] == 'Храм')
         self.temple_bit = jnp.uint32(1 << self.temple_slot)
@@ -25,7 +26,7 @@ class CapitalRules:
                                           for r in rows], jnp.int32)
 
     def at_capital(self, state):
-        return jnp.all(state.position == self.position)
+        return self.territory.service_at(state) if self.territory is not None else jnp.all(state.position == self.position)
 
     def temple_built(self, state):
         return (state.buildings & self.temple_bit) != 0
@@ -64,7 +65,7 @@ class CapitalRules:
             last_event=jnp.where(service, jnp.where(healing, CAPITAL_HEAL, CAPITAL_REVIVE), state.last_event),
             last_target=jnp.where(service, slot, state.last_target),
             last_damage=jnp.where(service, jnp.where(healing, healed, 1), state.last_damage),
-            last_service_cost=spent,
+            last_service_cost=jnp.where(service,spent,state.last_service_cost),
         ), bonus
 
     def observation(self, state, size):

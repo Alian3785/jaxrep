@@ -12,7 +12,7 @@ from stoix.tests.number_grid_fixtures import current_environment
 @pytest.fixture(scope='session')
 def current_game():
     env = current_environment()
-    state, _ = env.reset(jax.random.PRNGKey(42))
+    state, _ = compiled_method(env,'reset')(jax.random.PRNGKey(42))
     return env, state, compiled_method(env,'step'), compiled_method(env,'_battle_step')
 
 
@@ -24,7 +24,7 @@ def human_service(current_game):
     env, _, step, _ = current_game
     service = GameService.__new__(GameService)
     service.env = env
-    service.environments = {env.construction.faction:(env,compiled_method(env,'reset'),step)}
+    service.environments = {(env.construction.faction, env.construction.lord['id']):(env,compiled_method(env,'reset'),step)}
     service.sessions = OrderedDict()
     service.lock = threading.Lock()
     return service
@@ -45,6 +45,7 @@ def elemental_attack_game():
     config = copy.deepcopy(MAP)
     config['fear_paralysis_teams'] = ['red']
     config['hero_roster'][3:5] = ['sentry','watcher']
+    config['hero_units'] = 5
     config['hero_combat_stats'] = [{},{},{},dict(attack_type='weapon'),dict(attack_type='weapon')]
     config['enemy_rosters'][40] = ['succubus','succubus','archer','archer','archer','archer']
     config['enemy_units'][40] = 6
@@ -89,6 +90,6 @@ def elemental_attack_game():
     env = NumberGrid(map_config=config)
     env.progression.capital_guards = env.progression.capital_guards.at[env.progression.enemy_ids[40,2]].set(True)
     env.progression.capital_guards = env.progression.capital_guards.at[env.progression.enemy_ids[37,5]].set(True)
-    initial,_ = env.reset(jax.random.PRNGKey(42))
-    start = env._begin_battle(initial.replace(enemy=jnp.int32(11)))
+    initial,_ = compiled_method(env,'reset')(jax.random.PRNGKey(42))
+    start = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(11)))
     return env,initial,start.replace(priority=start.priority.at[0].set(10000.))

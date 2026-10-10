@@ -58,6 +58,7 @@ def evaluate(actor, params, episodes=1024, seed=1042, greedy=True, map_config=No
 
 
 def train(args):
+    training_budget(args)  # Reject oversized test runs before tracking or CUDA setup.
     started = time.perf_counter()
     with NumberGridTracking(args) as tracking:
         result = run_training(args, tracking)
@@ -68,11 +69,24 @@ def train(args):
     return result
 
 
+def training_budget(args):
+    """The budget counts transitions across all parallel environments together."""
+    testing = (getattr(args, 'test_run', False)
+               or os.environ.get('NUMBERGRID_TEST_RUN') == '1'
+               or 'PYTEST_CURRENT_TEST' in os.environ)
+    total = 250_000 if args.smoke else args.total_timesteps
+    if total is None:
+        total = 1_000_000 if testing else 5_000_000
+    if testing and total > 1_000_000:
+        raise ValueError('Test training is limited to 1,000,000 total transitions per run.')
+    return total
+
+
 def run_training(args, tracking):
     started = time.perf_counter()
+    total = training_budget(args)
     if os.environ.get('NUMBERGRID_ALLOW_CPU') != '1' and (len(jax.devices()) != 1 or jax.devices()[0].platform != 'gpu'):
         raise RuntimeError('This measured profile requires exactly one CUDA GPU.')
-    total = 250_000 if args.smoke else args.total_timesteps
     game_map = json.loads(Path(args.map).read_text(encoding='utf-8')) if args.map else MAP
     config = make_config(total, args.seed, map_config=game_map)
     run_name = f"number_grid-{game_map['size']}x{game_map['size']}" + ('-step-cost' if game_map.get('step_cost', 0) else '') + ('-smoke' if args.smoke else '')
@@ -88,8 +102,9 @@ def run_training(args, tracking):
     output.mkdir(parents=True, exist_ok=True)
     measured_sources = ['benchmark_number_grid.py', 'numbergrid_config.py', 'numbergrid_tracking.py',
                         'stoix/envs/number_grid_buildings.py', 'stoix/envs/data/buildings.json',
+                        'stoix/envs/number_grid_spells.py', 'stoix/envs/number_grid_lords.py', 'stoix/envs/data/spells.json',
                         'stoix/envs/data/units.json', 'stoix/envs/number_grid_effects.py', 'stoix/envs/number_grid_wards.py', 'stoix/envs/number_grid_summoning.py',
-                        'stoix/envs/number_grid.py', 'stoix/envs/number_grid_combat.py', 'stoix/envs/number_grid_progression.py', 'stoix/envs/number_grid_capital.py', 'stoix/envs/number_grid_potions.py', 'stoix/envs/number_grid_chests.py', 'stoix/envs/number_grid_items.py', 'stoix/envs/number_grid_item_combat.py', 'stoix/envs/number_grid_legacy.py',
+                        'stoix/envs/number_grid.py', 'stoix/envs/number_grid_combat.py', 'stoix/envs/number_grid_progression.py', 'stoix/envs/number_grid_capital.py', 'stoix/envs/number_grid_potions.py', 'stoix/envs/number_grid_chests.py', 'stoix/envs/number_grid_items.py', 'stoix/envs/number_grid_item_combat.py', 'stoix/envs/number_grid_sites.py', 'stoix/envs/number_grid_recruitment.py', 'stoix/envs/number_grid_territory.py', 'stoix/envs/number_grid_ruins.py', 'stoix/envs/number_grid_terrain.py', 'stoix/envs/data/training_prices.json', 'stoix/envs/number_grid_legacy.py',
                         'stoix/utils/make_env.py', 'stoix/wrappers/number_grid_metrics.py',
                         'stoix/wrappers/number_grid_reset.py', 'stoix/systems/ppo/anakin/ff_ppo.py']
     source_hashes = {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
@@ -109,8 +124,10 @@ def run_training(args, tracking):
     keys = tuple(jax.random.split(jax.random.PRNGKey(args.seed), 3))
     learner, actor, state = learner_setup(env, keys, config)
     initial_params = jax.device_get(unreplicate(state.params))
+    initial_eval_started = time.perf_counter()
     initial = evaluate(actor, unreplicate(state.params.actor_params), episodes=64, map_config=game_map)
     tracking.evaluation(initial, 0)
+    initial_evaluation_seconds = time.perf_counter()-initial_eval_started
     status('compiling', initial_evaluation=initial)
     def chunk(s):
         result = learner(s)
@@ -178,14 +195,20 @@ def run_training(args, tracking):
     actual_critic_updates = int(np.asarray(state.opt_states.critic_opt_state[1][0].count).reshape(-1)[0])
     if actual_actor_updates != expected_updates or actual_critic_updates != expected_updates:
         raise AssertionError('Unexpected optimizer update count')
+    checkpoint_started = time.perf_counter()
     checkpoint = serialization.to_bytes(params)
     (output / 'params.msgpack').write_bytes(checkpoint)
     (output / 'learner_state.msgpack').write_bytes(serialization.to_bytes(state))
     restored = serialization.from_bytes(params, (output / 'params.msgpack').read_bytes())
     if not all(np.array_equal(a, b) for a, b in zip(jax.tree.leaves(params), jax.tree.leaves(restored))):
         raise AssertionError('Checkpoint roundtrip failed')
+    checkpoint_seconds = time.perf_counter()-checkpoint_started
+    final_eval_started = time.perf_counter()
     final = evaluate(actor, restored.actor_params, episodes=1024, map_config=game_map)
+    final_evaluation_seconds = time.perf_counter()-final_eval_started
+    sample_eval_started = time.perf_counter()
     sampled = evaluate(actor, restored.actor_params, episodes=1024, greedy=False, map_config=game_map)
+    sampled_evaluation_seconds = time.perf_counter()-sample_eval_started
     tracking.evaluation(final, total)
     tracking.evaluation(sampled, total)
     source = ROOT / 'stoix/systems/ppo/anakin/ff_ppo.py'
@@ -204,6 +227,10 @@ def run_training(args, tracking):
         completed_training_episodes=tracking.episodes, won_training_episodes=tracking.wins,
         wandb=tracking.metadata.copy(),
         initial_evaluation=initial, final_evaluation=final, sampled_evaluation=sampled,
+        initial_evaluation_seconds=initial_evaluation_seconds,
+        final_evaluation_seconds=final_evaluation_seconds,
+        sampled_evaluation_seconds=sampled_evaluation_seconds,
+        checkpoint_seconds=checkpoint_seconds,
         parameter_count=sum(x.size for x in jax.tree.leaves(params)),
         num_envs=config.arch.num_envs, rollout_length=config.system.rollout_length,
         observation_size=int((env.observation_space().spaces['observation']
@@ -233,7 +260,8 @@ def run_training(args, tracking):
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--smoke', action='store_true', help='250,000 transitions, separate output')
-    p.add_argument('--total-timesteps', type=int, default=5_000_000)
+    p.add_argument('--test-run', action='store_true', help='Test/benchmark mode: at most 1,000,000 total transitions')
+    p.add_argument('--total-timesteps', type=int, help='Default: 1,000,000 in test mode, otherwise 5,000,000')
     p.add_argument('--seed', type=int, default=42)
     p.add_argument('--output')
     p.add_argument('--map', help='Optional saved map JSON for reproducible comparisons')

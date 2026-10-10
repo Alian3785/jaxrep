@@ -19,6 +19,12 @@ from stoix.envs.number_grid_progression import ProgressionRules
 from stoix.envs.number_grid_summoning import Summoning, COPY_ALLY, COPY_ACTIONS, advance_linked_queue
 from stoix.envs.number_grid_chests import ChestRules
 from stoix.envs.number_grid_items import ItemRules
+from stoix.envs.number_grid_sites import SiteRules, trade_action_names
+from stoix.envs.number_grid_recruitment import RecruitmentRules, recruit_action_names, HIRED, DISMISSED
+from stoix.envs.number_grid_ruins import RuinRules
+from stoix.envs.number_grid_terrain import TerrainRules
+from stoix.envs.number_grid_spells import SpellResearchRules, research_action_names
+from stoix.envs.number_grid_territory import TerritoryRules, OBSTACLE
 from stoix.envs.number_grid_item_combat import equipment_attack, transform_imp, transform_decay
 from stoix.envs.number_grid_wards import ward_tags, grant_wards, expire_wards
 from stoix.envs.number_grid_effects import armor_after_shreds, source_protection, advance_poison_queue, advance_periodic_queue, vampiric_heal
@@ -34,14 +40,15 @@ MAP = json.loads((Path(__file__).resolve().parents[2] / 'number_grid_map.json').
 SHOOT, DEFEND, WAIT, RETREAT, CONTINUE = 8, 14, 15, 16, 17
 REST = BUILD_START + BUILD_SLOTS
 BASE_ACTIONS, FENRIR = REST + 1, CAPITAL_ACTIONS
-ACTIONS = POTION_START + 6*len(scenario_potions(MAP))
+_SITE_ACTION_NAMES = trade_action_names(MAP)
+ACTIONS = POTION_START + 6*len(scenario_potions(MAP)) + len(_SITE_ACTION_NAMES) + len(recruit_action_names(MAP)) + (len(MAP.get('cities', [])) if MAP.get('territory') else 0) + len(research_action_names(MAP))
 MAX_MOVEMENT_POINTS, MOVE_COST = 20, 2
 BATTLE_ENTRY_COST = (MAX_MOVEMENT_POINTS + 1) // 2
 ACTION_NAMES = ('N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW') + tuple(
     f'shoot_{i}' for i in range(6)) + ('defend', 'wait', 'retreat', 'continue') + tuple(
         f'build_{i}' for i in range(BUILD_SLOTS)) + ('rest',) + tuple(
             f'heal_{i}' for i in range(6)) + tuple(f'revive_{i}' for i in range(6)) + ('transform_fenrir',) + tuple(f'copy_ally_{slot}' for slot in range(6)) + tuple(
-                f'potion_{item["key"]}_{slot}' for item in scenario_potions(MAP) for slot in range(6))
+                f'potion_{item["key"]}_{slot}' for item in scenario_potions(MAP) for slot in range(6)) + _SITE_ACTION_NAMES + recruit_action_names(MAP) + (tuple('upgrade_city_'+str(i) for i in range(len(MAP.get('cities', [])))) if MAP.get('territory') else ()) + research_action_names(MAP)
 MOVE, ENGAGE, HIT, MISS, GUARD, DELAY, FLEE, ESCAPE, VICTORY, DEFEAT, WITHDRAW, LIMIT = range(12)
 BUILD, RESTED, IMMUNE, WARD, HEAL = 12, 13, 14, 15, 16
 TRANSFORMED = 22
@@ -124,6 +131,24 @@ class BattleState(NumberGridState):
     potion_active: jax.Array  # one bit per temporary catalogue item, until rest
     potion_wards: jax.Array
     last_potion: jax.Array
+    learned_spells: jax.Array  # faction-local uint32 bitset
+    spell_researched_today: jax.Array
+    last_researched_spell: jax.Array
+    mana: jax.Array
+    territory_claims: jax.Array
+    city_owned: jax.Array
+    city_levels: jax.Array
+    last_captured_cities: jax.Array
+    last_upgraded_city: jax.Array
+    battle_fort_armor: jax.Array
+    hire_rewarded_capacity: jax.Array
+    mercenary_stock: jax.Array
+    merchant_stock: jax.Array
+    last_sale_gold: jax.Array
+    last_sold_count: jax.Array
+    last_trade_item: jax.Array
+    ruin_looted: jax.Array
+    last_ruin: jax.Array
     chest_alive: jax.Array
     last_loot: jax.Array  # potion counts granted by the most recent map transition
     item_inventory: jax.Array  # acquisition order, scenario item IDs; -1 empty
@@ -224,7 +249,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             self.has_potion_buffs = self.potion_rules.has_buffs
         self.chests_enabled = 'chests' in game_map
         self.items_enabled = 'initial_items' in game_map or any(
-            c.get('items') for c in game_map.get('chests',[]) if isinstance(c,dict))
+            c.get('items') for c in game_map.get('chests',[])+game_map.get('ruins',[]) if isinstance(c,dict))
         if self.items_enabled:
             if not self.potions_enabled:
                 raise ValueError('Equipment requires the current map inventory/progression environment')
@@ -408,8 +433,9 @@ class NumberGrid(Summoning, NumericNumberGrid):
             self.has_water = self.progression.has_water
             self.has_fire = self.progression.has_fire
             self.priority_scale = 110.
-        if self.items_enabled:
+        if self.progression_enabled:
             self.equipment_heroes = jnp.array([bool(p and p['hero']) for p in self.progression.metadata])
+        if self.items_enabled:
             statuses = {p['status'] for _,p in self.item_rules.status_items}
             self.has_witches |= 'imp' in statuses
             self.has_wights |= 'decay' in statuses
@@ -430,41 +456,104 @@ class NumberGrid(Summoning, NumericNumberGrid):
             self.random_size = max(self.random_size,80)+4
         if self.capital_enabled:
             self.capital = CapitalRules(self.progression, self.construction, game_map['agent_position'])
+        self.sites_enabled = any(game_map.get(kind) is not None for kind in ('merchant', 'trainer', 'mercenary'))
+        if self.sites_enabled:
+            if not self.potions_enabled or not self.progression_enabled:
+                raise ValueError('Sites require potion inventory and unit progression')
+            self.site_rules = SiteRules(game_map, self.potion_rules,
+                self.item_rules if self.items_enabled else None, self.progression, self.num_actions)
+            self.num_actions = self.site_rules.end
+        self.recruitment_enabled = bool(game_map.get('faction_recruitment', False))
+        if game_map.get('mercenary') is not None and not self.recruitment_enabled:
+            raise ValueError('Mercenary camps require recruitment')
+        if self.recruitment_enabled:
+            if not self.capital_enabled:
+                raise ValueError('Recruitment requires capital services and progression')
+            self.recruitment = RecruitmentRules(game_map, self.progression, self.construction, self.num_actions,
+                self.site_rules if self.sites_enabled else None)
+            self.num_actions = self.recruitment.end
+        self.ruins_enabled = bool(game_map.get('ruins',[]))
+        if self.ruins_enabled:
+            if not self.potions_enabled or not self.progression_enabled:
+                raise ValueError('Ruins require potion inventory and unit progression')
+            self.ruins = RuinRules(game_map,self.potion_rules,self.item_rules if self.items_enabled else None,
+                self.progression,self.site_rules if self.sites_enabled else None)
+        self.territory_enabled = bool(game_map.get('territory',False))
+        if self.territory_enabled:
+            if not self.recruitment_enabled:
+                raise ValueError('Territory requires progression and recruitment')
+            self.territory = TerritoryRules(game_map,self.progression,self.num_actions,
+                self.site_rules if self.sites_enabled else None,self.ruins if self.ruins_enabled else None)
+            self.num_actions = self.territory.end
+            self.capital.territory = self.territory
+            self.recruitment.territory = self.territory
+        self.spell_research_enabled = bool(game_map.get('spell_research', False))
+        if self.spell_research_enabled:
+            if not self.territory_enabled:
+                raise ValueError('Spell research requires territory and mana resources')
+            self.spell_research = SpellResearchRules(game_map, self.construction, self.num_actions)
+            self.num_actions = self.spell_research.end
+        if self.basic_combat:
+            self.terrain = TerrainRules(game_map, self.progression if self.progression_enabled else None)
         self.restored_hp = jnp.concatenate((self.hero_full, jnp.zeros(6, jnp.int32)))
         # User-defined prototype rule: ceil(10% max HP) once per strategic rest.
         self.rest_healing = jnp.concatenate(((self.hero_full + 9) // 10, jnp.zeros(6, jnp.int32)))
         self.observation_version = int(game_map.get('battle_observation_version', 1))
-        if self.basic_combat and self.observation_version not in (7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30):
+        if self.basic_combat and self.observation_version not in (7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38):
             raise ValueError('Combat rules version 2 requires observation version 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 or 18')
-        if not self.basic_combat and self.observation_version in (4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30):
+        if not self.basic_combat and self.observation_version in (4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38):
             raise ValueError('Observation versions 7вЂ“18 require combat rules version 2')
-        if (self.warrior_slot >= 0 or self.has_enemy_warriors) and self.observation_version not in (3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30):
+        if (self.warrior_slot >= 0 or self.has_enemy_warriors) and self.observation_version not in (3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38):
             raise ValueError('Warrior maps require battle_observation_version 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 or 18')
-        self.observation_size = (4 + 5 * self.num_opponents + (141 if self.basic_combat else 48) + 6 if self.observation_version in (2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30)
+        self.observation_size = (4 + 5 * self.num_opponents + (141 if self.basic_combat else 48) + 6 if self.observation_version in (2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38)
                                  else self.observation_size + 2 * self.num_opponents + 12 * 8 + 6)
 
-        if self.observation_version in (8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30):
+        if self.observation_version in (8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38):
             self.observation_size += 48
-        if self.progression_enabled != (self.observation_version in (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30)):
+        if self.progression_enabled != (self.observation_version in (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38)):
             raise ValueError('Unit progression requires observation version 9, 10, 11, 12, 13, 14, 15, 16, 17 or 18')
         if self.progression_enabled:
             self.observation_size += 60
         if self.observation_version >= 10:
             self.observation_size += 12
-        if self.capital_enabled != (self.observation_version in (11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30)):
+        if self.capital_enabled != (self.observation_version in (11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38)):
             raise ValueError("Capital services require observation version 11, 12, 13, 14, 15, 16, 17 or 18")
         if self.capital_enabled:
             self.observation_size += 17
-        if self.potions_enabled != (self.observation_version in (12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30)):
+        if self.potions_enabled != (self.observation_version in (12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38)):
             raise ValueError("Map potions require observation version 12, 13, 14, 15, 16, 17 or 18")
         if self.potions_enabled:
             self.observation_size += self.potion_rules.count+(36 if self.has_potion_buffs else 0)
-        if self.chests_enabled != (self.observation_version in (13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30)):
+        if self.chests_enabled != (self.observation_version in (13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38)):
             raise ValueError('Map chests require observation version 13, 14, 15, 16, 17 or 18')
         if self.chests_enabled:
             self.observation_size += (1+self.chest_rules.features.shape[1])*self.chest_rules.count
         if self.items_enabled:
             self.observation_size += self.item_rules.capacity+5+self.item_rules.chest_loot.size
+        if self.sites_enabled:
+            if self.observation_version < 31:
+                raise ValueError('Sites require observation version 31 or later')
+            self.observation_size += self.site_rules.observation_size
+        if self.recruitment_enabled:
+            if self.observation_version < 33:
+                raise ValueError('Recruitment requires observation version 33')
+            self.observation_size += self.recruitment.observation_size
+        if self.territory_enabled:
+            if self.observation_version < 34:
+                raise ValueError('Territory requires observation version 34')
+            self.observation_size += self.territory.observation_size
+        if self.ruins_enabled:
+            if self.observation_version < 36:
+                raise ValueError('Ruins require observation version 36')
+            self.observation_size += self.ruins.observation_size
+        if self.observation_version >= 37:
+            self.observation_size += self.terrain.observation_size
+        if self.observation_version >= 38:
+            self.observation_size += 3  # ruler one-hot observation
+        if self.spell_research_enabled:
+            if self.observation_version < 38:
+                raise ValueError('Spell research requires observation version 38')
+            self.observation_size += self.spell_research.observation_size
         if self.observation_version >= 14:
             self.observation_size += 12
         if self.observation_version >= 15:
@@ -555,6 +644,18 @@ class NumberGrid(Summoning, NumericNumberGrid):
             potion_doses=jnp.zeros((12,5),jnp.int32),potion_bonus=jnp.zeros((12,7)),
             potion_temporary=jnp.zeros((12,7)),
             potion_active=jnp.zeros(12,jnp.uint32),potion_wards=jnp.zeros(12,jnp.uint32),
+            learned_spells=jnp.uint32(0), spell_researched_today=jnp.bool_(False),
+            last_researched_spell=jnp.int32(-1), mana=jnp.zeros(5,jnp.int32),
+            territory_claims=self.territory.initial_claims if self.territory_enabled else jnp.zeros(0,jnp.int32),
+            city_owned=jnp.zeros(self.territory.count if self.territory_enabled else 0,bool),
+            city_levels=self.territory.initial_levels if self.territory_enabled else jnp.zeros(0,jnp.int32),
+            last_captured_cities=jnp.zeros(self.territory.count if self.territory_enabled else 0,bool),
+            last_upgraded_city=jnp.int32(-1),battle_fort_armor=zero,
+            hire_rewarded_capacity=zero,
+            mercenary_stock=(self.recruitment.initial_stock if self.recruitment_enabled else jnp.zeros(0, jnp.int32)),
+            merchant_stock=(self.site_rules.initial_stock if self.sites_enabled else jnp.zeros(0, jnp.int32)),
+            last_sale_gold=zero, last_sold_count=zero, last_trade_item=jnp.int32(-1),
+            ruin_looted=jnp.zeros(self.ruins.count if self.ruins_enabled else 0,bool),last_ruin=jnp.int32(-1),
             chest_alive=jnp.ones(self.chest_rules.count if self.chests_enabled else 0, bool),
             last_loot=jnp.zeros(self.potion_rules.count if self.potions_enabled else 0, jnp.int32),
             item_inventory=(self.item_rules.initial_inventory if self.items_enabled else jnp.zeros(0,jnp.int32)),
@@ -563,13 +664,31 @@ class NumberGrid(Summoning, NumericNumberGrid):
             last_potion=jnp.int32(-1), recovery_balance=jnp.zeros(2, jnp.int32), last_service_cost=zero,
             gold=zero, map_steps=zero,
             movement_points=jnp.int32(MAX_MOVEMENT_POINTS), day=jnp.int32(1),
-            buildings=jnp.uint32(0),
+            buildings=(self.construction.initial_built if self.basic_combat else jnp.uint32(0)),
             blocked_buildings=(self.construction.initial_blocked if self.basic_combat else jnp.uint32(0)),
             built_today=jnp.bool_(False), last_building=jnp.int32(-1),
         )
         if self.items_enabled:
             state=self._refresh_equipment(state)
+        if self.progression_enabled:
+            state=state.replace(movement_points=self.movement_cap(state))
+        if self.sites_enabled:
+            state=self.site_rules.autosell(state)
+        if self.recruitment_enabled:
+            state=state.replace(hire_rewarded_capacity=self.recruitment.composition(state)[1])
         return state, self._timestep(state, jnp.float32(0), first=True)
+
+    def _clear_roster_slots(self, state, affected):
+        fields = self._empty_summon_fields(state)
+        zero = ('unit_ids', 'unit_levels', 'unit_xp', 'native_ids', 'native_levels', 'native_xp',
+                'hp', 'copy_stats', 'copy_traits', 'copy_secondary', 'preparation', 'pending_healers',
+                'potion_doses', 'potion_bonus', 'potion_temporary', 'potion_active', 'potion_wards',
+                'equipment_bonus', 'last_poison_damage', 'last_burn_damage', 'last_water_damage',
+                'activation_done', 'priority', 'turn_phase', 'last_xp')
+        fields.update({name: jnp.zeros_like(getattr(state, name)) for name in zero})
+        fields['summon_owner'] = jnp.full_like(state.summon_owner, -1)
+        return state.replace(**{name: jnp.where(affected.reshape((12,)+(1,)*(value.ndim-1)),
+            value, getattr(state, name)) for name, value in fields.items()})
 
     def _equipment_hero(self,state):
         heroes=self.equipment_heroes[state.unit_ids[:6]]
@@ -586,28 +705,59 @@ class NumberGrid(Summoning, NumericNumberGrid):
         return state.replace(equipment_bonus=bonus,
             movement_points=jnp.minimum(cap,state.movement_points+jnp.maximum(0,cap-old_cap)))
 
+    def _hero_level_movement_bonus(self, ids, levels):
+        # User rule: +1 for levels 2..10, then no further growth.
+        return jnp.max(jnp.where(self.equipment_heroes[ids[:6]],
+                                 jnp.clip(levels[:6]-1, 0, 9), 0))
+
     def movement_cap(self,state):
-        return (self.item_rules.movement_cap(state,MAX_MOVEMENT_POINTS)
-                if self.items_enabled else jnp.int32(MAX_MOVEMENT_POINTS))
+        cap = (self.item_rules.movement_cap(state,MAX_MOVEMENT_POINTS)
+               if self.items_enabled else jnp.int32(MAX_MOVEMENT_POINTS))
+        if self.progression_enabled:
+            ids, levels = state.unit_ids, state.unit_levels
+            if self.has_copies or self.has_summons:
+                ids = jnp.where(state.in_battle, state.native_ids, ids)
+                levels = jnp.where(state.in_battle, state.native_levels, levels)
+            cap += self._hero_level_movement_bonus(ids, levels)
+        return cap
 
     def _equipment_wards(self,state):
         return jnp.where(self.slots==self._equipment_hero(state),self.item_rules.value(state,'ward',3),jnp.uint32(0))
 
+    def territory_quotes(self, state):
+        if not self.territory_enabled:
+            return {}
+        banner = self.item_rules.value(state, 'regeneration', 2) if self.items_enabled else 0
+        return self.territory.quotes(state, banner)
+
     def turn_metadata(self):
         return {"movement_points": MAX_MOVEMENT_POINTS, "move_cost": MOVE_COST,
+                "hero_level_movement_per_level": 1, "hero_level_movement_last_level": 10,
                 "battle_entry_cost": BATTLE_ENTRY_COST, "attack_requires_points": 1,
+                 "terrain_costs": dict(plain=2, road=1, forest=4, water=6),
+                 "flying_cost": 2, "dead_hero_cost_multiplier": 2, "last_partial_move": True,
                 "income": DAILY_GOLD, "rest_action": REST,
-                "regeneration_percent": 10, "regeneration_rounding": "ceil", "automatic_revive": False,
+                "regeneration_percent": None if self.territory_enabled else 10, "regeneration_rounding": "ceil", "automatic_revive": False,
                 "fenrir_action": FENRIR}
+
+    def travel_costs(self, state):
+        return self.terrain.costs(state, self.item_rules if self.items_enabled else None)
+
+    def move_cost(self, state, destination):
+        return self.terrain.move_cost(state, destination, self.item_rules if self.items_enabled else None)
 
     def map_commands(self, state):
         """UI/export quotes: exact target stack (-1 for a move) and point cost."""
         destinations = state.position[None] + self.directions
-        matches = state.alive[None, :] & jnp.all(
-            destinations[:, None, :] == self.opponent_positions[None, :, :], axis=-1)
-        attacking = jnp.any(matches, axis=1)
-        targets = jnp.where(attacking, jnp.argmax(matches, axis=1), -1)
-        costs = jnp.where(attacking, jnp.minimum(state.movement_points, (self.movement_cap(state)+1)//2), MOVE_COST)
+        if self.territory_enabled:
+            targets = self.territory.enemy_at(state, destinations)
+            attacking = targets>=0
+        else:
+            matches = state.alive[None, :] & jnp.all(
+                destinations[:, None, :] == self.opponent_positions[None, :, :], axis=-1)
+            attacking = jnp.any(matches, axis=1)
+            targets = jnp.where(attacking, jnp.argmax(matches, axis=1), -1)
+        costs = jnp.where(attacking, jnp.minimum(state.movement_points, (self.movement_cap(state)+1)//2), jnp.minimum(state.movement_points,self.move_cost(state,destinations)))
         return jnp.stack((targets, costs), axis=1)
 
     def rest_penalty(self, state):
@@ -671,6 +821,8 @@ class NumberGrid(Summoning, NumericNumberGrid):
             if self.has_weakening or self.has_powerups or self.has_potion_buffs or self.items_enabled:
                 values = values.at[:,DAMAGE].set(self.progression.raw_stats(state.unit_ids,state.unit_levels)[:,DAMAGE])
             values = self._potion_stats(state,values)
+            if self.territory_enabled:
+                values = values.at[6:,ARMOR].add(state.battle_fort_armor)
             if self.has_copies:
                 values = jnp.where(state.copied[:,None],state.copy_stats,values)
                 uncopied = self.progression.doppelgangers[state.unit_ids]
@@ -1014,7 +1166,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         if self.basic_combat:
             context = jnp.concatenate((context, self.construction.observation(state), jnp.asarray(
                 [state.gold / 1000., state.movement_points / MAX_MOVEMENT_POINTS], jnp.float32)))
-        if self.observation_version in (2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30):
+        if self.observation_version in (2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38):
             # No duplicate max-HP arrays or obsolete numeric battle strengths.
             # Signed queue priority contains both order and waiting/acted status.
             world = jnp.stack((self.opponent_positions[:,0] / (self.size-1),
@@ -1023,7 +1175,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             active = (state.hp > 0) & ~state.escaped
             queue = jnp.where(active & (state.turn_phase == 0), state.priority,
                              jnp.where(active & (state.turn_phase == 1), -state.priority, 0.))
-            hp_scale = (jnp.maximum(self.max_hp(state), 1) if self.observation_version in (3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30)
+            hp_scale = (jnp.maximum(self.max_hp(state), 1) if self.observation_version in (3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38)
                         else self.hero_hp)
             if self.basic_combat:
                 queue /= self.priority_scale
@@ -1044,7 +1196,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
                 growth = jnp.stack((ids / (len(self.progression.rows)-1), xp[:, 0]/100.,
                                    xp[:, 1]/1000., xp[:, 2]/10000., xp[:, 3]/jnp.maximum(xp[:, 2], 1)), axis=1)
                 context = jnp.concatenate((growth.reshape(-1), context))
-            if self.observation_version in (8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30):
+            if self.observation_version in (8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38):
                 # Compact exact source/bitset encoding; keeps the GPU policy input small.
                 context = jnp.concatenate((self.unit_traits(state).reshape(-1) /
                                            jnp.tile(jnp.array([4. if self.observation_version >= 10 else 3., 9., 511., 511.]), 12), context))
@@ -1090,6 +1242,21 @@ class NumberGrid(Summoning, NumericNumberGrid):
                 context=jnp.concatenate((context,jnp.where(state.copied[:,None],state.copy_secondary,0).reshape(-1)/300.))
             if self.items_enabled:
                 context=jnp.concatenate((context,self.item_rules.observation(state)))
+            if self.sites_enabled:
+                context=jnp.concatenate((context,self.site_rules.observation(state)))
+            if self.recruitment_enabled:
+                context=jnp.concatenate((context,self.recruitment.observation(state)))
+            if self.territory_enabled:
+                context=jnp.concatenate((context,self.territory.observation(state)))
+            if self.ruins_enabled:
+                context=jnp.concatenate((context,self.ruins.observation(state)))
+            if self.observation_version >= 37:
+                context=jnp.concatenate((context,self.terrain.observation(state,self.directions,
+                    self.item_rules if self.items_enabled else None)))
+            if self.observation_version >= 38:
+                context=jnp.concatenate((context,self.construction.lord_observation))
+            if self.spell_research_enabled:
+                context=jnp.concatenate((context,self.spell_research.observation(state)))
             return jnp.concatenate((state.position / (self.size-1),
                                     jnp.asarray([state.number / self.number_scale,
                                                  state.step_count / self.max_steps],jnp.float32),
@@ -1146,11 +1313,18 @@ class NumberGrid(Summoning, NumericNumberGrid):
         if not self.battle_mode:
             return super().action_mask(state)
         destination = state.position[None] + self.directions
-        occupied = jnp.any(state.alive[None, :] & jnp.all(
-            destination[:, None, :] == self.opponent_positions[None, :, :], axis=-1), axis=1)
-        movement = super().action_mask(state) & ~state.in_battle
+        if self.territory_enabled:
+            movement = self.territory.movement_mask(state) & ~state.in_battle
+        else:
+            movement = super().action_mask(state) & ~state.in_battle
+            if self.sites_enabled:
+                movement &= ~self.site_rules.blocked(destination)
+        if self.ruins_enabled:
+            if not self.territory_enabled:
+                movement &= ~self.ruins.blocked(destination)
+            movement = (movement | self.ruins.attackable(state,destination)) & ~state.in_battle
         if self.basic_combat:
-            movement &= state.movement_points >= jnp.where(occupied, 1, MOVE_COST)
+            movement &= state.movement_points > 0
         controlled = state.in_battle & (state.actor < 6) & ~state.retreating[state.actor] & ~state.paralyzed[state.actor] & ~state.long_paralyzed[state.actor]
         targets = (state.hp[6:] > 0) & ~state.escaped[6:] & controlled
         if self.basic_combat:
@@ -1180,6 +1354,14 @@ class NumberGrid(Summoning, NumericNumberGrid):
                                     jnp.zeros(COPY_ACTIONS,bool)))
         if self.potions_enabled:
             mask = jnp.concatenate((mask, self.potion_rules.available(state, self.max_hp(state)).reshape(-1)))
+        if self.sites_enabled:
+            mask = jnp.concatenate((mask, self.site_rules.available(state)))
+        if self.recruitment_enabled:
+            mask = jnp.concatenate((mask, self.recruitment.available(state)))
+        if self.territory_enabled:
+            mask = jnp.concatenate((mask, self.territory.available(state)))
+        if self.spell_research_enabled:
+            mask = jnp.concatenate((mask, self.spell_research.available(state)))
         if self.has_copies:
             copy = self._actor_copies(state) & controlled
             valid_copy = self._copy_targets(state)
@@ -1247,6 +1429,8 @@ class NumberGrid(Summoning, NumericNumberGrid):
                                   unit_xp=state.unit_xp.at[6:].set(enemy_progress[:, 1]),
                                   battle_xp=jnp.zeros(2, jnp.int32),
                                   last_xp=jnp.zeros(12, jnp.int32), last_promoted=jnp.uint32(0))
+        if self.territory_enabled:
+            state = state.replace(battle_fort_armor=self.territory.defender_armor(state))
         priority = self._round_priority(random_values, state.enemy, state)
         enemy_hp = jnp.where(jnp.arange(6) < self.enemy_counts[state.enemy],
                              self.enemy_health[state.enemy], 0)
@@ -1278,23 +1462,29 @@ class NumberGrid(Summoning, NumericNumberGrid):
         return state
 
     def _world_step(self, state, action, key, random_values):
-        state = state.replace(last_poison_damage=jnp.zeros(12, jnp.int32),
+        state = state.replace(last_ruin=jnp.int32(-1), last_sale_gold=jnp.int32(0), last_sold_count=jnp.int32(0), last_trade_item=jnp.int32(-1),
+                              last_poison_damage=jnp.zeros(12, jnp.int32),
                               last_item_loot=jnp.zeros_like(state.last_item_loot),
                               last_water_damage=jnp.zeros(12,jnp.int32),
                               last_burn_damage=jnp.zeros(12,jnp.int32))
         destination = state.position + self.directions[jnp.clip(action, 0, 7)]
         # A directional command aimed at an occupied tile attacks that exact stack.
         # The attacker stays on its own tile, including after victory/retreat.
-        targeted = state.alive & jnp.all(self.opponent_positions == destination, axis=1)
-        engage = (action < 8) & jnp.any(targeted)
+        if self.territory_enabled:
+            enemy = self.territory.enemy_at(state, destination)
+            engage = (action < 8) & (enemy>=0)
+        else:
+            targeted = state.alive & jnp.all(self.opponent_positions == destination, axis=1)
+            enemy = jnp.argmax(targeted).astype(jnp.int32)
+            engage = (action < 8) & jnp.any(targeted)
         moved = (action < 8) & ~engage  # step() checks bounds and movement points.
         position = jnp.where(moved, destination, state.position)
-        enemy = jnp.argmax(targeted).astype(jnp.int32)
         map_steps = state.map_steps + moved.astype(jnp.int32)
         resting = (action == REST) if self.basic_combat else jnp.bool_(False)
-        gold = state.gold + jnp.where(resting, DAILY_GOLD, 0)
+        gold = state.gold + jnp.where(resting & ~jnp.bool_(self.territory_enabled), DAILY_GOLD, 0)
         next_state = state.replace(position=position, origin=state.position,
                                    gold=gold, map_steps=map_steps, last_service_cost=jnp.int32(0),
+                                   last_captured_cities=jnp.zeros_like(state.city_owned),last_upgraded_city=jnp.int32(-1),
                                    last_xp=jnp.zeros(12, jnp.int32), last_promoted=jnp.uint32(0),
                                    last_immune=jnp.uint32(0), last_ward=jnp.uint32(0),
                                    enemy=jnp.where(engage, enemy, state.enemy),
@@ -1306,6 +1496,10 @@ class NumberGrid(Summoning, NumericNumberGrid):
             rest_healing = (rest_max+9)//10 if self.progression_enabled else self.rest_healing
             if self.items_enabled:
                 rest_healing = (rest_max*(1+self.item_rules.value(state,'regeneration',2))+9)//10
+            if self.territory_enabled:
+                banner = self.item_rules.value(state,'regeneration',2) if self.items_enabled else 0
+                percent = self.territory.regeneration_percent(state,banner)
+                rest_healing = (rest_max*percent+99)//100
             building = jnp.clip(action - BUILD_START, 0, BUILD_SLOTS - 1)
             building_action = (action >= BUILD_START) & (action < REST)
             next_state = next_state.replace(
@@ -1314,9 +1508,11 @@ class NumberGrid(Summoning, NumericNumberGrid):
                 blocked_buildings=state.blocked_buildings | jnp.where(
                     building_action, self.construction.blocks[building], jnp.uint32(0)),
                 built_today=~resting & (state.built_today | building_action),
+                spell_researched_today=~resting & state.spell_researched_today,
+                last_researched_spell=jnp.int32(-1),
                 movement_points=jnp.where(resting, self.movement_cap(state),
                                           jnp.maximum(0, state.movement_points - jnp.where(
-                                              engage, (self.movement_cap(state)+1)//2, moved.astype(jnp.int32) * MOVE_COST))),
+                                              engage, (self.movement_cap(state)+1)//2, moved.astype(jnp.int32) * self.move_cost(state, destination)))),
                 day=state.day + resting.astype(jnp.int32),
                 hp=jnp.where(resting & (state.hp > 0),
                              jnp.minimum(state.hp + rest_healing, rest_max), state.hp),
@@ -1325,6 +1521,16 @@ class NumberGrid(Summoning, NumericNumberGrid):
             )
             bonus += jnp.where(building_action, jnp.float32(self.construction.reward), 0.)
             bonus -= jnp.where(resting, self.rest_penalty(state), 0.)
+        if self.territory_enabled:
+            next_state = jax.lax.cond(resting,self.territory.next_turn,lambda s:s,next_state)
+            next_state = self.territory.upgrade(next_state,action)
+            next_state = self.territory.capture(next_state,moved)
+            won = ~jnp.any(next_state.alive) & self.territory.goals_captured(next_state)
+            next_state = next_state.replace(won=won,done=next_state.done|won)
+            bonus += 3*won.astype(jnp.float32)
+        if self.spell_research_enabled:
+            next_state, research_bonus = self.spell_research.apply(next_state, action)
+            bonus += research_bonus
         if self.capital_enabled:
             next_state, recovery_bonus = self.capital.apply(next_state, action, rest_max)
             bonus += recovery_bonus
@@ -1335,8 +1541,16 @@ class NumberGrid(Summoning, NumericNumberGrid):
                 self._potion_intrinsic(state.unit_ids[potion_slot],state.unit_levels[potion_slot]))
         if self.chests_enabled:
             next_state = self.chest_rules.collect(next_state, moved)
+        if self.sites_enabled:
+            next_state = self.site_rules.apply(next_state, action)
+            next_state = self.site_rules.autosell(next_state)
+        if self.recruitment_enabled:
+            next_state, hire_bonus = self.recruitment.apply(next_state, action, self._clear_roster_slots)
+            bonus += hire_bonus
         if self.items_enabled:
             changed=resting | jnp.any(next_state.last_item_loot>0) | (next_state.last_potion>=0) | (action>=REVIVE_START)&(action<REVIVE_START+6)
+            if self.recruitment_enabled:
+                changed |= (next_state.last_event == HIRED) | (next_state.last_event == DISMISSED)
             next_state=jax.lax.cond(changed,self._refresh_equipment,lambda s:s,next_state)
         if self.exploration_bonus:
             cell = position[0] * self.size + position[1]
@@ -1457,6 +1671,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         return state.replace(**updates),hp,wards_used
 
     def _battle_step(self, state, action, key, random_values):
+        state = state.replace(last_sale_gold=jnp.int32(0), last_sold_count=jnp.int32(0), last_trade_item=jnp.int32(-1))
         if self.has_copies:
             return jax.lax.cond(state.round == 0,self._prepare_copies,self._battle_step_regular,
                                 state,action,key,random_values)
@@ -1720,6 +1935,10 @@ class NumberGrid(Summoning, NumericNumberGrid):
                 if self.has_fear:
                     feared_slots = affected & (fear_caster | secondary_fear)
                     protected = self.fear_protected[target_slots]
+                    if self.territory_enabled:
+                        protected |= (target_slots>=6) & (state.battle_fort_armor>0)
+                    if self.ruins_enabled:
+                        protected |= (target_slots>=6) & (state.enemy>=0) & (self.ruins.enemy_ruin[jnp.maximum(state.enemy,0)]>=0)
                     paralyzed_slots |= feared_slots & protected & ~state.paralyzed[target_slots]
                     state = state.replace(
                         paralyzed=state.paralyzed.at[target_slots].set(state.paralyzed[target_slots] | (feared_slots & protected)),
@@ -1897,6 +2116,8 @@ class NumberGrid(Summoning, NumericNumberGrid):
             next_actor = jnp.where(healing,jnp.argmax(pending),next_actor).astype(jnp.int32)
         alive = state.alive.at[state.enemy].set(~victory)
         won = ~jnp.any(alive) & ~lost
+        if self.territory_enabled:
+            won &= self.territory.goals_captured(state)
         back = victory | withdrawal
         event = jnp.where(attack, jnp.where(hit, HIT, MISS),
                             jnp.where(action == DEFEND, GUARD,
@@ -2015,7 +2236,10 @@ class NumberGrid(Summoning, NumericNumberGrid):
                 temporary=self.potion_rules.temporary_bonus(intrinsic+state.potion_bonus,state.potion_active)
                 state=state.replace(potion_temporary=jnp.where(changed[:,None],temporary,state.potion_temporary))
                 hp = jnp.where(changed,(intrinsic[:,HP]+state.potion_bonus[:,HP]).astype(jnp.int32),hp)
+            movement_gain = jnp.maximum(0, self._hero_level_movement_bonus(ids, levels)
+                - self._hero_level_movement_bonus(state.unit_ids, state.unit_levels))
             progress = dict(unit_ids=ids, unit_levels=levels, unit_xp=xp,
+                            movement_points=state.movement_points+movement_gain,
                             enemy_progress=enemies, battle_xp=bank,
                             last_xp=gains, last_promoted=promoted)
         if self.capital_enabled:
@@ -2030,9 +2254,12 @@ class NumberGrid(Summoning, NumericNumberGrid):
         recovered_hp = self.restored_hp
         if self.basic_combat:
             # Both survivors and fallen units retain their HP; revival is paid.
-            recovered_hp = jnp.where(self.restored_hp > 0, hp, 0)
+            occupied_party = ((self.slots < 6) & (progress['unit_ids'] != 0)
+                              if self.progression_enabled else self.restored_hp > 0)
+            recovered_hp = jnp.where(occupied_party, hp, 0)
         next_state = state.replace(
             battle_key=key, hp=jnp.where(back, recovered_hp, hp), **progress,
+            battle_fort_armor=jnp.where(back,0,state.battle_fort_armor),
             post_victory=post_team,pending_healers=pending,
             second_strike=another_strike & ~(victory | withdrawal | lost | timeout),
             wards_used=jnp.where(back, jnp.uint32(0), wards_used),
@@ -2049,7 +2276,15 @@ class NumberGrid(Summoning, NumericNumberGrid):
             player_turns=state.player_turns + ((actor < 6) & ~escaping).astype(jnp.int32),
             enemy_turns=state.enemy_turns + ((actor >= 6) & ~escaping).astype(jnp.int32),
         )
+        if self.territory_enabled:
+            next_state = self.territory.capture(next_state,victory)
+            final_win = ~jnp.any(next_state.alive) & ~next_state.lost & self.territory.goals_captured(next_state)
+            next_state = next_state.replace(won=final_win,done=next_state.done|final_win)
+            won = final_win
         reward = victory.astype(jnp.float32) + 3 * won - lost.astype(jnp.float32)
+        if self.ruins_enabled:
+            next_state, ruin_reward = self.ruins.grant(next_state,victory)
+            reward += ruin_reward
         if self.items_enabled:
             next_state=jax.lax.cond(back,self._refresh_equipment,lambda s:s,next_state)
         if self.has_witches or self.has_poisoners or self.has_water or self.has_fire or self.has_wights or self.has_hermits:
@@ -2063,12 +2298,19 @@ class NumberGrid(Summoning, NumericNumberGrid):
         # Validate only the selected move/target here. The full action mask is
         # generated once for the next observation, not twice per transition.
         destination = state.position + self.directions[jnp.clip(action, 0, 7)]
-        occupied = jnp.any(state.alive & jnp.all(self.opponent_positions == destination, axis=1))
         world_valid = ((action >= 0) & (action < 8)
                        & jnp.all((destination > 0) & (destination < self.size - 1)))
+        if self.territory_enabled:
+            world_valid &= ~self.territory.blocked(destination)
+        elif self.sites_enabled:
+            world_valid &= ~self.site_rules.blocked(destination)
+        if self.ruins_enabled:
+            if not self.territory_enabled:
+                world_valid &= ~self.ruins.blocked(destination)
+            world_valid |= (action>=0)&(action<8)&self.ruins.attackable(state,destination)
         if self.basic_combat:
             building = jnp.clip(action - BUILD_START, 0, BUILD_SLOTS-1)
-            world_valid &= state.movement_points >= jnp.where(occupied, 1, MOVE_COST)
+            world_valid &= state.movement_points > 0
             world_valid |= ((action >= BUILD_START) & (action < REST)
                             & self.construction.available(state, building)) | (action == REST)
         if self.capital_enabled:
@@ -2079,7 +2321,20 @@ class NumberGrid(Summoning, NumericNumberGrid):
         if self.potions_enabled and self.potion_rules.count:
             index = jnp.clip(action-POTION_START, 0, self.potion_rules.action_count-1)
             available = self.potion_rules.available(state, self.max_hp(state), index // 6, index % 6)
-            world_valid |= (action >= POTION_START) & (action < self.num_actions) & available
+            world_valid |= (action >= POTION_START) & (action < POTION_START+self.potion_rules.action_count) & available
+        if self.sites_enabled and self.site_rules.action_count:
+            index = jnp.clip(action-self.site_rules.buy_start, 0, self.site_rules.action_count-1)
+            world_valid |= (action >= self.site_rules.buy_start) & (action < self.site_rules.end) & self.site_rules.available(state)[index]
+        if self.recruitment_enabled:
+            index = jnp.clip(action-self.recruitment.start, 0, self.recruitment.action_count-1)
+            world_valid |= (action >= self.recruitment.start) & (action < self.recruitment.end) & self.recruitment.available(state)[index]
+        if self.territory_enabled and self.territory.count:
+            index = jnp.clip(action-self.territory.start,0,self.territory.count-1)
+            world_valid |= (action>=self.territory.start)&(action<self.territory.end)&self.territory.available(state)[index]
+        if self.spell_research_enabled:
+            index = jnp.clip(action-self.spell_research.start, 0, self.spell_research.count-1)
+            world_valid |= ((action >= self.spell_research.start) & (action < self.spell_research.end)
+                            & self.spell_research.available(state, index))
         controlled = (state.actor < 6) & ~state.retreating[state.actor] & ~state.paralyzed[state.actor] & ~state.long_paralyzed[state.actor]
         target_slot = jnp.clip(action - SHOOT, 0, 5)
         own_target = self._actor_is_healer(state) if self.basic_combat and self.has_healers else jnp.bool_(False)
@@ -2130,14 +2385,21 @@ class NumberGrid(Summoning, NumericNumberGrid):
                                  done=state.done | (steps >= self.max_steps))
         next_state = jax.tree.map(lambda new, old: jnp.where(valid, new, old), next_state, fallback)
         rested = valid & ~state.in_battle & (action == REST)
-        # REST has only the unused-point penalty: exhausting movement makes it free.
+        # REST replaces the ordinary step cost with the unused-movement penalty.
         reward = jnp.where(valid, reward, 0.) - jnp.where(rested, 0., jnp.float32(self.step_cost))
+        if self.territory_enabled:
+            bumped = (~valid & ~state.done & ~state.in_battle & (action>=0) & (action<8)
+                & jnp.all((destination>0)&(destination<self.size-1)) & self.territory.blocked(destination))
+            reward -= .25*bumped
+            next_state = next_state.replace(last_event=jnp.where(bumped,OBSTACLE,next_state.last_event))
+        if self.recruitment_enabled:
+            reward -= .05*self.recruitment.composition(next_state)[2]
         ts = self._timestep(next_state, jnp.where(state.done, 0., reward))
         combat = state.in_battle & valid & ~state.done
         ts = ts.replace(extras={**ts.extras, 'battle_transition': combat,
                                 'player_battle_transition': combat & (state.actor < 6) & ~state.retreating[state.actor],
                                 'enemy_battle_transition': combat & (state.actor >= 6),
-                                'battle_victory': combat & (next_state.last_event == VICTORY),
+                                'battle_victory': combat & jnp.any(state.alive & ~next_state.alive),
                                 'building_constructed': valid & ~state.in_battle & (action >= BUILD_START) & (action < REST),
                                 'turn_ended': rested,
                                 'rest_penalty': (jnp.where(rested, self.rest_penalty(state), 0.)

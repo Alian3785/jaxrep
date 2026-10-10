@@ -63,19 +63,32 @@ def scenario_potions(game_map):
     chests = game_map.get('chests', [])
     if not isinstance(chests, list):
         raise ValueError('chests must be a list')
+    ruins = game_map.get('ruins', [])
+    if not isinstance(ruins,list):
+        raise ValueError('ruins must be a list')
     totals = dict(initial)
-    for chest in chests:
+    for chest in chests+ruins:
         if not isinstance(chest, dict):
             raise ValueError('Each chest must contain position and potions')
         contents = potion_counts(chest.get('potions',{}), 'Chest potions')
         from stoix.envs.number_grid_items import item_counts
         items=item_counts(chest.get('items',{}),'Chest items')
-        if not any(contents.values()) and not any(items.values()):
+        if not any(contents.values()) and not any(items.values()) and not (chest in ruins and chest.get('gold',0)>0):
             raise ValueError('Chest potions must contain some loot')
         for key, count in contents.items():
             totals[key] = totals.get(key, 0)+count
             if totals[key] > 2**31-1:
                 raise ValueError('Chest loot plus initial inventory must fit int32')
+    merchant = game_map.get('merchant')
+    if merchant is not None:
+        if not isinstance(merchant, dict):
+            raise ValueError('merchant must be an object')
+        for key, count in potion_counts(merchant.get('potions', {}), 'Merchant potions').items():
+            if count <= 0:
+                raise ValueError('Merchant offers must have positive stock')
+            totals[key] = totals.get(key, 0)+count
+            if totals[key] > 2**31-1:
+                raise ValueError('All obtainable potions must fit int32')
     return tuple(p for p in POTIONS if totals.get(p['key'], 0) > 0)
 
 
@@ -95,9 +108,11 @@ class PotionRules:
         self.permanent = jnp.array([p['duration'] == 'permanent' for p in self.items],bool)
         self.bits = jnp.array([1 << POTIONS.index(p) for p in self.items],jnp.uint32)
         totals=dict(game_map.get('initial_potions',{}))
-        for chest in game_map.get('chests',[]):
+        for chest in game_map.get('chests',[])+game_map.get('ruins',[]):
             for key,count in chest.get('potions',{}).items():
                 totals[key]=totals.get(key,0)+count
+        for key,count in game_map.get('merchant',{}).get('potions',{}).items():
+            totals[key]=totals.get(key,0)+count
         self.max_permanent_doses=max((totals.get(p['key'],0) for p in self.items
                                       if p['duration']=='permanent'),default=0)
         source_bits = {'ward_Fire':4,'ward_Water':8,'ward_Earth':2,'ward_Air':256}

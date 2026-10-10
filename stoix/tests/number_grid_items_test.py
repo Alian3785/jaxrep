@@ -1,4 +1,5 @@
 """GPU equipment regressions; reuse current-map transitions and small kernels."""
+from stoix.tests.number_grid_fixtures import compiled_method, hero_roster_state
 import copy
 import chex
 import jax
@@ -52,7 +53,7 @@ def test_complete_catalogue_and_scenario_inventory(current_game):
     assert [sum(p['category']==c for p in ITEMS) for c in range(5)]==[21,11,8,5,10]
     assert [sum(c['items'].values()) for c in MAP['chests']]==[3]*5
     assert env.item_rules.capacity==15 and env.item_rules.count==15
-    assert env.num_actions==165 and env.observation(state).shape==(1264,)
+    assert env.num_actions==212 and compiled_method(env,'observation')(state).shape==(1547,)
     assert not jnp.any(state.item_inventory>=0) and jnp.all(state.equipped==-1)
     valuables=[p for p in ITEMS if p['category']==VALUABLE]
     # Original Tglobal item descriptions give the merchant payout, not GItem.VALUE.
@@ -64,6 +65,7 @@ def test_complete_catalogue_and_scenario_inventory(current_game):
 
 def test_accuracy_banners_use_relative_percent_and_truncate(all_items):
     env,state,_,_=all_items
+    state=hero_roster_state(env,state,['possessed','duke','possessed','cultist','cultist',None])
     ids=[-1]+[env.item_rules.keys.index(key) for key in ('banner_striking','banner_battle')]
     equipped=jnp.full((3,5),-1,jnp.int32).at[:,2].set(jnp.array(ids,jnp.int32))
     intrinsic=env._potion_intrinsic(state.unit_ids,state.unit_levels)
@@ -92,7 +94,7 @@ def test_auto_selection_retains_inventory_and_two_artifact_instances(all_items):
     chex.assert_trees_all_equal(result.item_inventory,state.item_inventory)
     duplicated=refresh(inventory(env,state,'runestone','runestone','dwarven_bracer'))
     assert duplicated.equipped[:2].tolist()==[env.item_rules.keys.index('runestone')]*2
-    assert env.unit_stats(duplicated)[1,3]==env.unit_stats(state)[1,3]+20
+    assert compiled_method(env,'unit_stats')(duplicated)[1,3]==compiled_method(env,'unit_stats')(state)[1,3]+20
     # A valuable never enters an equipment slot, regardless of its price.
     valuable=refresh(inventory(env,state,'imperial_crown'))
     assert jnp.all(valuable.equipped==-1) and valuable.gold==state.gold
@@ -101,29 +103,29 @@ def test_auto_selection_retains_inventory_and_two_artifact_instances(all_items):
 def test_numeric_layers_round_and_do_not_accumulate(all_items):
     env,state,refresh,_=all_items
     state=inventory(env,state,'ring_of_ages','holy_chalice','banner_battle')
-    base=env.unit_stats(state)
+    base=compiled_method(env,'unit_stats')(state)
     result=refresh(state)
-    stats=env.unit_stats(result)
+    stats=compiled_method(env,'unit_stats')(result)
     assert stats[1,1]==round(float(base[1,1])*1.4)
     assert stats[1,4]==round(float(base[1,4])*1.25)
     assert stats[1,3]==base[1,3]+15
     chex.assert_trees_all_equal(stats[:5,2],jnp.minimum(100,base[:5,2]+base[:5,2]*15//100))
-    chex.assert_trees_all_equal(env.unit_stats(refresh(result)),stats)
+    chex.assert_trees_all_equal(compiled_method(env,'unit_stats')(refresh(result)),stats)
     assert stats[0,1]==base[0,1] and stats[0,3]==base[0,3]
     # Temporary +15% then artifact +40%: two reference rounding stages.
     active=state.potion_active.at[1].set(jnp.uint32(1<<12))
     intrinsic=env._potion_intrinsic(state.unit_ids,state.unit_levels)
     potion=env.potion_rules.temporary_bonus(intrinsic,active)
     result=refresh(state.replace(potion_active=active,potion_temporary=potion))
-    assert env.unit_stats(result)[1,1]==round(round(float(base[1,1])*1.15)*1.4)
+    assert compiled_method(env,'unit_stats')(result)[1,1]==round(round(float(base[1,1])*1.15)*1.4)
 
 
 def test_hero_death_disables_equipment_until_revival(all_items):
     env,state,refresh,_=all_items
     state=refresh(inventory(env,state,'runestone','banner_protection','boots_seven_leagues','tome_air'))
     assert env.movement_cap(state)==32
-    assert env._combat_traits(state)[1,3] & 256
-    assert not (env._combat_traits(state)[0,3] & 256)
+    assert compiled_method(env,'_combat_traits')(state)[1,3] & 256
+    assert not (compiled_method(env,'_combat_traits')(state)[0,3] & 256)
     dead=refresh(state.replace(hp=state.hp.at[1].set(0)))
     assert jnp.all(dead.equipped==-1) and env.movement_cap(dead)==20
     chex.assert_trees_all_equal(dead.item_inventory,state.item_inventory)
@@ -150,15 +152,20 @@ def test_banner_health_regeneration_and_instant_retreat(all_items):
     # One additional scalar kernel covers map rest and actual battle withdrawal.
     # Other equipment tests call small shared kernels, avoiding one full env per item.
     env=copy.copy(env)
+    env._test_jit_methods={}
     env.chests_enabled=False
     env.random_size=84
     state=refresh(inventory(env,state,'banner_health','rusted_shackles'))
     state=state.replace(hp=state.hp.at[3].set(1))
-    resting=jax.jit(env._world_step)(state,jnp.int32(REST),state.battle_key,jnp.zeros(84))[0]
-    assert resting.hp[3]==10  # ceil(45*20%) = 9 HP, not two separately rounded 10% doses
-    start=env._begin_battle(state.replace(enemy=jnp.int32(0))).replace(actor=jnp.int32(1))
-    result=jax.jit(env._battle_step)(start,jnp.int32(RETREAT),start.battle_key,jnp.zeros(84))[0]
-    assert result.escaped[1] and not result.retreating[1] and result.last_event==ESCAPE
+    resting_hp=jax.jit(lambda s:env._world_step(s,jnp.int32(REST),s.battle_key,jnp.zeros(84))[0].hp)(state)
+    assert resting_hp[3]==31  # ceil(45*65%) = 30 HP; capital + warrior lord + banner, rounded once
+    start=compiled_method(env,'_begin_battle')(state.replace(enemy=jnp.int32(0))).replace(actor=jnp.int32(1))
+    @jax.jit
+    def retreat(s):
+        result=env._battle_step(s,jnp.int32(RETREAT),s.battle_key,jnp.zeros(84))[0]
+        return result.escaped[1],result.retreating[1],result.last_event
+    escaped,retreating,event=retreat(start)
+    assert escaped and not retreating and event==ESCAPE
 
 
 def test_chests_equip_boots_restore_movement_and_keep_loot_once(current_game):
@@ -166,7 +173,7 @@ def test_chests_equip_boots_restore_movement_and_keep_loot_once(current_game):
     picked,_=advance(state.replace(position=jnp.array([5,2])),jnp.int32(2))
     assert env.movement_cap(picked)==24 and picked.movement_points==22
     assert jnp.sum(picked.last_item_loot)==3 and jnp.sum(picked.item_inventory>=0)==3
-    assert env.unit_stats(picked)[1,3]==env.unit_stats(state)[1,3]+10
+    assert compiled_method(env,'unit_stats')(picked)[1,3]==compiled_method(env,'unit_stats')(state)[1,3]+10
     repeated,_=advance(picked,jnp.int32(2))
     assert not jnp.any(repeated.last_item_loot)
     assert jnp.sum(repeated.item_inventory>=0)==3
@@ -181,7 +188,7 @@ def test_permanent_potion_keeps_equipment_and_revival_restores_it(current_game):
     env,state,advance,_=current_game
     picked,_=advance(state.replace(position=jnp.array([5,2])),jnp.int32(2))
     dead=picked.replace(hp=picked.hp.at[1].set(0))
-    dead=env._refresh_equipment(dead)
+    dead=compiled_method(env,'_refresh_equipment')(dead)
     life=POTION_START+6*env.potion_rules.keys.index('life')+1
     revived,_=advance(dead,jnp.int32(life))
     assert revived.hp[1]==1 and revived.equipped[0]==picked.equipped[0]
@@ -190,6 +197,7 @@ def test_permanent_potion_keeps_equipment_and_revival_restores_it(current_game):
 
 def test_war_book_awards_fraction_before_rounding(all_items):
     env,state,refresh,_=all_items
+    state=hero_roster_state(env,state,['possessed','duke','possessed','cultist','cultist',None])
     state=refresh(inventory(env,state,'tome_war'))
     # 10 XP split five ways: 2.5 => 3, not round(2)*1.25 in two stages.
     finish=jax.jit(lambda s:env.progression.finish(s,s.hp,s.escaped,jnp.bool_(True),
@@ -203,7 +211,7 @@ def test_war_book_awards_fraction_before_rounding(all_items):
 
 def test_artifact_statuses_respect_sources_and_duplicate_names(all_items):
     env,state,refresh,attack=all_items
-    start=env._begin_battle(state.replace(enemy=jnp.int32(0)))
+    start=compiled_method(env,'_begin_battle')(state.replace(enemy=jnp.int32(0)))
     # Source masks are actual Death/Mind bits, distinct from the poison tick bit.
     cases=(('soul_crystal','paralyzed',64),('horn_of_incubus','paralyzed',2),
            ('thanatos_blade','poison_turns',32),('skull_of_thanatos','poison_turns',32),
@@ -214,9 +222,9 @@ def test_artifact_statuses_respect_sources_and_duplicate_names(all_items):
         affected,hp,used,immune,ward=attack(before,jnp.int32(6),jnp.bool_(True),jnp.int32(10),zeros)
         assert getattr(affected,field)[6] and not immune and not ward
         # Grant a native book/potion-style ward via copied traits of the target.
-        traits=env._combat_traits(before).at[6,3].set(jnp.uint32(source))
+        traits=compiled_method(env,'_combat_traits')(before).at[6,3].set(jnp.uint32(source))
         protected=before.replace(copied=before.copied.at[6].set(True),copy_traits=traits,
-                                 copy_stats=env._combat_stats(before))
+                                 copy_stats=compiled_method(env,'_combat_stats')(before))
         blocked,_,used,_,ward=attack(protected,jnp.int32(6),jnp.bool_(True),jnp.int32(10),zeros)
         assert not getattr(blocked,field)[6] and (used[6]&source) and (ward&(1<<6))
         immune_state=protected.replace(copy_traits=traits.at[6,2].set(jnp.uint32(source)))
@@ -229,7 +237,7 @@ def test_artifact_statuses_respect_sources_and_duplicate_names(all_items):
 
 def test_artifact_drain_stronger_poison_and_wight(all_items):
     env,state,refresh,attack=all_items
-    start=env._begin_battle(state.replace(enemy=jnp.int32(0)))
+    start=compiled_method(env,'_begin_battle')(state.replace(enemy=jnp.int32(0)))
     start=start.replace(actor=jnp.int32(1),hp=start.hp.at[1].set(10))
     before=refresh(inventory(env,start,'unholy_dagger','unholy_dagger'))
     result=attack(before,jnp.int32(6),jnp.bool_(True),jnp.int32(19),jnp.zeros(84))

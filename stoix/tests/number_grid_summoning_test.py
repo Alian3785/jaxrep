@@ -36,7 +36,7 @@ def summon_game():
 def battle(game, heroes, enemies):
     env,initial = game
     state = hero_roster_state(env,initial,heroes)
-    state = env._begin_battle(state.replace(enemy=jnp.int32(0)))
+    state = compiled_method(env,'_begin_battle')(state.replace(enemy=jnp.int32(0)))
     state = enemy_roster_state(env,state,enemies)
     return state.replace(native_ids=state.unit_ids,native_levels=state.unit_levels,native_xp=state.unit_xp)
 
@@ -86,11 +86,11 @@ def test_zero_round_copy_mask_stats_hp_and_normal_turn(summon_game,current_game)
     chex.assert_trees_all_equal(invalid.hp,shared.hp)
     result = act(env,state,COPY_ALLY+1)
     assert result.copied[0] and result.last_event == COPIED and result.round == 1
-    assert result.hp[0] == 50 and env.max_hp(result)[0] == 150
+    assert result.hp[0] == 50 and compiled_method(env,'max_hp')(result)[0] == 150
     assert result.unit_ids[0] == result.unit_ids[1] and result.native_ids[0] == env.progression.ids['doppelganger']
     assert result.turn_phase[0] == 0 and not result.defended[0]
-    assert env.unit_experience(result)[0,1] == UNITS['doppelganger']['exp_kill']
-    assert not env.action_mask(result.replace(actor=jnp.int32(0)))[COPY_ALLY+1]
+    assert compiled_method(env,'unit_experience')(result)[0,1] == UNITS['doppelganger']['exp_kill']
+    assert not compiled_method(env,'action_mask')(result.replace(actor=jnp.int32(0)))[COPY_ALLY+1]
     limited = act(env,state.replace(step_count=jnp.int32(env.max_steps-1)),COPY_ALLY+1)
     assert limited.done and not limited.copied[0]
     assert limited.unit_ids[0] == state.unit_ids[0] and limited.hp[0] == 40
@@ -103,10 +103,10 @@ def test_copy_exclusions_and_persistent_stats(summon_game):
         primary_override=state.primary_override.at[2].set(200),
         initiative_override=state.initiative_override.at[2].set(1),
         armor_shreds=state.armor_shreds.at[2].set(2))
-    mask = env.action_mask(state)
+    mask = compiled_method(env,'action_mask')(state)
     assert not mask[SHOOT] and not mask[COPY_ALLY+1] and mask[COPY_ALLY+2]
     disguised = state.replace(imp=state.imp.at[1].set(True))
-    assert not env.action_mask(disguised)[COPY_ALLY+1]
+    assert not compiled_method(env,'action_mask')(disguised)[COPY_ALLY+1]
     result = act(env,state,COPY_ALLY+2)
     chex.assert_trees_all_equal(result.copy_stats[0],env.progression.stats(state.unit_ids,state.unit_levels)[2])
     chex.assert_trees_all_equal(result.hp[1:],state.hp[1:])
@@ -117,7 +117,7 @@ def test_copy_exclusions_and_persistent_stats(summon_game):
     first = act(env,wolf,COPY_ALLY+2)
     assert env.unit_sizes(first)[0] == 1 and first.copy_stats[0,0] == 275
     # A copied Fenrir remains a small Doppelganger and can itself be copied.
-    assert env.action_mask(first.replace(actor=jnp.int32(1)))[COPY_ALLY]
+    assert compiled_method(env,'action_mask')(first.replace(actor=jnp.int32(1)))[COPY_ALLY]
 
 
 def test_single_summon_corpse_empty_slot_owner_death_and_no_xp(summon_game):
@@ -126,13 +126,13 @@ def test_single_summon_corpse_empty_slot_owner_death_and_no_xp(summon_game):
     state = state.replace(actor=jnp.int32(3),round=jnp.int32(1),preparation=jnp.zeros(12,bool),hp=state.hp.at[0].set(0),
         poison_source=state.poison_source.at[6].set(0),poison_turns=state.poison_turns.at[6].set(4),
         poison_damage=state.poison_damage.at[6].set(7))
-    mask = env.action_mask(state)
+    mask = compiled_method(env,'action_mask')(state)
     assert mask[SHOOT] and mask[SHOOT+1] and not mask[SHOOT+3]
     result = act(env,state,SHOOT)
     assert result.last_event == SUMMONED and result.summon_owner[0] == 3
     assert result.hp[0] == 100 and result.turn_phase[0] == 2
     assert result.native_ids[0] == env.progression.ids['squire']
-    assert not result.defended[3] and env.unit_experience(result)[0,1] == 0
+    assert not result.defended[3] and compiled_method(env,'unit_experience')(result)[0,1] == 0
     assert result.poison_source[6] == -1 and result.poison_turns[6] > 0 and result.poison_damage[6] == 7
     dead = compiled_method(env,'_linked_summon_hp')(result,result.hp.at[3].set(0))
     assert dead[0] == 0
@@ -211,7 +211,7 @@ def test_dark_laclaan_is_copyable_but_capital_guard_is_not(summon_game):
     guard = next(k for k,r in UNITS.items() if r['game_data']['UNIT_CAT'] == '8' and r['size'] == 1)
     state = battle(summon_game,['doppelganger',None,None,None,None,None],['laclaan',guard,None,None,None,None])
     state = state.replace(actor=jnp.int32(0),round=jnp.int32(0),preparation=jnp.array([True]+[False]*11))
-    mask = env.action_mask(state)
+    mask = compiled_method(env,'action_mask')(state)
     assert mask[SHOOT] and not mask[SHOOT+1]
     copied = act(env,state,SHOOT)
     assert copied.copied[0] and env._actor_summons(copied.replace(actor=jnp.int32(0))) == 2

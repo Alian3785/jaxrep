@@ -25,10 +25,10 @@ def stocked(env,state,count=5):
 def test_scenario_actions_only_include_obtainable_potions(current_game):
     env,state,_,_=current_game
     assert len(POTIONS)==24 and len({p['game_id'] for p in POTIONS})==24
-    assert env.potion_rules.count==17 and env.num_actions==165
-    assert env.observation_size==1264 and env.observation(state).shape==(1264,)
+    assert env.potion_rules.count==18 and env.num_actions==212
+    assert env.observation_size==1547 and compiled_method(env,'observation')(state).shape==(1547,)
     assert state.potions[:4].tolist()==[5,5,5,10] and not jnp.any(state.potions[4:])
-    assert not {'protection','bark','striking','swiftness','speed','vigor','strength'} & set(env.potion_rules.keys)
+    assert not {'protection','bark','striking','swiftness','speed','vigor'} & set(env.potion_rules.keys)
     rules=PotionRules(dict(initial_potions={'speed':0},chests=[dict(potions={'celerity':5})]))
     assert rules.keys==('celerity',) and rules.action_count==6
     assert rules.metadata()[0]['action_start']==POTION_START
@@ -71,7 +71,7 @@ def test_every_original_effect_on_all_six_targets_under_jit_vmap(current_game):
     initial=initial.replace(potions=rules.initial_counts,hp=initial.hp.at[:6].set(1))
     intrinsic=env._potion_intrinsic(initial.unit_ids,initial.unit_levels)
     def apply(state,action):
-        return rules.apply(state,action,env.max_hp(state),intrinsic[(action-POTION_START)%6])
+        return rules.apply(state,action,compiled_method(env,'max_hp')(state),intrinsic[(action-POTION_START)%6])
     actions=jnp.arange(POTION_START,POTION_START+144,dtype=jnp.int32)
     states=jax.tree.map(lambda x:jnp.broadcast_to(x,(144,)+x.shape),initial)
     states=states.replace(hp=states.hp.at[18:24,:6].set(0))
@@ -110,15 +110,15 @@ def test_map_only_validation_no_resource_cost_and_recovery(current_game):
         chex.assert_trees_all_equal(getattr(revived,field),getattr(wounded,field))
     invalid=[(state,'healing',0),(state,'life',0),(state,'might',0),(wounded,'healing',1),
              (wounded,'might',5),(wounded.replace(done=jnp.bool_(True)),'might',0),
-             (env._begin_battle(wounded.replace(enemy=jnp.int32(0))),'might',0)]
+             (compiled_method(env,'_begin_battle')(wounded.replace(enemy=jnp.int32(0))),'might',0)]
     for before,key,slot in invalid:
         action=POTION_START+6*env.potion_rules.keys.index(key)+slot
-        assert not env.action_mask(before)[action]
+        assert not compiled_method(env,'action_mask')(before)[action]
         after,_=advance(before,jnp.int32(action))
         for field in ('hp','potions','potion_doses','potion_active','gold'):
             chex.assert_trees_all_equal(getattr(after,field),getattr(before,field))
     large=hero_roster_state(env,stocked(env,state),['titan','duke','possessed',None,'cultist','cultist'])
-    assert not env.action_mask(large)[POTION_START+6*env.potion_rules.keys.index('might')+3]
+    assert not compiled_method(env,'action_mask')(large)[POTION_START+6*env.potion_rules.keys.index('might')+3]
 
 
 def test_temporary_lifetime_stack_rules_and_secondary_stats(current_game):
@@ -126,24 +126,24 @@ def test_temporary_lifetime_stack_rules_and_secondary_stats(current_game):
     state=stocked(env,state)
     boosted=use(env,use(env,state,'might'),'celerity')
     boosted=use(env,boosted,'invulnerability')
-    assert env.unit_stats(boosted)[0,1]==38 and env.unit_stats(boosted)[0,4]==80
-    assert env.unit_stats(boosted)[0,3]==50
+    assert compiled_method(env,'unit_stats')(boosted)[0,1]==38 and compiled_method(env,'unit_stats')(boosted)[0,4]==80
+    assert compiled_method(env,'unit_stats')(boosted)[0,3]==50
     again=use(env,boosted,'might')
     chex.assert_trees_all_equal(again.potions,boosted.potions)
     rested=use(env,state,'titan')
     rested=use(env,rested,'might')
     after,_=compiled_method(env,'step')(rested,jnp.int32(REST))
     assert not jnp.any(after.potion_active) and not jnp.any(after.potion_wards)
-    assert env.unit_stats(after)[0,1]==28
+    assert compiled_method(env,'unit_stats')(after)[0,1]==28
     chex.assert_trees_all_equal(after.potion_doses,rested.potion_doses)
     chex.assert_trees_all_equal(after.potions,rested.potions)
     rules=PotionRules(dict(initial_potions={p['key']:2 for p in POTIONS}))
     full=state.replace(potions=rules.initial_counts)
     raw=env._potion_intrinsic(full.unit_ids,full.unit_levels)
-    apply=jax.jit(lambda s,a:rules.apply(s,a,env.max_hp(s),raw[(a-POTION_START)%6]))
+    apply=jax.jit(lambda s,a:rules.apply(s,a,compiled_method(env,'max_hp')(s),raw[(a-POTION_START)%6]))
     for key in ('vigor','strength','might'):
         full=apply(full,jnp.int32(POTION_START+6*rules.keys.index(key)))
-    assert env.unit_stats(full)[0,1]==round(25*1.15*1.3*1.5)
+    assert compiled_method(env,'unit_stats')(full)[0,1]==round(25*1.15*1.3*1.5)
 
 
 def test_permanent_doses_replay_on_promotion_and_hero_growth(current_game):
@@ -153,15 +153,15 @@ def test_permanent_doses_replay_on_promotion_and_hero_growth(current_game):
         for _ in range(2):
             state=use(env,state,'highfather',slot)
             state=use(env,state,'titan',slot)
-    assert env.max_hp(state)[0]==round(round(120*1.15)*1.15)
-    battle=env._begin_battle(state.replace(enemy=jnp.int32(0))).replace(actor=jnp.int32(0),buildings=jnp.uint32(1))
+    assert compiled_method(env,'max_hp')(state)[0]==round(round(120*1.15)*1.15)
+    battle=compiled_method(env,'_begin_battle')(state.replace(enemy=jnp.int32(0))).replace(actor=jnp.int32(0),buildings=jnp.uint32(1))
     battle=battle.replace(hp=battle.hp.at[0].set(1).at[1].set(1).at[6].set(1),
         unit_xp=battle.unit_xp.at[0].set(94).at[1].set(149))
     won,_=compiled_method(env,'_battle_step')(battle,jnp.int32(SHOOT),battle.battle_key,jnp.zeros(env.random_size))
     assert won.unit_ids[0]==env.progression.ids['berserker'] and won.unit_levels[1]==2
-    assert won.hp[0]==round(round(170*1.15)*1.15) and won.hp[0]==env.max_hp(won)[0]
-    assert won.hp[1]==env.max_hp(won)[1]
-    assert env.unit_stats(won)[0,1]==round(round(50*1.1)*1.1)
+    assert won.hp[0]==round(round(170*1.15)*1.15) and won.hp[0]==compiled_method(env,'max_hp')(won)[0]
+    assert won.hp[1]==compiled_method(env,'max_hp')(won)[1]
+    assert compiled_method(env,'unit_stats')(won)[0,1]==round(round(50*1.1)*1.1)
     chex.assert_trees_all_equal(won.potion_doses,state.potion_doses)
 
 
@@ -174,16 +174,16 @@ def test_secondary_attacks_copy_and_transformed_stat_layers(current_game):
     permanent=[round(float(base[0])*1.1),min(100,round(float(base[1])*1.1))]
     state=use(env,state,'might',3)
     chex.assert_trees_all_equal(env._secondary_stats(state,jnp.int32(3)),jnp.array([round(permanent[0]*1.5),permanent[1]]))
-    battle=env._begin_battle(state.replace(enemy=jnp.int32(0))).replace(actor=jnp.int32(0))
+    battle=compiled_method(env,'_begin_battle')(state.replace(enemy=jnp.int32(0))).replace(actor=jnp.int32(0))
     copied=compiled_method(env,'_copy_unit')(battle,jnp.int32(3),jnp.bool_(True))
     chex.assert_trees_all_equal(copied.copy_secondary[0],jnp.array(permanent))
     chex.assert_trees_all_equal(env._secondary_stats(copied,jnp.int32(0)),jnp.array(permanent))
     # Witch form hides the potion's combat stats; cleansing restores them exactly.
-    native=env.unit_stats(battle)
+    native=compiled_method(env,'unit_stats')(battle)
     imp=battle.replace(imp=battle.imp.at[3].set(True))
-    assert env.unit_stats(imp)[3,1]==20 and env._secondary_stats(imp,jnp.int32(3))[0]==0
+    assert compiled_method(env,'unit_stats')(imp)[3,1]==20 and env._secondary_stats(imp,jnp.int32(3))[0]==0
     cured,_,_=compiled_method(env,'_cleanse')(imp,imp.hp,imp.wards_used,jnp.arange(12)==3)
-    chex.assert_trees_all_equal(env.unit_stats(cured)[3],native[3])
+    chex.assert_trees_all_equal(compiled_method(env,'unit_stats')(cured)[3],native[3])
 
     # Duke's intrinsic damage exceeds the attack cap at high levels. Both
     # permanent and temporary potions precede weakness and the final cap.
@@ -193,7 +193,7 @@ def test_secondary_attacks_copy_and_transformed_stat_layers(current_game):
     veteran=veteran.replace(weakened=veteran.weakened.at[1].set(True))
     assert env._original_primary(veteran)[1]==original
     assert env._combat_stats(veteran,cap=False)[1,1]==round(original*.68)
-    assert env._combat_stats(veteran)[1,1]==400  # Duke's original heavy-strike cap.
+    assert compiled_method(env,'_combat_stats')(veteran)[1,1]==400  # Duke's original heavy-strike cap.
 
 
 def test_armor_and_elemental_wards_affect_actual_attacks(current_game):
@@ -203,18 +203,18 @@ def test_armor_and_elemental_wards_affect_actual_attacks(current_game):
     attack=compiled_method(env,'_battle_step')
     outcomes=[]
     for s in (state,buffed):
-        b=env._begin_battle(s.replace(enemy=jnp.int32(0))).replace(actor=jnp.int32(6))
+        b=compiled_method(env,'_begin_battle')(s.replace(enemy=jnp.int32(0))).replace(actor=jnp.int32(6))
         out,_=attack(b,jnp.int32(SHOOT),b.battle_key,jnp.zeros(env.random_size))
         outcomes.append(int(b.hp[0]-out.hp[0]))
     assert outcomes==[25,12]
     ward=use(env,state,'fire_ward')
-    b=env._begin_battle(ward.replace(enemy=jnp.int32(0))).replace(actor=jnp.int32(6))
+    b=compiled_method(env,'_begin_battle')(ward.replace(enemy=jnp.int32(0))).replace(actor=jnp.int32(6))
     b=b.replace(unit_ids=b.unit_ids.at[6].set(env.progression.ids['cultist']))
     out,_=attack(b,jnp.int32(SHOOT),b.battle_key,jnp.zeros(env.random_size))
     assert out.hp[0]==b.hp[0] and out.wards_used[0]&4
     out,_=attack(out.replace(actor=jnp.int32(6)),jnp.int32(SHOOT),out.battle_key,jnp.zeros(env.random_size))
     assert out.hp[0]<b.hp[0]
-    restarted=env._begin_battle(out.replace(in_battle=jnp.bool_(False)))
+    restarted=compiled_method(env,'_begin_battle')(out.replace(in_battle=jnp.bool_(False)))
     assert restarted.potion_wards[0]&4 and restarted.wards_used[0]==0
 
 
@@ -238,9 +238,10 @@ def test_human_service_uses_shared_potion_effects(current_game):
     env,state,advance,_=current_game
     service=GameService.__new__(GameService)
     service.lock=threading.Lock()
-    service.environments={env.construction.faction:(env,compiled_method(env,'reset'),advance)}
+    key=(env.construction.faction,env.construction.lord['id'])
+    service.environments={key:(env,compiled_method(env,'reset'),advance)}
     state=stocked(env,state)
-    service.sessions=OrderedDict({'potions':(env.construction.faction,state,0.)})
+    service.sessions=OrderedDict({'potions':(key,state,0.)})
     action=POTION_START+6*env.potion_rules.keys.index('celerity')
     result=service.act('potions',action)['snapshot']
     assert result['unit_stats'][0][4]==80 and result['state']['last_event']==POTION_BUFF

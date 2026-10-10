@@ -26,4 +26,18 @@
 .legend .chest{background:#b68242;border:1px solid #80512a}.legend{flex-wrap:wrap}.chest-status{font-size:11px;line-height:1.6;color:var(--muted);margin:0 0 14px}
 
 .equipment-panel{padding:22px;background:var(--panel,#171e20);border:1px solid var(--line,#34403e);border-radius:16px}.equipment-panel p,.equipment-slot small{font-size:12px;line-height:1.6;color:var(--muted,#a2aea8)}.equipment-slot{display:grid;gap:3px;padding:10px 0;border-bottom:1px solid var(--line,#34403e)}.equipment-slot span{font-size:11px;opacity:.7}.equipment-slot b{font-size:14px}.equipment-panel details{margin-top:14px}.equipment-panel summary{cursor:pointer}.equipment-panel li{font-size:12px;line-height:1.7;margin:8px 0}
+
+.site-services{padding:20px;background:#f8faf5;border:1px solid #d8e2d1;border-radius:16px}.site-services h2{margin-top:0}.site-services summary{cursor:pointer;font-weight:650;margin:10px 0}.site-note,.site-services p{font-size:12px;line-height:1.5;color:#586653}.site-offer{display:grid;gap:6px;padding:11px 0;border-bottom:1px solid #dce4d6}.site-offer b{font-size:13px}.site-offer small{color:#586653;font-size:12px}.site-offer button{padding:7px 10px;font-size:12px}.legend i.merchant{background:#e3cba5}.legend i.trainer{background:#c3d7df}
+
+#recruitment-offers{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}#leadership{font-weight:650}.experience-card button{margin-top:8px}
+
+.treasury .resource-list {display:grid;gap:7px;margin:14px 0;font-size:12px}.resource-list>div{display:flex;justify-content:space-between;gap:12px}.resource-list b{font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}#city-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.city-card{border:1px solid #d4dece;border-radius:12px;padding:16px;display:grid;gap:10px}.city-card p{margin:0}.city-card small{line-height:1.5}.legend .city{background:#9b82b0}.legend .mine{background:#69aea4;transform:rotate(45deg)}.legend .land{background:#e6cfb5}.legend .obstacle{background:#899088}
+
+.legend i.mercenary{background:#e5dcc7;border:1px solid #8e7b59}
+
+.legend .ruin{background:#d6c9b4;border:1px solid #9a7b56}
+
+.legend .road{background:#dbc7a6}.legend .forest{background:#b4cca2}.legend .water{background:#a9d4e2}.dpad button{position:relative}.dpad button small{position:absolute;right:3px;bottom:1px;font-size:9px;font-weight:650;line-height:1}#terrain-summary{max-width:610px;line-height:1.6}
+
+.spell-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}.spell-card{border:1px solid #d8dfd1;border-radius:12px;padding:18px;background:#fffdf8}.spell-card h3{margin:0 0 10px}.spell-card p{line-height:1.5}.spell-card details{font-size:12px;color:#64705d}.spell-card .spell-cost{font-size:13px;color:#645640}.spell-card .spell-state{font-weight:600;font-size:13px}.spell-card.is-learned{background:#edf4e8}.spell-card button{width:100%}.new-game{flex-wrap:wrap}.view-tabs{flex-wrap:wrap}
 .agent-controls{border-top:1px solid var(--line);margin-top:16px;padding-top:16px}.agent-controls p{margin:4px 0}.agent-actions{display:flex;gap:8px;flex-wrap:wrap}.agent-pick{outline:3px solid #d08a1f!important;outline-offset:2px}

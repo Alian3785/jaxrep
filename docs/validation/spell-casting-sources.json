@@ -162,6 +162,16 @@
       "test": "stoix/tests/number_grid_casting_test.py::test_support_spells_heal_moves_buffs_wards_health_and_terrain"
     },
     {
+      "rule": "Movement spells restore RESTORE_M percent of the hero's current maximum movement (base 20, boot percent, +1 per level 2-10), not of the reference base MOVES_PER_TURN = 20; never above the maximum",
+      "source": [
+        "C:/Program Files (x86)/Steam/steamapps/common/Disciples II Rise of the Elves/Globals/Gspells.dbf: RESTORE_M g000ss0006 50, g000ss0032 100, g000ss0087 100, g000ss0100 30",
+        "C:/Program Files (x86)/Steam/steamapps/common/Disciples II Rise of the Elves/Globals/Tglobal.dbf: 'Hasted units recover 50% of their move points'; x000tgc006 '+ 50% Move points'; x160tgc200 '+30% Move Points'"
+      ],
+      "decision": "Use the original percentage of the maximum (user request 2026-10-10)",
+      "assumption": "Fractional points are truncated as for boots; not confirmed for spells. Check in the original: maximum 25, spend all points, cast Haste: 12 means truncation, 13 rounding",
+      "test": "stoix/tests/number_grid_casting_test.py::test_support_spells_heal_moves_buffs_wards_health_and_terrain"
+    },
+    {
       "rule": "Stat layers: potions, then map spells, then equipment; secondary attack scaled; health bonus removed as max(0, HP - bonus)",
       "source": [
         "C:/Disciples 2 python reference/Big_map/campaign_env_inventory.py:2879",

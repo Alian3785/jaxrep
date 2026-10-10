@@ -102,7 +102,7 @@ def test_research_full_step_daily_reset_independent_build_limit_and_observation(
     for field in ('gold','day','movement_points','hp','unit_ids','unit_levels','position','buildings'):
         chex.assert_trees_all_equal(getattr(learned,field),getattr(ready,field))
     chex.assert_trees_all_equal(learned.mana,ready.mana-rules.costs[0])
-    assert not jnp.any(mask(learned)[rules.start:])
+    assert not jnp.any(mask(learned)[rules.start:rules.end])
     denied,_ = step(learned,jnp.int32(rules.start+1))
     assert denied.learned_spells == learned.learned_spells
     chex.assert_trees_all_equal(denied.mana,learned.mana)

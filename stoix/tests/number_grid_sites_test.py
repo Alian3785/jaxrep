@@ -77,8 +77,8 @@ def test_exact_three_purchase_actions_and_finite_stock(current_game):
     assert rules.buy_keys==('invulnerability','healing','life')
     assert initial.merchant_stock.tolist()==[1,10,10]
     assert rules.buy_start==171 and rules.train_start==174
-    assert env.num_actions==ACTIONS==212 and len(ACTION_NAMES)==212
-    assert env.observation_size==1547 and compiled_method(env,'observation')(initial).shape==(1547,)
+    assert env.num_actions==ACTIONS==229 and len(ACTION_NAMES)==229
+    assert env.observation_size==1678 and compiled_method(env,'observation')(initial).shape==(1678,)
     state=at_site(env,initial,'merchant').replace(movement_points=jnp.int32(0))
     before=state
     state,_=advance(state,jnp.int32(rules.buy_start))

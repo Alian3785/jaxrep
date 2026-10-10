@@ -1,13 +1,19 @@
+﻿param([string]$Model = '')
 $ErrorActionPreference = 'Stop'
 $repoPath = Split-Path -Parent $PSScriptRoot
 $viewerUrl = 'http://127.0.0.1:8769/viewer.html'
 $isReady = $false
-try { $isReady = (Invoke-RestMethod 'http://127.0.0.1:8769/api/health' -TimeoutSec 2).ok } catch {}
+$health = $null
+try { $health = Invoke-RestMethod 'http://127.0.0.1:8769/api/health' -TimeoutSec 2; $isReady = $health.ok } catch {}
+if ($isReady -and $Model -and -not $health.agent) {
+    throw 'Сервер NumberGrid уже запущен без модели. Остановите его и повторите запуск с моделью.'
+}
 if (-not $isReady) {
     $logDir = Join-Path $repoPath 'results'
     New-Item -ItemType Directory -Path $logDir -Force | Out-Null
     $wslArgs = @('-d', 'Ubuntu-24.04', '-u', 'minigrid', '--cd', ('"' + $repoPath + '"'), '--',
                  'bash', 'scripts/run_gpu.sh', 'serve_number_grid.py', '--port', '8769')
+    if ($Model) { $wslArgs += @('--model', ('"' + $Model + '"')) }
     Start-Process -FilePath 'wsl.exe' -ArgumentList $wslArgs -WindowStyle Hidden `
         -RedirectStandardOutput (Join-Path $logDir 'human-mode.log') `
         -RedirectStandardError (Join-Path $logDir 'human-mode-errors.log')

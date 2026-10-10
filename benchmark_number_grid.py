@@ -70,7 +70,7 @@ def train(args):
 
 def run_training(args, tracking):
     started = time.perf_counter()
-    if len(jax.devices()) != 1 or jax.devices()[0].platform != 'gpu':
+    if os.environ.get('NUMBERGRID_ALLOW_CPU') != '1' and (len(jax.devices()) != 1 or jax.devices()[0].platform != 'gpu'):
         raise RuntimeError('This measured profile requires exactly one CUDA GPU.')
     total = 250_000 if args.smoke else args.total_timesteps
     game_map = json.loads(Path(args.map).read_text(encoding='utf-8')) if args.map else MAP
@@ -192,7 +192,7 @@ def run_training(args, tracking):
     result = dict(
         environment=game_map['name'], algorithm='Stoix Anakin feedforward PPO', recurrent=False,
         device=jax.devices()[0].device_kind, backend=jax.default_backend(), jax=jax.__version__,
-        cuda_runtime=importlib.metadata.version('nvidia-cuda-runtime'), python=platform.python_version(),
+        cuda_runtime=(importlib.metadata.version('nvidia-cuda-runtime') if jax.default_backend() == 'gpu' else None), python=platform.python_version(),
         training_steps=total, ppo_updates=config.arch.num_updates,
         actor_optimizer_updates=actual_actor_updates, critic_optimizer_updates=actual_critic_updates,
         seed=args.seed, training_seconds=training_seconds,

@@ -1,3 +1,4 @@
+param([string]$Model = '')
 $ErrorActionPreference = 'Stop'
 $repoPath = Split-Path -Parent $PSScriptRoot
 $viewerUrl = 'http://127.0.0.1:8769/viewer.html'
@@ -8,6 +9,7 @@ if (-not $isReady) {
     New-Item -ItemType Directory -Path $logDir -Force | Out-Null
     $wslArgs = @('-d', 'Ubuntu-24.04', '-u', 'minigrid', '--cd', ('"' + $repoPath + '"'), '--',
                  'bash', 'scripts/run_gpu.sh', 'serve_number_grid.py', '--port', '8769')
+    if ($Model) { $wslArgs += @('--model', ('"' + $Model + '"')) }
     Start-Process -FilePath 'wsl.exe' -ArgumentList $wslArgs -WindowStyle Hidden `
         -RedirectStandardOutput (Join-Path $logDir 'human-mode.log') `
         -RedirectStandardError (Join-Path $logDir 'human-mode-errors.log')

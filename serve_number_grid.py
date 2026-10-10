@@ -13,24 +13,100 @@ import secrets
 import threading
 from urllib.parse import urlsplit
 
+import hashlib
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-from stoix.envs.number_grid import MAP, NumberGrid, CONTINUE
+from stoix.envs.number_grid import ACTION_NAMES, MAP, NumberGrid, CONTINUE
 from stoix.envs.number_grid_buildings import DEFAULT_FACTION, FACTIONS
 
 ROOT = Path(__file__).resolve().parent
 
 
+DIRECTIONS = dict(N='↑ север', NE='↗ северо-восток', E='→ восток', SE='↘ юго-восток',
+                  S='↓ юг', SW='↙ юго-запад', W='← запад', NW='↖ северо-запад')
+SIMPLE = dict(defend='защита', wait='ждать', retreat='отступать', rest='отдых · закончить ход',
+              transform_fenrir='Дух Фенрира')
+
+
+def action_label(action):
+    name = ACTION_NAMES[action] if action < len(ACTION_NAMES) else f'action_{action}'
+    if name in DIRECTIONS:
+        return DIRECTIONS[name]
+    if name in SIMPLE:
+        return SIMPLE[name]
+    if name == 'continue':
+        return 'продолжить'
+    kind, _, rest = name.partition('_')
+    index = rest.rsplit('_', 1)[-1]
+    slot = int(index) + 1 if index.isdigit() else index
+    if kind == 'shoot':
+        return f'действие по цели {slot}'
+    if kind == 'build':
+        return f'постройка (слот {slot})'
+    if kind == 'heal':
+        return f'храм: лечить бойца {slot}'
+    if kind == 'revive':
+        return f'храм: воскресить бойца {slot}'
+    if kind == 'copy':
+        return f'облик союзника {slot}'
+    if kind == 'potion':
+        return f'зелье {rest.rsplit("_", 1)[0]} → боец {slot}'
+    return name
+
+
+class Agent:
+    """Trained PPO actor used only for hints and agent moves in human mode."""
+
+    def __init__(self, results):
+        import hydra
+        from flax import serialization
+        from omegaconf import OmegaConf
+        from stoix.networks.base import FeedForwardActor
+        results = Path(results)
+        result = json.loads((results / 'results.json').read_text(encoding='utf-8'))
+        checkpoint = (results / 'params.msgpack').read_bytes()
+        if hashlib.sha256(checkpoint).hexdigest() != result['checkpoint_sha256']:
+            raise ValueError('params.msgpack does not match results.json')
+        if json.loads((results / 'map.json').read_text(encoding='utf-8'))['name'] != MAP['name']:
+            raise ValueError('The checkpoint was trained on a different map version.')
+        config = OmegaConf.load(results / 'config.json')
+        self.params = jax.tree.map(jnp.asarray, serialization.msgpack_restore(checkpoint)['actor_params'])
+        self.actor = FeedForwardActor(
+            torso=hydra.utils.instantiate(config.network.actor_network.pre_torso),
+            action_head=hydra.utils.instantiate(config.network.actor_network.action_head,
+                                                action_dim=len(ACTION_NAMES)))
+        self.info = dict(training_steps=result['training_steps'],
+                         steps_per_second=result['mean_steps_per_second'],
+                         argmax_wins=result['final_evaluation']['successes'],
+                         argmax_episodes=result['final_evaluation']['episodes'])
+        self.policies = {}
+
+    def policy(self, env):
+        if id(env) not in self.policies:
+            @jax.jit
+            def choose(state):
+                mask = env.action_mask(state)
+                obs = {'observation': env.observation(state)[None], 'action_mask': mask[None]}
+                probs = self.actor.apply(self.params, obs).probs[0]
+                probs = jnp.where(mask, probs, 0.)
+                return jnp.argmax(probs), probs
+            self.policies[id(env)] = choose
+        return self.policies[id(env)]
+
+
 class GameService:
-    def __init__(self):
+    def __init__(self, agent=None):
         self.environments = {}
         self.sessions = OrderedDict()
         self.lock = threading.Lock()
+        self.agent = agent
         self.env, reset, advance = self.environment(MAP.get('faction', DEFAULT_FACTION))
         state, _ = reset(jax.random.PRNGKey(0))
         jax.block_until_ready(advance(state, jnp.int32(2)))
+        if agent is not None:
+            jax.block_until_ready(agent.policy(self.env)(state))
 
     def environment(self, faction):
         if faction not in FACTIONS:
@@ -99,6 +175,21 @@ class GameService:
             self.sessions.move_to_end(token)
             return {'session': token, 'snapshot': self.snapshot(env, state, total), 'events': events}
 
+    def suggest(self, token):
+        if self.agent is None:
+            raise ValueError('Сервер запущен без модели (--model).')
+        with self.lock:
+            if token not in self.sessions:
+                raise KeyError('Сессия истекла. Начните новую игру.')
+            faction, state, _ = self.sessions[token]
+            env, _, _ = self.environment(faction)
+            if bool(state.done):
+                raise ValueError('Игра завершена. Начните новую игру.')
+            action, probs = jax.device_get(self.agent.policy(env)(state))
+            action = int(action)
+            return {'action': action, 'label': action_label(action),
+                    'probability': float(probs[action])}
+
 
 def make_handler(service, port):
     class Handler(BaseHTTPRequestHandler):
@@ -114,7 +205,8 @@ def make_handler(service, port):
         def do_GET(self):
             path = urlsplit(self.path).path
             if path == '/api/health':
-                return self.send_json(200, {'ok':True, 'environment':MAP['name'], 'backend':jax.default_backend()})
+                return self.send_json(200, {'ok':True, 'environment':MAP['name'], 'backend':jax.default_backend(),
+                                            'agent': service.agent.info if service.agent else None})
             if path == '/api/info':
                 return self.send_json(200, {'map':MAP})
             filename = 'viewer.html' if path in ('/', '/viewer.html') else path.lstrip('/')
@@ -151,6 +243,8 @@ def make_handler(service, port):
                     if type(action) is not int:
                         raise ValueError('Неверное действие.')
                     result = service.act(body.get('session'), action)
+                elif self.path == '/api/agent':
+                    result = service.suggest(body.get('session'))
                 else:
                     return self.send_error(404)
                 self.send_json(200, result)
@@ -167,10 +261,12 @@ def make_handler(service, port):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', type=int, default=8769)
+    parser.add_argument('--model', help='Results folder with params.msgpack: enables agent hints and moves')
+    parser.add_argument('--allow-cpu', action='store_true', help='Run human mode on the JAX CPU backend')
     args = parser.parse_args()
-    if jax.default_backend() != 'gpu':
+    if jax.default_backend() != 'gpu' and not args.allow_cpu:
         raise RuntimeError('Start with scripts/run_gpu.sh to use the CUDA environment.')
-    service = GameService()
+    service = GameService(Agent(args.model) if args.model else None)
     server = ThreadingHTTPServer(('127.0.0.1', args.port), make_handler(service, args.port))
     print(f'NumberGrid human mode: http://127.0.0.1:{args.port}/viewer.html', flush=True)
     server.serve_forever()

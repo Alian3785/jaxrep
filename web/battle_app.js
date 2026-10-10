@@ -141,7 +141,7 @@
       const action=(!s.hp[i]?info.revive_start:info.heal_start)+i;
       const button=document.createElement('button');button.dataset.action=action;
       button.textContent=!s.hp[i]?'Воскресить · '+q[4]+' золота':q[1]===0?'Здоровье полное':q[2]>0?'Лечить +'+q[2]+' HP · '+q[3]+' золота':'Не хватает золота';
-      button.onclick=()=>sendAction(action);card.append(button);
+      button.dataset.agentAction=action;button.onclick=()=>sendAction(action);card.append(button);
       cards.push(card);
     }
     $('recovery-list').replaceChildren(...cards);
@@ -166,7 +166,7 @@
       const button=document.createElement('button'),amount=snap.potion_quotes?.[selectedPotion]?.[i]||0;
       button.dataset.action=item.action_start+i;
       button.textContent=!s.potions[selectedPotion]?'Зелья закончились':item.effect==='revive'?(s.hp[i]?'Боец жив':'Воскресить · 1 бутылка'):!s.hp[i]?'Сначала воскресите бойца':item.effect==='heal'?(!amount?'Здоровье полное':'Лечить +'+amount+' HP · 1 бутылка'):snap.action_mask[item.action_start+i]?'Применить · 1 бутылка':s.in_battle?'Завершите бой':'Эффект уже действует';
-      button.onclick=()=>sendAction(item.action_start+i);card.append(button);cards.push(card);
+      button.dataset.agentAction=item.action_start+i;button.onclick=()=>sendAction(item.action_start+i);card.append(button);cards.push(card);
     }
     $('potion-targets').replaceChildren(...cards);
   }
@@ -179,7 +179,7 @@
       if(enemy<0)continue;
       const button=document.createElement('button');button.dataset.action=action;
       button.textContent='Атаковать отряд № '+(enemy+1)+' · '+enemyParty(currentMap(),enemy)+' · '+cost+' очков';
-      button.onclick=()=>sendAction(action);attacks.push(button);
+      button.dataset.agentAction=action;button.onclick=()=>sendAction(action);attacks.push(button);
     }
     $('map-targets').replaceChildren(...attacks);
     $('map-targets').hidden=!attacks.length;
@@ -215,7 +215,7 @@
   for(const i of slots){
     const button=document.createElement('button');button.className='unit'+(i>=6?' foe':'');button.dataset.slot=i;
     button.innerHTML='<span class="unit-name"></span><span class="archer-icon" aria-hidden="true">➶</span><span class="health"></span><span class="unit-stats"></span><span class="unit-xp"></span><span class="health-bar"><span class="health-fill"></span></span><span class="status"></span>';
-    button.onclick=()=>sendAction(targetAction(i));$(i<6?'allies':'enemies').append(button);
+    button.dataset.agentAction=targetAction(i);button.onclick=()=>sendAction(targetAction(i));$(i<6?'allies':'enemies').append(button);
   }
   function experienceText(snap,i){
     const xp=snap.unit_experience?.[i];
@@ -451,6 +451,29 @@
   document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});
   $('version').textContent=data.map.name;
   if(data.result){$('run-card').hidden=false;$('run-info').textContent='Запись: '+data.map.opponent_positions.length+' вражеских отрядов'+' · '+fmt(data.result.training_steps)+' шагов · '+fmt(Math.round(data.result.mean_steps_per_second))+' шагов/с';$('run-evaluation').textContent='Победы argmax на карте записи: '+data.result.final_evaluation.successes+' / '+data.result.final_evaluation.episodes+'.';}
+  let agentPick=null,agentAuto=false,actionCount=0;
+  function showPick(){
+    document.querySelectorAll('.agent-pick').forEach(b=>b.classList.remove('agent-pick'));
+    if(mode!=='manual'||!agentPick||agentPick.count!==actionCount)return;
+    document.querySelectorAll('[data-action="'+agentPick.action+'"],[data-agent-action="'+agentPick.action+'"]').forEach(b=>b.classList.add('agent-pick'));
+  }
+  const baseRender=render;render=function(){baseRender();showPick();};
+  const baseSend=sendAction;sendAction=async function(action){const before=busy;await baseSend(action);if(!before)actionCount++;showPick();};
+  async function askAgent(){
+    if(!session||!manual||manual.state.done)return null;
+    try{const pick=await request('/api/agent',{session});agentPick={...pick,count:actionCount};
+      $('agent-hint').textContent='Агент выбирает: '+pick.label+' (вероятность '+Math.round(pick.probability*100)+'%).';showPick();return agentPick;}
+    catch(error){$('agent-hint').textContent=error.message;return null;}
+  }
+  async function agentMove(){if(busy)return false;const pick=await askAgent();if(!pick||busy)return false;await sendAction(pick.action);return true;}
+  function setAuto(on){agentAuto=on;$('agent-auto').textContent=on?'Ⅱ Остановить агента':'▶ Агент играет сам';}
+  $('reset').addEventListener('click',()=>{agentPick=null;setAuto(false);showPick();});
+  $('agent-suggest').onclick=askAgent;$('agent-move').onclick=agentMove;
+  $('agent-auto').onclick=async()=>{if(agentAuto){setAuto(false);return;}setAuto(true);
+    while(agentAuto&&mode==='manual'&&manual&&!manual.state.done){if(!await agentMove())break;await new Promise(r=>setTimeout(r,120));}
+    setAuto(false);};
+  fetch('/api/health').then(r=>r.json()).then(h=>{if(!h.agent)return;$('agent-controls').hidden=false;
+    $('agent-info').textContent='Модель: '+fmt(h.agent.training_steps)+' шагов обучения · побед argmax '+h.agent.argmax_wins+' / '+h.agent.argmax_episodes+'.';}).catch(()=>{});
   window.numberGridApp={snapshot:()=>JSON.parse(JSON.stringify({mode,frame,...current()}))};
   if(records.length){manual=records[0].frames[0];render();}
   resetGame();

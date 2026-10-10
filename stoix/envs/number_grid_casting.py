@@ -27,6 +27,12 @@ FRONT_SLOT, REAR_SLOT = 0, 3  # reference positions 7 and 10
 FIELD_REGENERATION, OWN_LAND_REGENERATION = 15, 5
 
 
+def _hits(count, index):
+    """One-hot row selector. Under vmap a per-env .at[index].set becomes a
+    scatter kernel; an elementwise select fuses with its neighbours."""
+    return jnp.arange(count) == index
+
+
 def casting_enabled(game_map):
     return bool(game_map.get('spell_casting', False))
 
@@ -137,8 +143,15 @@ class SpellCastRules:
         field_target = jnp.where(field_key[field_target] < worst, field_target, -1).astype(jnp.int32)
         return any_target, field_target, distance
 
+    def max_hp(self, ids, levels):
+        """HP column alone of progression.stats: one scalar lookup per unit."""
+        p = self.progression
+        raw = (p.stat_levels[jnp.minimum(levels, p.level_anchor), ids, HP]
+               + jnp.maximum(levels - p.level_anchor, 0) * p.late[ids, HP])
+        return jnp.minimum(raw, p.stat_caps[ids, HP]).astype(jnp.int32)
+
     def enemy_max_hp(self, state):
-        return self.progression.stats(self.enemy_ids, state.enemy_progress[..., 0])[..., HP].astype(jnp.int32)
+        return self.max_hp(self.enemy_ids, state.enemy_progress[..., 0])
 
     # Masks ---------------------------------------------------------------
     def available(self, state, max_hp, cap, targets=None, index=None):
@@ -180,16 +193,17 @@ class SpellCastRules:
         kind = self.kinds[index]
         target = jnp.where(self.field_only[index], field_target, any_target)
         t = jnp.maximum(target, 0)
+        rows = _hits(self.enemy_count, target)
         # Damage: a direct hit on every living unit of the stack, ignoring armour.
         striking = valid & (kind == DAMAGE)
-        maximum = self.progression.stats(self.enemy_ids[t], state.enemy_progress[t, :, 0])[:, HP].astype(jnp.int32)
+        maximum = self.max_hp(self.enemy_ids[t], state.enemy_progress[t, :, 0])
         current = jnp.where(self.occupied[t], jnp.maximum(maximum - state.enemy_wounds[t], 0), 0)
         hit = striking & (current > 0) & ((self.blocks[t] & self.element_bits[index]) == 0)
         remaining = jnp.where(hit, jnp.maximum(current - self.amounts[index], 0), current)
         killed = striking & ~jnp.any(remaining > 0)
-        wounds = state.enemy_wounds.at[t].set(jnp.where(striking, maximum - remaining, state.enemy_wounds[t]))
-        debuffs = state.enemy_spell_effects.at[t].set(jnp.where(
-            killed, jnp.uint32(0), state.enemy_spell_effects[t] | jnp.where(valid & (kind == DEBUFF), self.bits[index], jnp.uint32(0))))
+        wounds = jnp.where((rows & striking)[:, None], maximum - remaining, state.enemy_wounds)
+        debuffs = jnp.where(rows & killed, jnp.uint32(0), state.enemy_spell_effects
+                            | jnp.where(rows & valid & (kind == DEBUFF), self.bits[index], jnp.uint32(0)))
         # Hero stack support.
         living = (state.hp[:6] > 0) & (state.unit_ids[:6] != 0)
         healing = valid & (kind == HEAL) & living
@@ -201,13 +215,13 @@ class SpellCastRules:
             kind == HEAL, jnp.sum(healed - state.hp[:6]), movement - state.movement_points))
         state = state.replace(
             mana=state.mana - jnp.where(valid, self.costs[index], 0),
-            spell_casts=state.spell_casts.at[index].add(valid.astype(jnp.int32)),
+            spell_casts=state.spell_casts + (_hits(self.count, index) & valid),
             enemy_wounds=wounds, enemy_spell_effects=debuffs,
-            alive=state.alive.at[t].set(state.alive[t] & ~killed),
+            alive=state.alive & ~(rows & killed),
             number=state.number + killed.astype(jnp.int32),
             hp=state.hp.at[:6].set(healed), movement_points=movement,
             spell_effects=state.spell_effects | jnp.where(valid & self.persistent[index], self.bits[index], jnp.uint32(0)),
-            summon_marks=state.summon_marks.at[t].set(state.summon_marks[t] | summon),
+            summon_marks=state.summon_marks | (rows & summon),
             last_cast_spell=jnp.where(valid, index, -1).astype(jnp.int32),
             last_spell_target=jnp.where(valid & self.offensive[index], target, -1).astype(jnp.int32),
             last_spell_amount=jnp.where(valid & ~self.offensive[index] | striking, amount, 0).astype(jnp.int32),
@@ -220,7 +234,7 @@ class SpellCastRules:
         """Stash the hero roster; the summoned unit fights alone at its native level."""
         uid = self.summon_ids[index]
         level = self.progression.base_levels[uid]
-        health = self.progression.stats(uid, level)[HP].astype(jnp.int32)
+        health = self.max_hp(uid, level)
         slots = jnp.arange(6) == self.summon_slots[index]
         party = jnp.stack((state.unit_ids[:6], state.unit_levels[:6], state.unit_xp[:6], state.hp[:6]))
         def replace(values, value):
@@ -232,9 +246,9 @@ class SpellCastRules:
 
     def engage_bonus(self, state, engage):
         """Hero attack on a stack a summon already fought this day."""
-        marked = engage & state.summon_marks[jnp.maximum(state.enemy, 0)]
-        return state.replace(summon_marks=state.summon_marks.at[jnp.maximum(state.enemy, 0)].set(
-            state.summon_marks[jnp.maximum(state.enemy, 0)] & ~engage)), SUMMON_ENGAGE_REWARD * marked.astype(jnp.float32)
+        rows = _hits(self.enemy_count, state.enemy) & engage
+        marked = jnp.any(rows & state.summon_marks)
+        return state.replace(summon_marks=state.summon_marks & ~rows), SUMMON_ENGAGE_REWARD * marked.astype(jnp.float32)
 
     def rest(self, state, resting):
         """New day: limits/effects expire; living wounded enemies regenerate."""
@@ -281,7 +295,8 @@ class SpellCastRules:
         max(0, HP - bonus); a promoted unit keeps its new full HP.
         """
         t = jnp.maximum(before.enemy, 0)
-        maximum = self.progression.stats(after.unit_ids[6:], after.unit_levels[6:])[:, HP].astype(jnp.int32)
+        rows = _hits(self.enemy_count, before.enemy)
+        maximum = self.max_hp(after.unit_ids[6:], after.unit_levels[6:])
         wounds = jnp.where(victory | ~self.occupied[t], 0, jnp.maximum(maximum - hp[6:], 0))
         summon = before.summon_battle
         restore = back & summon
@@ -293,9 +308,9 @@ class SpellCastRules:
             bonus = jnp.where(back & ~promoted, before.spell_mods[:, 0], 0.).astype(jnp.int32)
             after = after.replace(hp=jnp.maximum(after.hp - bonus, 0))
         return after.replace(
-            enemy_wounds=after.enemy_wounds.at[t].set(jnp.where(back, wounds, after.enemy_wounds[t])),
-            enemy_spell_effects=after.enemy_spell_effects.at[t].set(jnp.where(victory, jnp.uint32(0), after.enemy_spell_effects[t])),
-            summon_marks=after.summon_marks.at[t].set(after.summon_marks[t] & ~(victory & summon)),
+            enemy_wounds=jnp.where((rows & back)[:, None], wounds, after.enemy_wounds),
+            enemy_spell_effects=jnp.where(rows & victory, jnp.uint32(0), after.enemy_spell_effects),
+            summon_marks=after.summon_marks & ~(rows & victory & summon),
             unit_ids=restored(after.unit_ids, party[0]), unit_levels=restored(after.unit_levels, party[1]),
             unit_xp=restored(after.unit_xp, party[2]), hp=restored(after.hp, party[3]),
             last_xp=jnp.where(restore & (jnp.arange(12) < 6), 0, after.last_xp),

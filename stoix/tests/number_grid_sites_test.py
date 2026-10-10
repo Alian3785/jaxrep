@@ -194,7 +194,7 @@ def test_site_metadata_and_quotes_reach_human_service(human_service):
     assert 'sell' not in game['sites']
     assert game['snapshot']['state']['merchant_stock']==[1,10,10]
     assert game['snapshot']['site_quotes']['buy']==[700,150,400]
-    assert len(game['snapshot']['action_mask'])==212
+    assert len(game['snapshot']['action_mask'])==229
     assert game['snapshot']['site_quotes']['train'][1][0]==4
 
 

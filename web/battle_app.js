@@ -5,7 +5,7 @@
   const canvas=$('board'), ctx=canvas.getContext('2d');
   let mode='manual', session=null, manual=null, manualMap=null, busy=false, frame=0, recordIndex=0, timer=null, messages=[];
   let manualConstruction=null, manualTurnRules=null, manualCombat=null, manualCapital=null, manualPotions=null, capitalOpen=false, potionsOpen=false, selectedPotion=0, capitalKey=null;
-  let manualEquipment=null, manualSites=null, manualRecruitment=null, manualTerritory=null, manualRuins=null, manualSpells=null, spellsOpen=false;
+  let manualEquipment=null, manualSites=null, manualRecruitment=null, manualTerritory=null, manualRuins=null, manualSpells=null, manualCasting=null, spellsOpen=false;
   const records=data.records||[];
   const combatInfo=()=>mode==='manual'?(manualCombat||data.combat):data.combat;
   const profile=i=>{
@@ -33,7 +33,7 @@
   const role=i=>profile(i)?.name||'Пусто';
   const unitName=i=>(i<6?'Ваш ':'Вражеский ')+role(i).toLowerCase()+' '+(i%6+1);
   const partyText=units=>{const counts=new Map();for(const u of units||[])if(u)counts.set(u.name,(counts.get(u.name)||0)+1);return [...counts].map(([name,count])=>name+' × '+count).join(' · ');};
-  const enemyParty=(map,enemy)=>(map.city_defender_roles?.[enemy]?({guard:'Охрана · ',garrison:'Гарнизон · '}[map.city_defender_roles[enemy]]||''):'')+partyText(current()?.state.in_battle?Array.from({length:6},(_,i)=>profile(i+6)):combatInfo()?.enemies[enemy]);
+  const enemyParty=(map,enemy)=>(map.city_defender_roles?.[enemy]?({guard:'Охрана · ',garrison:'Гарнизон · ',capital:'Страж столицы · '}[map.city_defender_roles[enemy]]||''):'')+partyText(current()?.state.in_battle?Array.from({length:6},(_,i)=>profile(i+6)):combatInfo()?.enemies[enemy]);
   const sourceName=key=>combatInfo()?.attack_types.find(t=>t.key===key)?.name||key;
   const protectionNames=bits=>(combatInfo()?.attack_types||[]).filter(t=>bits&t.bit).map(t=>t.name).join(', ')||'нет';
   const blockText=s=>{const parts=[];for(const [key,label] of [['last_immune','Иммунитет'],['last_ward','Защита поглотила удар']]){const names=Array.from({length:12},(_,i)=>i).filter(i=>s[key]&(1<<i)).map(unitName);if(names.length)parts.push(label+': '+names.join(', ')+'.');}return parts.length?' '+parts.join(' '):'';};
@@ -47,7 +47,24 @@
   const recruitmentInfo=()=>mode==='manual'?(manualRecruitment||data.recruitment):data.recruitment;
   const territoryInfo=()=>mode==='manual'?(manualTerritory||data.territory):data.territory;
   const spellInfo=()=>mode==='manual'?(manualSpells||data.spell_research):data.spell_research;
+  const castInfo=()=>mode==='manual'?(manualCasting||data.spell_casting):data.spell_casting;
   const manaNames=['Преисподняя','Жизнь','Смерть','Руны','Природа'];
+  const elementNames={weapon:'оружия',earth:'Земли',fire:'Огня',water:'Воды',poison:'яда',death:'Смерти',mind:'Разума',life:'Жизни',air:'Воздуха'};
+  const statNames={armor:'броня',damage:'урон',accuracy:'точность',initiative:'инициатива'};
+  function castEffect(c){
+    const change=c.stat==='armor'?(c.amount>0?'+':'')+c.amount:'×'+c.multiplier;
+    switch(c.kind){
+      case 'damage':return 'Урон '+c.amount+' магией '+elementNames[c.element]+' каждому бойцу ближайшего отряда вне городов, руин и столиц; иммунитет и защита блокируют.';
+      case 'debuff':return 'Ближайший отряд вне городов, руин и столиц: '+statNames[c.stat]+' '+change+' до следующего хода.';
+      case 'summon_battle':return 'Призыв: '+c.unit_name+' один сражается с ближайшим отрядом. Отряд героя не участвует.';
+      case 'moves':return '+'+c.percent+'% от максимума очков перемещения с учётом сапог и уровня героя, дробная часть отбрасывается.';
+      case 'heal':return 'Лечение '+c.amount+' HP каждому живому бойцу героя.';
+      case 'buff':return c.stat==='terrain'?(c.terrain==='forest'?'Лес':'Вода')+' стоит 2 очка, как равнина, до следующего хода.':'Отряд героя: '+statNames[c.stat]+' '+change+' в боях до следующего хода.';
+      case 'ward':return 'Отряд героя: защита от '+elementNames[c.element]+' в боях до следующего хода.';
+      case 'health_bonus':return 'Отряд героя: +'+c.amount+' HP в боях до следующего хода.';
+    }
+    return '';
+  }
   function renderSpells(snap){
     const info=spellInfo(),lord=construction()?.lord;
     $('spells-view').hidden=!info;
@@ -59,7 +76,9 @@
     $('spells-title').textContent='Заклинания · '+construction().name;
     $('spell-rules').textContent=lord.description;
     const learned=(snap.spell_status||[]).filter(c=>c===1).length;
-    $('spell-status').textContent='Изучено '+learned+' / '+info.spells.length+' · '+(snap.state.spell_researched_today?'Сегодня заклинание уже изучено.':'Дневной лимит свободен.');
+    const casting=castInfo(),quotes=snap.cast_quotes;
+    $('spell-status').textContent='Изучено '+learned+' / '+info.spells.length+' · '+(snap.state.spell_researched_today?'Сегодня заклинание уже изучено.':'Дневной лимит свободен.')+(casting?' · Одно заклинание можно применить '+(casting.daily_limit===2?'дважды':'один раз')+' за ход.':'');
+    const castLabels=['Можно применить','Не изучено','Лимит применений на этот ход исчерпан','Недостаточно маны','Нет цели или эффект уже действует','Недоступно во время боя','Игра завершена'];
     const labels=['Можно изучить','Изучено','V уровень доступен только правителю-магу','Нужна башня магии','Недостаточно маны','Сегодня уже изучено заклинание','Недоступно во время боя','Игра завершена'];
     $('spell-list').replaceChildren(...info.spells.map((spell,i)=>{
       const card=document.createElement('article');card.className='spell-card'+(snap.spell_status?.[i]===1?' is-learned':'');
@@ -72,8 +91,30 @@
       const status=document.createElement('p');status.className='spell-state';status.textContent=labels[snap.spell_status?.[i]??7];
       const button=document.createElement('button');button.dataset.action=spell.action;button.textContent=snap.spell_status?.[i]===1?'Изучено':'Изучить';button.setAttribute('aria-label','Изучить: '+spell.name);
       button.disabled=mode!=='manual'||busy||!session||!snap.action_mask[spell.action];button.onclick=()=>sendAction(spell.action);
-      card.append(title,description,original,cost,status,button);return card;
+      card.append(title,description,original,cost,status,button);
+      if(casting?.spells[i])castBlock(card,casting.spells[i],i);
+      return card;
     }));
+    // Spells of another faction bought in a spell shop: no research, one cast per day.
+    $('spell-list').append(...(casting?.spells||[]).slice(info.spells.length).map((cast,k)=>{
+      const i=info.spells.length+k,learned=(snap.state.learned_spells>>>i)&1;
+      const card=document.createElement('article');card.className='spell-card'+(learned?' is-learned':'');
+      card.hidden=$('spell-level').value!=='all'&&Number($('spell-level').value)!==cast.level;
+      const title=document.createElement('h3');title.textContent=cast.name+' · '+['','I','II','III','IV','V'][cast.level];
+      const description=document.createElement('p');description.textContent=cast.description;
+      const status=document.createElement('p');status.className='spell-state';status.textContent=learned?'Куплено в лавке заклинаний':'Продаётся в лавке заклинаний; изучить нельзя';
+      card.append(title,description,status);castBlock(card,cast,i);return card;
+    }));
+    function castBlock(card,cast,i){
+      const effect=document.createElement('p');effect.className='spell-effect';effect.textContent=castEffect(cast);
+      const price=document.createElement('p');price.className='spell-cost';price.textContent='Применение: '+cast.cast_mana.map((n,j)=>n?manaNames[j]+' '+fmt(n):null).filter(Boolean).join(' · ');
+      const code=quotes?.status?.[i]??6,target=quotes?.target?.[i]??-1;
+      const castState=document.createElement('p');castState.className='spell-state';
+      castState.textContent=castLabels[code]+(code===0&&target>=0?' · цель: отряд № '+(target+1):'')+(snap.state.spell_casts?.[i]?' · применено сегодня: '+snap.state.spell_casts[i]:'');
+      const castButton=document.createElement('button');castButton.dataset.action=cast.action;castButton.textContent='Применить';castButton.setAttribute('aria-label','Применить: '+cast.name);
+      castButton.disabled=mode!=='manual'||busy||!session||!snap.action_mask[cast.action];castButton.onclick=()=>sendAction(cast.action);
+      card.append(effect,price,castState,castButton);
+    }
   }
   const ruinInfo=()=>mode==='manual'?(manualRuins||data.ruins):data.ruins;
   const lootText=ruin=>[...Object.entries(ruin.potions||{}),...Object.entries(ruin.items||{})].filter(([,n])=>n).map(([key,n])=>(potionInfo()?.find(p=>p.key===key)?.name||equipmentInfo()?.items.find(p=>p.key===key)?.name||key)+' × '+n).concat(ruin.gold?[fmt(ruin.gold)+' золота']:[]).join(', ');
@@ -139,9 +180,12 @@
   function renderSites(snap){
     const info=siteInfo(),s=snap.state,panel=$('site-services');
     panel.hidden=!info;if(!info)return;
-    const at=kind=>info.sites.find(site=>site.kind===kind)?.interaction_tiles.some(p=>p.every((v,i)=>v===s.position[i]));
+    const here=kind=>info.sites.find(site=>site.kind===kind&&site.interaction_tiles.some(p=>p.every((v,i)=>v===s.position[i])));
     const button=(text,action)=>{const b=document.createElement('button');b.textContent=text;b.dataset.action=action;b.onclick=()=>sendAction(action);return b;};
-    const ready=kind=>s.done?'Эпизод завершён.':s.in_battle?'Завершите бой.':at(kind)?'Вы у входа.':'Подойдите на одну из пяти подсвеченных клеток у входа.';
+    const ready=kind=>s.done?'Эпизод завершён.':s.in_battle?'Завершите бой.':here(kind)?'Вы у входа: '+here(kind).name+'.':'Подойдите на одну из пяти подсвеченных клеток у входа.';
+    // With several sites of a kind, every offer names its own site.
+    const siteName=(kind,site)=>info.sites.filter(x=>x.kind===kind).length>1&&info.sites[site]?' · '+info.sites[site].name:'';
+    for(const [id,kind] of [['merchant-site','merchant'],['trainer-site','trainer'],['spell-shop','spell_shop']])$(id).hidden=!info.sites.some(x=>x.kind===kind);
     const recruits=recruitmentInfo(),quotes=snap.recruitment_quotes;
     $('mercenary-camp').hidden=!recruits?.offers.some(o=>o.mercenary);
     $('mercenary-status').textContent=ready('mercenary')+' Нужен живой герой; запас не пополняется.';
@@ -149,7 +193,7 @@
       if(!offer.mercenary||!quotes)return [];
       const card=document.createElement('article');card.className='site-offer';
       const stock=s.mercenary_stock[offer.stock_index],price=quotes.prices[i];
-      const name=document.createElement('b');name.textContent=offer.name+' · осталось '+stock;
+      const name=document.createElement('b');name.textContent=offer.name+' · осталось '+stock+siteName('mercenary',offer.camp);
       const detail=document.createElement('small');detail.textContent='Лидерство '+offer.size+' · '+(offer.row==='front'?'передний ряд':'задний ряд');
       const reason=document.createElement('small');reason.textContent=!stock?'Все бойцы наняты':quotes.leadership[2]<offer.size?'Недостаточно лидерства':quotes.targets[i]<0?'Нет места в нужном ряду':s.gold<price?'Недостаточно золота':'';
       card.append(name,detail,button('Нанять · '+fmt(price)+' золота',offer.action),reason);return [card];
@@ -157,10 +201,21 @@
     $('merchant-status').textContent=ready('merchant')+' Драгоценности здесь продаются автоматически.';
     $('merchant-stock').replaceChildren(...info.buy.map((p,i)=>{
       const card=document.createElement('div');card.className='site-offer';
-      const name=document.createElement('b');name.textContent=p.name+' · '+(s.merchant_stock?.[i]??0)+' шт.';
+      const name=document.createElement('b');name.textContent=p.name+' · '+(s.merchant_stock?.[i]??0)+' шт.'+siteName('merchant',p.site);
       const detail=document.createElement('small');detail.textContent=p.label;
       const price=snap.site_quotes?.buy?.[i]??p.price;
       card.append(name,detail,button('Купить · '+fmt(price)+' золота',p.action));return card;
+    }));
+    const book=castInfo()?.spells||[];
+    $('spell-shop-status').textContent=ready('spell_shop')+' Купленное заклинание сразу изучено. Его может применять любой правитель, по полной цене маны.';
+    $('spell-shop-offers').replaceChildren(...(info.spells||[]).map((offer,i)=>{
+      const card=document.createElement('article');card.className='site-offer';
+      const stock=s.spell_stock?.[i]??0,index=book.findIndex(c=>c.id===offer.spell),cast=book[index];
+      const learned=index>=0&&((s.learned_spells>>>index)&1);
+      const name=document.createElement('b');name.textContent=offer.name+' · '+['','I','II','III','IV','V'][cast?.level||0]+' · осталось '+stock;
+      const detail=document.createElement('small');detail.textContent=cast?castEffect(cast)+' Применение: '+cast.cast_mana.map((n,j)=>n?manaNames[j]+' '+fmt(n):null).filter(Boolean).join(' · ')+'.':'';
+      const reason=document.createElement('small');reason.textContent=!stock?'Продано':learned?'Уже изучено':s.gold<offer.price?'Недостаточно золота':'';
+      card.append(name,detail,button('Купить · '+fmt(offer.price)+' золота',info.spell_start+i),reason);return card;
     }));
     $('trainer-status').textContent=ready('trainer')+' Последний XP до повышения нужно заработать в бою.';
     $('trainer-units').replaceChildren(...Array.from({length:6},(_,slot)=>{
@@ -349,6 +404,15 @@
       roundRect(c*cell+1,r*cell+1,cell-2,cell-2,cell*.14,'#899088');
       ctx.fillStyle='#626c63';ctx.beginPath();ctx.moveTo((c+.16)*cell,(r+.8)*cell);ctx.lineTo((c+.48)*cell,(r+.2)*cell);ctx.lineTo((c+.84)*cell,(r+.8)*cell);ctx.fill();
     }
+    for(const capital of territoryInfo()?.enemy_capitals||[]){
+      const cells=capital.footprint||[];if(!cells.length)continue;
+      const rows=cells.map(p=>p[0]),cols=cells.map(p=>p[1]),r=Math.min(...rows),c=Math.min(...cols),h=Math.max(...rows)-r+1,w=Math.max(...cols)-c+1;
+      roundRect(c*cell+1,r*cell+1,w*cell-2,h*cell-2,cell*.2,'#ead0cd');
+      ctx.strokeStyle='#a5524f';ctx.lineWidth=1.5;ctx.strokeRect(c*cell+2,r*cell+2,w*cell-4,h*cell-4);
+      ctx.fillStyle='#7d2f2c';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.font='650 '+Math.round(cell*.7)+'px system-ui';ctx.fillText('Столица',(c+w/2)*cell,(r+h/2-.9)*cell);
+      ctx.font=Math.round(cell*.5)+'px system-ui';ctx.fillText('врага',(c+w/2)*cell,(r+h/2-.2)*cell);
+    }
     for(const [i,mine] of (territoryInfo()?.mines||[]).entries()){
       const kind=territoryInfo().resource_kinds.indexOf(mine.kind),[r,c]=mine.position;
       const color=['#d1a737','#cb7159','#61a373','#8d73b5','#6393c0','#69aea4'][kind];
@@ -357,7 +421,7 @@
       if(current()?.territory_quotes?.mine_owned[i]){ctx.strokeStyle='#795a37';ctx.lineWidth=1.5;ctx.strokeRect(c*cell+1,r*cell+1,cell-2,cell-2);}
     }
     for(const site of siteInfo()?.sites||[]){
-      const style={merchant:['#b58242','#e3cba5','#775129','Торг'],trainer:['#688da4','#c3d7df','#3f637b','Тренер'],mercenary:['#8e7b59','#e5dcc7','#665238','Наём']}[site.kind];
+      const style={merchant:['#b58242','#e3cba5','#775129','Торг'],trainer:['#688da4','#c3d7df','#3f637b','Тренер'],mercenary:['#8e7b59','#e5dcc7','#665238','Наём'],spell_shop:['#7b68a8','#ddd5ef','#4c3d78','Магия']}[site.kind];
       const [color,fill,ink,label]=style;
       ctx.fillStyle=color+'29';
       for(const [r,c] of site.interaction_tiles)ctx.fillRect(c*cell+1,r*cell+1,cell-2,cell-2);
@@ -463,10 +527,26 @@
     const sale=snapshot.state.last_sale_gold>0?' Драгоценности проданы автоматически: '+snapshot.state.last_sold_count+' шт., +'+fmt(snapshot.state.last_sale_gold)+' золота.':'';
     return (actionEventText(snapshot)||'')+(ticks.length?' '+ticks.join('; ')+'.':'')+sale;
   }
+  // A summon battle ends before any world step clears the cast record.
+  const summonEnded=s=>castInfo()?.spells[s.last_cast_spell]?.kind==='summon_battle';
+  function castText(s){
+    const spell=castInfo()?.spells[s.last_cast_spell];if(!spell)return '';
+    const stack='отряд № '+(s.last_spell_target+1);
+    if(s.last_event===50)return 'Заклинание «'+spell.name+'»: '+spell.unit_name+' вступает в отдельный бой, '+stack+'.';
+    if(s.last_event===49)return 'Заклинание «'+spell.name+'» уничтожило '+stack+' (−'+s.last_spell_amount+' HP). Награды за победу нет.';
+    switch(spell.kind){
+      case 'damage':return 'Заклинание «'+spell.name+'»: '+stack+' теряет '+s.last_spell_amount+' HP. Раны сохраняются, враг восстанавливает их каждый ход.';
+      case 'debuff':return 'Заклинание «'+spell.name+'» ослабило '+stack+' до следующего хода.';
+      case 'heal':return 'Заклинание «'+spell.name+'»: восстановлено '+s.last_spell_amount+' HP.';
+      case 'moves':return 'Заклинание «'+spell.name+'»: +'+s.last_spell_amount+' очков перемещения.';
+    }
+    return 'Заклинание «'+spell.name+'» действует на отряд героя до следующего хода.';
+  }
   function actionEventText(snapshot){
     const s=snapshot.state,a=unitName(s.last_actor),t=unitName(s.last_target);
     switch(s.last_event){
       case 47:return 'Изучено заклинание: '+spellInfo()?.spells[s.last_researched_spell]?.name+'. Следующее исследование доступно завтра.';
+      case 48:case 49:case 50:return castText(s);
       case 43:return 'Город захвачен: '+(territoryInfo()?.cities||[]).filter((c,i)=>s.last_captured_cities[i]).map(c=>c.name).join(', ')+'. Доступны найм, храм и рост земли.';
       case 44:return 'Город улучшен: '+territoryInfo()?.cities[s.last_upgraded_city]?.name+' · −'+fmt(s.last_service_cost)+' золота.';
       case 45:return 'Путь закрыт препятствием.';
@@ -488,9 +568,9 @@
       case 5:return a+(s.post_victory?' пропускает заключительное лечение.':' ждёт конца раунда.');
       case 6:return a+' готовится отступить.';
       case 7:return a+' покинул бой.';
-      case 8:return 'Победа! Ранения и потери сохранены.'+xpSummary(snapshot)+((s.last_ruin??-1)>=0?' Руины разграблены. Получено: '+lootText(ruinInfo().ruins[s.last_ruin])+'.':'');
+      case 8:return (summonEnded(s)?'Призванный боец победил: отряд № '+(s.enemy+1)+' уничтожен. Отряд героя вернулся без изменений.':'Победа! Ранения и потери сохранены.'+xpSummary(snapshot))+((s.last_ruin??-1)>=0?' Руины разграблены. Получено: '+lootText(ruinInfo().ruins[s.last_ruin])+'.':'');
       case 9:return 'Ваш отряд погиб. Игра завершена.';
-      case 10:return 'Отступление завершено. Ранения и потери сохранены.';
+      case 10:return summonEnded(s)?'Бой призванного бойца окончен без победы. Отряд № '+(s.enemy+1)+' сохраняет раны до регенерации.':'Отступление завершено. Ранения и потери сохранены.';
       case 11:return 'Бой достиг лимита раундов. Эпизод завершён.';
       case 12:{const b=construction()?.buildings[s.last_building];return b?'Построено: '+b.name+' (−'+b.gold+' золота).':null;}
       case 13:return 'Отдых. Начался ход '+s.day+', +'+(snapshot.territory_quotes?.income[0]??turnRules().income)+' золота; очки перемещения восстановлены, живые бойцы получили регенерацию. Штраф: '+fmt(Math.max(0,-snapshot.reward))+'.';
@@ -506,6 +586,7 @@
       case 21:return 'Сундук: '+[...s.last_loot.map((n,i)=>n?(potionInfo()?.[i]?.name+' × '+n):''),...(s.last_item_loot||[]).map((n,i)=>n?(equipmentInfo()?.items?.[i]?.name+' × '+n):'')].filter(Boolean).join(', ')+'. Предметы получены, экипировка обновлена.';
       case 20:return 'Зелье воскрешения: '+t.toLowerCase()+' вернулся с 1 HP. Осталось: '+s.potions[s.last_potion]+'.';
       case 38:return 'Куплено: '+siteInfo()?.buy?.[s.last_trade_item]?.name+' · −'+fmt(s.last_service_cost)+' золота.';
+      case 51:return 'Куплено заклинание: '+siteInfo()?.spells?.[s.last_trade_item]?.name+' · −'+fmt(s.last_service_cost)+' золота. Оно сразу изучено.';
       case 40:return 'Тренер: '+t+' получил '+s.last_xp[s.last_target]+' XP за '+fmt(s.last_service_cost)+' золота.';
       case 37:return potionInfo()?.[s.last_potion]?.name+': '+t.toLowerCase()+' получил усиление. Осталось: '+s.potions[s.last_potion]+'.';
       case 15:return 'Атака поглощена защитой.'+blockText(s);
@@ -530,7 +611,9 @@
     renderSpells(snap);
     renderMapCommands(snap);
     $('phase-label').textContent=s.in_battle?'Бой · отряд № '+(s.enemy+1):'Карта '+map.size+' × '+map.size;
-    $('remaining').textContent=s.alive.filter(Boolean).length;
+    // A capital guard is not a victory goal; count only the stacks that must fall.
+    const guards=new Set((territoryInfo()?.enemy_capitals||[]).map(c=>c.guard));
+    $('remaining').textContent=s.alive.filter((a,i)=>a&&!guards.has(i)).length;
     $('chest-status').hidden=!(map.chests||[]).length;
     $('chest-status').textContent=(s.last_event===21?eventText(snap)+' ':'')+'Сундуков осталось: '+(s.chest_alive||[]).filter(Boolean).length+' / '+(map.chests||[]).length+'. Подойдите на соседнюю клетку, включая диагональ: всё содержимое попадёт в инвентарь.';
     $('wins').textContent=s.alive.filter(v=>!v).length;
@@ -612,7 +695,7 @@
   function showError(error){$('connection').textContent='Игра недоступна';$('message').textContent=error.message+' Для игры запустите open-numbergrid.cmd.';}
   async function resetGame(){
     if(busy)return;busy=true;render();
-    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||data.map.faction||'legions',lord_type:$('lord-type').value||data.map.lord_type||'warrior'});session=result.session;manualMap=result.map;manualConstruction=result.construction;manualTurnRules=result.turn_rules;manualCombat=result.combat;manualCapital=result.capital;manualPotions=result.potions;manualEquipment=result.equipment;manualSites=result.sites;manualRecruitment=result.recruitment;manualTerritory=result.territory;manualRuins=result.ruins;manualSpells=result.spell_research;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
+    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||undefined,lord_type:$('lord-type').value||data.map.lord_type||'warrior'});session=result.session;manualMap=result.map;$('version').textContent=manualMap.name;manualConstruction=result.construction;manualTurnRules=result.turn_rules;manualCombat=result.combat;manualCapital=result.capital;manualPotions=result.potions;manualEquipment=result.equipment;manualSites=result.sites;manualRecruitment=result.recruitment;manualTerritory=result.territory;manualRuins=result.ruins;manualSpells=result.spell_research;manualCasting=result.spell_casting;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
     catch(error){busy=false;render();showError(error);return;}
     busy=false;render();
   }

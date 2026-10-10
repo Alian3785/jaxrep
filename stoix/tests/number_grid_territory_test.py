@@ -200,7 +200,7 @@ def test_map_victory_requires_entry_into_both_cities_and_reset_clears_resources(
     assert not jnp.any(reset.mana) and not jnp.any(reset.city_owned)
     assert reset.territory_claims.tolist() == [1,0,0]
     obs = compiled_method(env,'observation')(reset)
-    assert obs.shape == (1547,) and jnp.all(jnp.isfinite(obs))
+    assert obs.shape == (1678,) and jnp.all(jnp.isfinite(obs))
 
 
 def test_cell_lookup_matches_coordinate_oracle_for_every_tile(current_game):

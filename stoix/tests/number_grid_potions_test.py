@@ -25,8 +25,8 @@ def stocked(env,state,count=5):
 def test_scenario_actions_only_include_obtainable_potions(current_game):
     env,state,_,_=current_game
     assert len(POTIONS)==24 and len({p['game_id'] for p in POTIONS})==24
-    assert env.potion_rules.count==18 and env.num_actions==212
-    assert env.observation_size==1547 and compiled_method(env,'observation')(state).shape==(1547,)
+    assert env.potion_rules.count==18 and env.num_actions==229
+    assert env.observation_size==1678 and compiled_method(env,'observation')(state).shape==(1678,)
     assert state.potions[:4].tolist()==[5,5,5,10] and not jnp.any(state.potions[4:])
     assert not {'protection','bark','striking','swiftness','speed','vigor'} & set(env.potion_rules.keys)
     rules=PotionRules(dict(initial_potions={'speed':0},chests=[dict(potions={'celerity':5})]))

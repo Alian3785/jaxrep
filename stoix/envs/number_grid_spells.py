@@ -14,6 +14,32 @@ from stoix.envs.number_grid_territory import MANA_KINDS
 
 SPELL_LEARNED = 47
 CATALOG = json.loads((Path(__file__).parent / 'data/spells.json').read_text(encoding='utf-8'))
+SPELL_BY_ID = {row['id']: row for rows in CATALOG['factions'].values() for row in rows}
+
+
+def shop_spell_ids(game_map):
+    """Spells sold by the map's spell shops, in first-offer order and without duplicates."""
+    shops = ([game_map['spell_shop']] if game_map.get('spell_shop') is not None
+             else list(game_map.get('spell_shops') or []))
+    ids = []
+    for shop in shops:
+        for offer in shop.get('spells', []) if isinstance(shop, dict) else []:
+            spell = offer.get('spell') if isinstance(offer, dict) else None
+            if spell not in SPELL_BY_ID:
+                raise ValueError(f'Unknown spell shop spell: {spell}')
+            if spell not in ids:
+                ids.append(spell)
+    return ids
+
+
+def spell_book(game_map):
+    """Own faction rows, then purchasable spells of other factions (one bit each)."""
+    rows = CATALOG['factions'][game_map.get('faction', DEFAULT_FACTION)]
+    own = {row['id'] for row in rows}
+    extras = [SPELL_BY_ID[i] for i in shop_spell_ids(game_map) if i not in own]
+    if len(rows) + len(extras) > 32:
+        raise ValueError('At most 32 spells fit the learned-spell bitset')
+    return rows, extras
 
 
 def research_action_names(game_map):

@@ -1,5 +1,5 @@
 {
-  "name": "NumberGrid-48x48-v82-spell-research",
+  "name": "NumberGrid-48x48-v83-spell-casting",
   "size": 48,
   "agent_position": [
     2,
@@ -348,7 +348,7 @@
     100
   ],
   "battle_recovery": "Living units regenerate by native unit + lord + either fort or own-land bonus, rounded up once. City/capital recovery and recruitment require ownership; paid healing/revival still require the capital temple. Victory preserves wounds. Entry with a living hero captures cities only after both defenders are defeated.",
-  "battle_observation_version": 38,
+  "battle_observation_version": 39,
   "combat_rules_version": 2,
   "faction": "legions",
   "building_reward": 0.05,
@@ -1474,5 +1474,6 @@
       ]
     ]
   },
-  "spell_research": true
+  "spell_research": true,
+  "spell_casting": true
 }

@@ -5,6 +5,8 @@ A dead leader doubles tile cost and disables flight/terrain boots.
 """
 import jax.numpy as jnp
 
+from stoix.envs.number_grid_sites import site_entries
+
 PLAIN, ROAD, FOREST, WATER = range(4)
 KINDS = ('plain', 'road', 'forest', 'water')
 COSTS = (2, 1, 4, 6)
@@ -22,10 +24,9 @@ class TerrainRules:
         occupied = set()
         grid = [PLAIN]*(self.size*self.size)
         obstacles = {tuple(p) for p in game_map.get('obstacles', [])}
-        for kind in ('merchant', 'trainer', 'mercenary'):
-            if game_map.get(kind):
-                r,c = game_map[kind]['position']
-                obstacles.update((r+dr,c+dc) for dr in range(3) for dc in range(3))
+        for _, site in site_entries(game_map):
+            r,c = site['position']
+            obstacles.update((r+dr,c+dc) for dr in range(3) for dc in range(3))
         for ruin in game_map.get('ruins', []):
             r,c = ruin['position']
             obstacles.update((r+dr,c+dc) for dr in range(3) for dc in range(3))
@@ -70,19 +71,25 @@ class TerrainRules:
         flying = present & ~dead & self.flying[ids[hero]]
         return flying, dead
 
-    def costs(self, state, item_rules=None):
+    def costs(self, state, item_rules=None, spells=None):
         flying, dead = self.travel_flags(state)
         costs = self.base_costs
         if item_rules is not None:
             costs = costs.at[FOREST].set(jnp.where(~dead & item_rules.value(state,'forest',4),2,4))
             costs = costs.at[WATER].set(jnp.where(~dead & item_rules.value(state,'water',4),2,6))
+        if spells is not None:
+            # Reference _campaign_tile_move_cost: a terrain spell caps the tile at
+            # the plain cost before the dead-leader doubling, unlike boots.
+            forest, water = spells
+            costs = costs.at[FOREST].set(jnp.where(forest, jnp.minimum(costs[FOREST], 2), costs[FOREST]))
+            costs = costs.at[WATER].set(jnp.where(water, jnp.minimum(costs[WATER], 2), costs[WATER]))
         return jnp.where(flying, 2, costs*jnp.where(dead,2,1))
 
-    def move_cost(self, state, positions, item_rules=None):
-        return self.costs(state, item_rules)[self.kinds(positions)]
+    def move_cost(self, state, positions, item_rules=None, spells=None):
+        return self.costs(state, item_rules, spells)[self.kinds(positions)]
 
-    def observation(self, state, directions, item_rules=None):
+    def observation(self, state, directions, item_rules=None, spells=None):
         flying, dead = self.travel_flags(state)
         return jnp.concatenate((self.kinds(state.position+self.local_offsets)/3.,
-            self.move_cost(state,state.position+directions,item_rules)/12.,
+            self.move_cost(state,state.position+directions,item_rules,spells)/12.,
             jnp.array([flying,dead], jnp.float32)))

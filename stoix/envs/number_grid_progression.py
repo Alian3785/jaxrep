@@ -14,6 +14,7 @@ from stoix.envs.number_grid_combat import (
 )
 from stoix.envs.number_grid_buildings import CATALOG
 from stoix.envs.number_grid_effects import CAPITAL_GUARDS
+from stoix.envs.number_grid_casting import cast_summon_keys
 
 
 @lru_cache(maxsize=8)
@@ -121,6 +122,8 @@ class ProgressionRules:
                     reached.add(target_id)
                     pending.append(target_id)
         used_ids |= reached
+        # Summon spells bring their unit into a battle of its own.
+        used_ids |= {self.ids[key] for key in cast_summon_keys(game_map)}
         # Enemy forms never promote, but their summons can introduce additional
         # combat behavior. Follow those pools without enabling enemy upgrades.
         pending = list(used_ids)

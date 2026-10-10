@@ -53,6 +53,26 @@ def test_default_stats_and_observation_are_individual_and_finite():
     assert env.max_hp(state)[0] == 120
 
 
+def test_non_progression_recognizes_russian_unit_names():
+    game_map = copy.deepcopy(MAP)
+    game_map['hero_combat_stats'] = [
+        dict(name='Аббатиса', unit_type='Profit'),
+        dict(name='Прорицательница', unit_type='Profit'),
+        dict(name='Ниддог', unit_type='Demon'),
+        dict(name='Русалка', unit_type='Uter Demon'),
+        dict(name='Тёмный эльф призрак', unit_type='Ghost'),
+        dict(name='Обычный призрак', unit_type='Ghost'),
+    ]
+    env = NumberGrid(map_config=game_map)
+    assert not env.progression_enabled
+    np.testing.assert_array_equal(env.mass_cures[0, :6], [True, True, False, False, False, False])
+    np.testing.assert_array_equal(env.cached_poisoners[0, :6], [False, False, True, False, False, False])
+    np.testing.assert_array_equal(env.poisoners[0, :6], [False, False, True, False, False, False])
+    np.testing.assert_array_equal(env.secondary_paralysis_modes[0, :6], [0, 0, 0, 1, 0, 0])
+    np.testing.assert_array_equal(env.ghost_modes[0, :6], [0, 0, 0, 0, 2, 1])
+    assert env.has_cures and env.has_poisoners and env.has_secondary_paralysis and env.has_paralysis
+
+
 @pytest.mark.parametrize('chance,count', [(0, 0), (50, 5050), (80, 9220), (100, 10000)])
 def test_two_roll_accuracy_matches_exhaustive_discrete_distribution(chance, count):
     values = (jnp.arange(100) + .25) / 100

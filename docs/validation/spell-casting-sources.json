@@ -225,7 +225,7 @@
       "test": "stoix/tests/number_grid_casting_test.py::test_batched_casts_match_single_transitions_and_mask_equals_step"
     },
     {
-      "rule": "Not ported: area targeting of the original game; staff, scroll and spell-shop casts; thieves",
+      "rule": "Not ported: area targeting of the original game; staff and scroll casts; thieves",
       "source": "User scope: cast as in the Python reference, one nearest target"
     }
   ]

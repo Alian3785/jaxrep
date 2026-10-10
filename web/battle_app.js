@@ -451,7 +451,7 @@
   document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});
   $('version').textContent=data.map.name;
   if(data.result){$('run-card').hidden=false;$('run-info').textContent='Запись: '+data.map.opponent_positions.length+' вражеских отрядов'+' · '+fmt(data.result.training_steps)+' шагов · '+fmt(Math.round(data.result.mean_steps_per_second))+' шагов/с';$('run-evaluation').textContent='Победы argmax на карте записи: '+data.result.final_evaluation.successes+' / '+data.result.final_evaluation.episodes+'.';}
-  let agentPick=null,agentAuto=false,actionCount=0;
+  let agentPick=null,agentAuto=false,actionCount=0,autoRun=0;
   function showPick(){
     document.querySelectorAll('.agent-pick').forEach(b=>b.classList.remove('agent-pick'));
     if(mode!=='manual'||!agentPick||agentPick.count!==actionCount)return;
@@ -472,9 +472,9 @@
   function setAuto(on){agentAuto=on;$('agent-auto').textContent=on?'Ⅱ Остановить агента':'▶ Агент играет сам';}
   $('reset').addEventListener('click',()=>{agentPick=null;setAuto(false);showPick();});
   $('agent-suggest').onclick=askAgent;$('agent-move').onclick=agentMove;
-  $('agent-auto').onclick=async()=>{if(agentAuto){setAuto(false);return;}setAuto(true);
-    while(agentAuto&&mode==='manual'&&manual&&!manual.state.done){if(!await agentMove())break;await new Promise(r=>setTimeout(r,120));}
-    setAuto(false);};
+  $('agent-auto').onclick=async()=>{if(agentAuto){setAuto(false);return;}const run=++autoRun;setAuto(true);
+    while(run===autoRun&&agentAuto&&mode==='manual'&&manual&&!manual.state.done){if(busy){await new Promise(r=>setTimeout(r,60));continue;}if(!await agentMove())break;await new Promise(r=>setTimeout(r,120));}
+    if(run===autoRun)setAuto(false);};
   fetch('/api/health').then(r=>r.json()).then(h=>{if(!h.agent)return;$('agent-controls').hidden=false;
     $('agent-info').textContent='Модель: '+fmt(h.agent.training_steps)+' шагов обучения · побед argmax '+h.agent.argmax_wins+' / '+h.agent.argmax_episodes+'.';}).catch(()=>{});
   window.numberGridApp={snapshot:()=>JSON.parse(JSON.stringify({mode,frame,...current()}))};

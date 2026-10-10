@@ -36,7 +36,7 @@ def write_viewer(payload):
 def build(output=None):
     if output is None:
         env = NumberGrid()
-        write_viewer({'map':MAP,'records':[],'result':None, 'construction':env.construction.metadata(), 'turn_rules':env.turn_metadata(), 'combat':env.combat_info, 'capital':env.capital.metadata(), 'potions':env.potion_rules.metadata()})
+        write_viewer({'map':MAP,'records':[],'result':None, 'construction':env.construction.metadata(), 'turn_rules':env.turn_metadata(), 'combat':env.combat_info, 'capital':env.capital.metadata(), 'potions':env.potion_rules.metadata(), 'equipment':env.item_rules.metadata if env.items_enabled else None, 'sites':env.site_rules.metadata if env.sites_enabled else None, 'recruitment':env.recruitment.metadata if env.recruitment_enabled else None, 'territory':env.territory.metadata if env.territory_enabled else None, 'ruins':env.ruins.metadata if env.ruins_enabled else None, 'spell_research':env.spell_research.metadata if env.spell_research_enabled else None})
         return
     output = Path(output)
     game_map = json.loads((output/'map.json').read_text())
@@ -74,21 +74,32 @@ def build(output=None):
         return jax.vmap(lambda state: (env.construction.status(state),
             env.rest_penalty(state), env.unit_experience(state),
             env.unit_stats(state), env.capital.quotes(state, env.max_hp(state)),
-            env.potion_rules.quotes(state, env.max_hp(state)), env.map_commands(state)))(states)
+            env.potion_rules.quotes(state, env.max_hp(state)), env.map_commands(state),
+            env.movement_cap(state), env.site_rules.quotes(state) if env.sites_enabled else {},
+            env.recruitment.quotes(state) if env.recruitment_enabled else {}, env.territory_quotes(state), env.travel_costs(state),
+            env.spell_research.status(state) if env.spell_research_enabled else jnp.zeros(0, jnp.int32)))(states)
 
     records=[]
     for index in range(3):
         seed=42+index
         device_rollout = rollout(jnp.int32(seed),index==0)
         (initial,mask,max_hp),final,(states,actions,rewards,masks,max_hps)=jax.device_get(device_rollout)
-        statuses,penalties,experiences,stats,quotes,potion_quotes,commands=jax.device_get(snapshot_fields(device_rollout[2][0]))
+        statuses,penalties,experiences,stats,quotes,potion_quotes,commands,movement_caps,site_quotes,recruitment_quotes,territory_quotes,travel_costs,spell_statuses=jax.device_get(snapshot_fields(device_rollout[2][0]))
         frames=[{'state':state_dict(initial),'action':None,'reward':0.,'total_reward':0.,
                  'action_mask':mask.tolist(),'max_hp':max_hp.tolist(),
                   'map_commands':np.asarray(env.map_commands(initial)).tolist(),
                  'building_status':np.asarray(env.construction.status(initial)).tolist(),
+                 'spell_status':np.asarray(env.spell_research.status(initial)).tolist() if env.spell_research_enabled else [],
                  'rest_penalty':float(env.rest_penalty(initial)),
+                 'movement_cap':int(env.movement_cap(initial)),
+                  'travel_costs':np.asarray(env.travel_costs(initial)).tolist(),
                   'capital_quotes':np.asarray(env.capital.quotes(initial, env.max_hp(initial))).tolist(),
                   'potion_quotes':np.asarray(env.potion_rules.quotes(initial, env.max_hp(initial))).tolist(),
+                 'recruitment_quotes':({k:np.asarray(v).tolist() for k,v in env.recruitment.quotes(initial).items()}
+                                       if env.recruitment_enabled else None),
+                 'site_quotes':({k:np.asarray(v).tolist() for k,v in env.site_rules.quotes(initial).items()}
+                                if env.sites_enabled else None),
+                 'territory_quotes':{k:np.asarray(v).tolist() for k,v in env.territory_quotes(initial).items()} or None,
                  'unit_experience':np.asarray(env.unit_experience(initial)).tolist(),
                  'unit_stats':np.asarray(env.unit_stats(initial)).tolist() if env.basic_combat else None}]
         total=0.
@@ -99,18 +110,24 @@ def build(output=None):
             frames.append({'state':state_dict(state),'action':action,'reward':float(rewards[t]),
                            'total_reward':total,'action_mask':masks[t].tolist(),'max_hp':max_hps[t].tolist(),
                            'building_status':statuses[t].tolist(),
+                            'spell_status':spell_statuses[t].tolist(),
                            'rest_penalty':float(penalties[t]),
+                           'movement_cap':int(movement_caps[t]),
+                            'travel_costs':travel_costs[t].tolist(),
                             'capital_quotes':quotes[t].tolist(),
                             'potion_quotes':potion_quotes[t].tolist(),
                             'map_commands':commands[t].tolist(),
-                           'unit_experience':experiences[t].tolist(),
+                           'recruitment_quotes':{k:v[t].tolist() for k,v in recruitment_quotes.items()} or None,
+                           'site_quotes':{k:v[t].tolist() for k,v in site_quotes.items()} or None,
+                           'territory_quotes':{k:v[t].tolist() for k,v in territory_quotes.items()} or None,
+                            'unit_experience':experiences[t].tolist(),
                            'unit_stats':stats[t].tolist() if env.basic_combat else None})
         assert bool(final.done)
         outcome='победа' if bool(final.won) else 'поражение' if bool(final.lost) else 'лимит'
         records.append({'label':f'{"Argmax" if index==0 else "Выборка"} · {outcome} · {int(final.step_count)} шагов',
                         'seed':seed,'policy':'argmax' if index==0 else 'sample','frames':frames})
     payload={'map':game_map,'records':records,'result':result,'source':'Restored PPO checkpoint; JAX rollouts',
-             'construction':env.construction.metadata(), 'turn_rules':env.turn_metadata(), 'combat':env.combat_info, 'capital':env.capital.metadata(), 'potions':env.potion_rules.metadata()}
+             'construction':env.construction.metadata(), 'turn_rules':env.turn_metadata(), 'combat':env.combat_info, 'capital':env.capital.metadata(), 'potions':env.potion_rules.metadata(), 'equipment':env.item_rules.metadata if env.items_enabled else None, 'sites':env.site_rules.metadata if env.sites_enabled else None, 'recruitment':env.recruitment.metadata if env.recruitment_enabled else None, 'territory':env.territory.metadata if env.territory_enabled else None, 'ruins':env.ruins.metadata if env.ruins_enabled else None, 'spell_research':env.spell_research.metadata if env.spell_research_enabled else None}
     (output/'trajectories.json').write_text(json.dumps(payload,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
     write_viewer(payload)
     print(json.dumps({'viewer':str(ROOT/'viewer.html'),'records':[r['label'] for r in records]},ensure_ascii=False),flush=True)

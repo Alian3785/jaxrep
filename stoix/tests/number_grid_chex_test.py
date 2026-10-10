@@ -17,8 +17,8 @@ from stoix.envs.number_grid import SHOOT, WAIT, DEFEND, CONTINUE, REST
 
 
 def scenarios(env):
-    world, _ = env.reset(jax.random.PRNGKey(42))
-    battle = env._begin_battle(world.replace(enemy=jnp.int32(11)))
+    world, _ = compiled_method(env,'reset')(jax.random.PRNGKey(42))
+    battle = compiled_method(env,'_begin_battle')(world.replace(enemy=jnp.int32(11)))
     hero = battle.replace(actor=jnp.int32(0))
     states = (
         world, hero, hero, hero,
@@ -76,7 +76,7 @@ class CombatTransformsTest(chex.TestCase):
         chex.assert_type(masks, jnp.bool_)
         chex.assert_tree_all_finite((states, ts))
         for index, key in enumerate(keys):
-            expected = env.reset(key)
+            expected = compiled_method(env,'reset')(key)
             actual = jax.tree.map(lambda x, index=index: x[index], (states, ts))
             assert_same_result(expected, actual)
 
@@ -84,7 +84,7 @@ class CombatTransformsTest(chex.TestCase):
 def test_cached_autoreset_changes_rng_and_preserves_final_observation(training_autoreset):
     env, eval_env, advance = training_autoreset
     assert isinstance(eval_env, AddActionMaskWrapper)
-    state, ts = env.reset(jax.random.split(jax.random.PRNGKey(2),2))
+    state, ts = compiled_method(env,'reset')(jax.random.split(jax.random.PRNGKey(2),2))
     original = np.asarray(state.battle_key)
     state, ts = advance(state,jnp.array([7,3]))
     assert np.all(ts.truncated()) and np.all(state.step_count == 0)
@@ -99,10 +99,10 @@ def test_cached_autoreset_changes_rng_and_preserves_final_observation(training_a
 
 def test_masked_warrior_policy_sample_argmax_and_ppo_gradient(current_game):
     env, initial, _, _ = current_game
-    state = env._begin_battle(initial.replace(enemy=jnp.int32(11))).replace(actor=jnp.int32(0))
+    state = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(11))).replace(actor=jnp.int32(0))
     # Wrapper/schema integration is covered by batched reset/step above.
     # The gradient check only needs the actual combat observation and mask.
-    observation = {'observation':env.observation(state),'action_mask':env.action_mask(state)}
+    observation = {'observation':compiled_method(env,'observation')(state),'action_mask':compiled_method(env,'action_mask')(state)}
     obs = jax.tree.map(lambda x:jnp.repeat(x[None],64,axis=0),observation)
     policy = FeedForwardActor(torso=MLPTorso(layer_sizes=[32]), action_head=CategoricalHead(env.num_actions))
     params = policy.init(jax.random.PRNGKey(0), obs)
@@ -126,12 +126,12 @@ def test_human_service_uses_identical_mask_and_rejects_unreachable_target(human_
     service = human_service
     session = service.create(42)['session']
     env = service.env
-    state, _ = env.reset(jax.random.PRNGKey(42))
-    state = env._begin_battle(state.replace(enemy=jnp.int32(11)))
+    state, _ = compiled_method(env,'reset')(jax.random.PRNGKey(42))
+    state = compiled_method(env,'_begin_battle')(state.replace(enemy=jnp.int32(11)))
     state = state.replace(actor=jnp.int32(0))
-    service.sessions[session] = (env.construction.faction, state, 0.)
+    service.sessions[session] = ((env.construction.faction, env.construction.lord['id']), state, 0.)
     snapshot = service.snapshot(env, state, 0.)
-    np.testing.assert_array_equal(snapshot['action_mask'], env.action_mask(state))
+    np.testing.assert_array_equal(snapshot['action_mask'], compiled_method(env,'action_mask')(state))
     with pytest.raises(ValueError, match='недоступно'):
         service.act(session, SHOOT+3)
     assert service.sessions[session][1] is state

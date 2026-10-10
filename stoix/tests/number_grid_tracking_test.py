@@ -11,6 +11,40 @@ def tracker():
     return NumberGridTracking(Namespace(wandb_mode='disabled'))
 
 
+@pytest.mark.parametrize('source', ['flag', 'environment', 'pytest'])
+def test_test_training_budget_rejects_before_cuda_or_tracking(monkeypatch, source):
+    import benchmark_number_grid as benchmark
+    monkeypatch.delenv('NUMBERGRID_TEST_RUN', raising=False)
+    monkeypatch.delenv('PYTEST_CURRENT_TEST', raising=False)
+    if source == 'environment':
+        monkeypatch.setenv('NUMBERGRID_TEST_RUN', '1')
+    elif source == 'pytest':
+        monkeypatch.setenv('PYTEST_CURRENT_TEST', 'budget-regression')
+    args = Namespace(test_run=source == 'flag', smoke=False, total_timesteps=1_250_000)
+    cuda = Mock(side_effect=AssertionError('CUDA must not start for a rejected budget'))
+    tracking = Mock(side_effect=AssertionError('Tracking must not start for a rejected budget'))
+    monkeypatch.setattr(benchmark.jax, 'devices', cuda)
+    monkeypatch.setattr(benchmark, 'NumberGridTracking', tracking)
+    with pytest.raises(ValueError, match='1,000,000'):
+        benchmark.train(args)
+    with pytest.raises(ValueError, match='1,000,000'):
+        benchmark.run_training(args, None)
+    cuda.assert_not_called()
+    tracking.assert_not_called()
+    args.total_timesteps = 1_000_000
+    assert benchmark.training_budget(args) == 1_000_000
+    args.total_timesteps = None
+    assert benchmark.training_budget(args) == 1_000_000
+
+
+def test_test_budget_preserves_smoke_and_explicit_non_test_training(monkeypatch):
+    from benchmark_number_grid import training_budget
+    assert training_budget(Namespace(test_run=True, smoke=True, total_timesteps=None)) == 250_000
+    monkeypatch.delenv('NUMBERGRID_TEST_RUN', raising=False)
+    monkeypatch.delenv('PYTEST_CURRENT_TEST', raising=False)
+    assert training_budget(Namespace(test_run=False, smoke=False, total_timesteps=2_000_000)) == 2_000_000
+
+
 def row(episodes, wins, steps=250_000, **extra):
     return {
         'episodes': float(episodes), 'episode_wins': float(wins),
@@ -136,11 +170,11 @@ def comparison_runs(tmp_path):
     import copy
     import json
     game_map = {'name': 'before', 'size': 48, 'enemy_rosters': [['squire']]}
-    config = {'arch': {'seed': 42, 'total_timesteps': 20_000_000, 'num_envs': 250},
+    config = {'arch': {'seed': 42, 'total_timesteps': 1_000_000, 'num_envs': 250},
               'env': {'kwargs': {'map_config': game_map}},
               'system': {'epochs': 4, 'num_minibatches': 10},
               'network': {'layers': [128, 128]}}
-    result = dict(seed=42, training_steps=20_000_000, device='test GPU', backend='gpu',
+    result = dict(seed=42, training_steps=1_000_000, device='test GPU', backend='gpu',
                   jax='0.8', python='3.12', cuda_runtime='13', num_envs=250, rollout_length=100,
                   mean_steps_per_second=200_000, weights_changed=True, checkpoint_roundtrip_verified=True)
     def write(name, *, map_config=None, config_change=None, result_change=None, packages=None):
@@ -206,10 +240,14 @@ def test_both_stage_modes_validate_saved_artifacts_before_reporting_regression(c
     from scripts import run_unit_action_stage as stage
     write, _ = comparison_runs
     before = write('before-42' if mode == '--baseline' else 'before')
-    write('after-bench-42' if mode == '--baseline' else 'after-20m',
+    write('after-bench-42' if mode == '--baseline' else 'after-1m',
           config_change=lambda c: c['system'].update(epochs=2))
     monkeypatch.setattr(sys, 'argv', ['stage', 'after', '--root', str(before.parent), mode, 'before'])
-    monkeypatch.setattr(stage.subprocess, 'run', lambda *a, **k: Namespace(returncode=0))
+    def checked_run(command, **kwargs):
+        assert '--test-run' in command
+        assert int(command[command.index('--total-timesteps')+1]) <= 1_000_000
+        return Namespace(returncode=0)
+    monkeypatch.setattr(stage.subprocess, 'run', checked_run)
     with pytest.raises(ValueError, match='config.json'):
         stage.main()
     assert not (before.parent/'after-comparison.json').exists()

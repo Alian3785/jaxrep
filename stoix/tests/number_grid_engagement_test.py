@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import pytest
 
 from stoix.envs.number_grid import NumberGrid, MAP, SHOOT, CONTINUE, REST, ENGAGE, VICTORY, WITHDRAW
+from stoix.envs.number_grid_potions import POTION_START
 
 
 def batch(state, count):
@@ -26,7 +27,7 @@ def test_passing_beside_enemy_and_map_services_do_not_start_combat(current_game)
         chex.assert_trees_all_equal(state.alive,initial.alive)
         assert float(ts.reward) == pytest.approx(env.exploration_bonus-env.step_cost)
     # Rest and a potion alongside the enemy are still ordinary map actions.
-    state, _ = advance(state,jnp.int32(56))
+    state, _ = advance(state,jnp.int32(POTION_START))
     assert not state.in_battle and state.hp[0] == 110
     state, _ = advance(state,jnp.int32(REST))
     assert not state.in_battle and state.hp[0] == 120
@@ -58,13 +59,15 @@ def test_attack_all_eight_directions_costs_half_cap_clamped_to_positive_remainde
     chex.assert_trees_all_equal(following.battle_key[:8],states.battle_key[:8])
     assert jnp.all(jnp.any(following.battle_key[8:]!=states.battle_key[8:],axis=1))
     chex.assert_trees_all_equal(following.hp[8:,:6],states.hp[8:,:6])
-    # Empty-cell movement still costs two and cannot be taken with one point.
+    # Last partial movement consumes the remaining point, as in the reference.
     low=initial.replace(movement_points=jnp.int32(1))
-    assert not jnp.any(env.action_mask(low)[:8])
+    chex.assert_trees_all_equal(compiled_method(env,'action_mask')(low)[:8],
+        compiled_method(env,'action_mask')(initial)[:8])
     stopped,_=compiled_method(env,'step')(low,jnp.int32(2))
-    chex.assert_trees_all_equal(stopped.position,low.position)
+    chex.assert_trees_all_equal(stopped.position,low.position+jnp.array([0,1]))
+    assert stopped.movement_points == 0
     wall=initial.replace(position=jnp.array([1,1]))
-    assert not env.action_mask(wall)[0]
+    assert not compiled_method(env,'action_mask')(wall)[0]
     stopped,_=compiled_method(env,'step')(wall,jnp.int32(0))
     assert not stopped.in_battle and stopped.movement_points==20
 
@@ -77,12 +80,12 @@ def test_command_selects_exact_stack_when_two_targets_are_adjacent():
     rosters=[[('squire' if i < 3 else 'archer') if key else None
               for i,key in enumerate(row)] for row in MAP['enemy_rosters']]
     env=NumberGrid(map_config={**MAP,'opponent_positions':positions,'enemy_rosters':rosters})
-    state,_=env.reset(jax.random.PRNGKey(42))
+    state,_=compiled_method(env,'reset')(jax.random.PRNGKey(42))
     state=state.replace(position=jnp.array([2,8]))
     commands=env.map_commands(state)
     assert commands[4,0]==0 and commands[3,0]==1
     assert commands[4,1]==commands[3,1]==10
-    assert jnp.all(env.action_mask(state)[jnp.array([4,3])])
+    assert jnp.all(compiled_method(env,'action_mask')(state)[jnp.array([4,3])])
     # Public step/mask coupling is exercised for all directions above. Here
     # isolate destination selection and battle initialization from combat turns.
     states=batch(state,2)
@@ -113,7 +116,7 @@ def test_victory_and_retreat_stay_at_origin_and_cleared_tile_needs_separate_move
     chex.assert_trees_all_equal(escaped.position,ready.position)
     assert escaped.movement_points==10 and escaped.map_steps==0
     passed,_=advance(escaped,jnp.int32(0))
-    assert not passed.in_battle and passed.movement_points==8
+    assert not passed.in_battle and passed.movement_points==6  # Dead Duke: plain costs 4.
     chex.assert_trees_all_equal(passed.position,jnp.array([2,7]))
 
 
@@ -122,8 +125,9 @@ def test_human_server_uses_jax_target_and_cost_and_does_not_auto_attack_neighbou
     env,initial,advance,_=current_game
     service=GameService.__new__(GameService)
     service.lock=threading.Lock()
-    service.environments={env.construction.faction:(env,compiled_method(env,'reset'),advance)}
-    service.sessions=OrderedDict({'attack':(env.construction.faction,initial.replace(position=jnp.array([2,6])),0.)})
+    key=(env.construction.faction,env.construction.lord['id'])
+    service.environments={key:(env,compiled_method(env,'reset'),advance)}
+    service.sessions=OrderedDict({'attack':(key,initial.replace(position=jnp.array([2,6])),0.)})
     result=service.act('attack',2)['snapshot']
     assert result['state']['position']==[2,7] and not result['state']['in_battle']
     assert result['map_commands'][3]==[0,10] and result['action_mask'][3]
@@ -146,9 +150,9 @@ def test_expanded_map_edges_and_exploration_bits(current_game):
     assert state.movement_points == 16 and state.map_steps == 2
     cell = 46*48+46
     assert state.visited[cell//32] & jnp.uint32(1 << (cell % 32))
-    assert not env.action_mask(state)[2] and not env.action_mask(state)[4]
+    assert not compiled_method(env,'action_mask')(state)[2] and not compiled_method(env,'action_mask')(state)[4]
     blocked, _ = advance(state, jnp.int32(3))
     chex.assert_trees_all_equal(blocked.position, state.position)
     chex.assert_trees_all_equal(blocked.visited, state.visited)
     assert blocked.movement_points == 16 and not blocked.in_battle
-    chex.assert_trees_all_close(env.observation(state)[:2], jnp.full(2,46/47))
+    chex.assert_trees_all_close(compiled_method(env,'observation')(state)[:2], jnp.full(2,46/47))

@@ -215,9 +215,10 @@ def test_human_sessions_build_with_shared_actions_and_isolate_factions(human_ser
         sessions.append(token)
         assert game['construction']['buildings'][0]['name'] == first_building
         assert game['map']['faction'] == faction
-        assert len(game['snapshot']['action_mask']) == ACTIONS == 87
+        assert ACTIONS == 212
+        assert len(game['snapshot']['action_mask']) == {'legions':212,'elves':215}[faction]
         stored_faction, state, total = service.sessions[token]
-        assert stored_faction == faction and state.gold == state.buildings == 0
+        assert stored_faction == (faction, 'warrior') and state.gold == state.buildings == 0
         if faction == 'elves':
             # Every faction/building already executes on CUDA above. Here a
             # second fresh session verifies factory routing and isolation;
@@ -226,7 +227,7 @@ def test_human_sessions_build_with_shared_actions_and_isolate_factions(human_ser
             assert service.sessions[sessions[0]][1].gold == 100
             assert service.sessions[sessions[0]][1].day == 2
             continue
-        service.sessions[token] = (faction, state.replace(gold=jnp.int32(200)), total)
+        service.sessions[token] = (stored_faction, state.replace(gold=jnp.int32(200)), total)
         built = service.act(token, BUILD_START)['snapshot']
         assert built['state']['gold'] == 0 and built['state']['buildings'] == 1
         assert built['building_status'][0] == 1
@@ -239,6 +240,6 @@ def test_human_sessions_build_with_shared_actions_and_isolate_factions(human_ser
         assert rested['events'][0]['reward'] == pytest.approx(-.02)
         with pytest.raises(ValueError, match='недоступно'):
             service.act(token, BUILD_START)
-    assert service.sessions[sessions[0]][0] == 'legions'
-    assert service.sessions[sessions[1]][0] == 'elves'
+    assert service.sessions[sessions[0]][0] == ('legions', 'warrior')
+    assert service.sessions[sessions[1]][0] == ('elves', 'warrior')
     assert service.create(43)['snapshot']['state']['buildings'] == 0

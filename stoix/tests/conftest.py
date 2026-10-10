@@ -12,7 +12,7 @@ from stoix.tests.number_grid_fixtures import current_environment
 @pytest.fixture(scope='session')
 def current_game():
     env = current_environment()
-    state, _ = env.reset(jax.random.PRNGKey(42))
+    state, _ = compiled_method(env,'reset')(jax.random.PRNGKey(42))
     return env, state, compiled_method(env,'step'), compiled_method(env,'_battle_step')
 
 
@@ -24,7 +24,7 @@ def human_service(current_game):
     env, _, step, _ = current_game
     service = GameService.__new__(GameService)
     service.env = env
-    service.environments = {env.construction.faction:(env,compiled_method(env,'reset'),step)}
+    service.environments = {(env.construction.faction, env.construction.lord['id']):(env,compiled_method(env,'reset'),step)}
     service.sessions = OrderedDict()
     service.lock = threading.Lock()
     return service
@@ -45,6 +45,7 @@ def elemental_attack_game():
     config = copy.deepcopy(MAP)
     config['fear_paralysis_teams'] = ['red']
     config['hero_roster'][3:5] = ['sentry','watcher']
+    config['hero_units'] = 5
     config['hero_combat_stats'] = [{},{},{},dict(attack_type='weapon'),dict(attack_type='weapon')]
     config['enemy_rosters'][40] = ['succubus','succubus','archer','archer','archer','archer']
     config['enemy_units'][40] = 6
@@ -61,6 +62,8 @@ def elemental_attack_game():
     config['enemy_units'][37] = 6
     config['enemy_rosters'][2] = ['archer']*6
     config['enemy_units'][2] = 6
+    config['enemy_rosters'][36] = list(MAP['enemy_rosters'][11])
+    config['enemy_units'][36] = 6
     overrides = [[{} for _ in range(n)] for n in config['enemy_units']]
     overrides[0] = [dict(immunities=['weapon','mind']),
         dict(immunities=['weapon'],protections=['mind']),dict(hero=True),
@@ -80,10 +83,13 @@ def elemental_attack_game():
               dict(immunities=['weapon']),dict(immunities=['poison']),{},{}]
     overrides[11] = [dict(max_hp=300,**e) for e in extras]
     overrides[2] = [dict(immunities=['FiRe'],protections=['fire']),dict(protections=['FIRE','fire'])]+[{}]*4
+    overrides[36] = [dict(max_hp=300,**e) for e in
+        (dict(protections=['death']),dict(immunities=['death']),dict(immunities=['weapon']),
+         dict(immunities=['poison']),{}, {})]
     config['enemy_combat_stats'] = overrides
     env = NumberGrid(map_config=config)
     env.progression.capital_guards = env.progression.capital_guards.at[env.progression.enemy_ids[40,2]].set(True)
     env.progression.capital_guards = env.progression.capital_guards.at[env.progression.enemy_ids[37,5]].set(True)
-    initial,_ = env.reset(jax.random.PRNGKey(42))
-    start = env._begin_battle(initial.replace(enemy=jnp.int32(11)))
+    initial,_ = compiled_method(env,'reset')(jax.random.PRNGKey(42))
+    start = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(11)))
     return env,initial,start.replace(priority=start.priority.at[0].set(10000.))

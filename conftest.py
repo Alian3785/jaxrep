@@ -5,6 +5,7 @@ import pytest
 
 
 def pytest_sessionstart(session):
+    os.environ['NUMBERGRID_TEST_RUN'] = '1'
     requested = os.environ.get('JAX_PLATFORMS')
     if requested not in (None, 'cuda'):
         raise pytest.UsageError(

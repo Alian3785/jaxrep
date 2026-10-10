@@ -10,6 +10,7 @@ from pathlib import Path
 import jax.numpy as jnp
 
 from stoix.envs.number_grid_combat import UNITS
+from stoix.envs.number_grid_lords import LORDS, lord_settings
 
 BUILD_START, BUILD_SLOTS = 18, 25
 DAILY_GOLD = 100
@@ -25,6 +26,7 @@ class BuildingRules:
             raise ValueError(f'Unknown faction: {self.faction}')
         faction = CATALOG['factions'][self.faction]
         self.name = faction['name']
+        self.lord = lord_settings(game_map)
         unavailable = {u['name']: u['upgrade_unavailable_reason'] for u in UNITS.values()
                        if game_map.get('unit_progression') and u.get('upgrade_unavailable_reason')}
         self.rows = [{**row, 'unavailable_reason': unavailable.get(row['unit'], '')}
@@ -77,6 +79,9 @@ class BuildingRules:
             raise ValueError('max_building_level must be an integer from 1 to 5')
         initial |= sum(1 << i for i, row in enumerate(self.rows) if row['level'] > level)
         self.initial_blocked = jnp.uint32(descendants(initial))
+        starting = names.get(self.lord['starting_building'])
+        self.initial_built = jnp.uint32(0 if starting is None else 1 << starting)
+        self.lord_observation = jnp.array([kind == self.lord['id'] for kind in LORDS], jnp.float32)
         self.bits = jnp.left_shift(jnp.uint32(1), jnp.arange(BUILD_SLOTS, dtype=jnp.uint32))
         self.present = jnp.arange(BUILD_SLOTS) < count
         self.costs = jnp.asarray([r['gold'] for r in self.rows] + [0] * (BUILD_SLOTS-count), jnp.int32)
@@ -103,7 +108,8 @@ class BuildingRules:
         # 1=built, -1=permanently blocked/absent, 0=not yet built.
         status = jnp.where((state.buildings & self.bits) != 0, 1.,
                            jnp.where(((state.blocked_buildings & self.bits) != 0) | ~self.present, -1., 0.))
-        return jnp.concatenate((self.faction_observation, jnp.asarray([state.built_today], jnp.float32), status))
+        values = (self.faction_observation, jnp.asarray([state.built_today], jnp.float32), status)
+        return jnp.concatenate(values)
 
     def status(self, state):
         """Presentation codes: ready, built, blocked, prerequisite, gold, day,
@@ -117,6 +123,7 @@ class BuildingRules:
         return jnp.where(self.present, code, 8)
 
     def metadata(self):
-        return {'faction': self.faction, 'name': self.name,
+        return {'faction': self.faction, 'name': self.name, 'lord': self.lord,
+                'lords': [dict(id=key, **value) for key, value in LORDS.items()],
                 'factions': [{'id': key, 'name': CATALOG['factions'][key]['name']} for key in FACTIONS],
                 'buildings': [{**row, 'action': BUILD_START+i} for i, row in enumerate(self.rows)]}

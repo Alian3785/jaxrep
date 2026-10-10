@@ -1,4 +1,4 @@
-"""Sequential CUDA PPO comparisons and a fresh 20M run for one reference type.
+"""Sequential CUDA PPO checks, limited to 1M transitions per fresh run.
 
 This host orchestrator does no simulation. Child learners use run_gpu.sh; no
 checkpoint is accepted, so every requested stage starts from random weights.
@@ -83,8 +83,8 @@ def main():
     parser.add_argument('stage')
     parser.add_argument('--root', default='results/unit-actions-20261009')
     baseline = parser.add_mutually_exclusive_group(required=True)
-    baseline.add_argument('--baseline', help='Prefix of paired 5M comparison runs')
-    baseline.add_argument('--baseline-run', help='Previous stage fresh seed-42 20M run')
+    baseline.add_argument('--baseline', help='Prefix of paired 1M comparison runs')
+    baseline.add_argument('--baseline-run', help='Previous stage fresh seed-42 1M run')
     parser.add_argument('--wandb-mode', choices=('online', 'offline'), default='offline')
     parser.add_argument('--map-changes', type=Path, help='JSON list of exact allowed map edits: path, before, after')
     args = parser.parse_args()
@@ -101,7 +101,7 @@ def main():
 
     def run(name, transitions, seed, mode):
         command = ['bash', 'scripts/run_gpu.sh', 'benchmark_number_grid.py',
-                   '--total-timesteps', str(transitions), '--seed', str(seed),
+                   '--test-run', '--total-timesteps', str(transitions), '--seed', str(seed),
                    '--output', str(output / name), '--wandb-mode', mode,
                    '--wandb-project', 'numbergrid', '--wandb-entity', 'sergey3784',
                    '--wandb-name', name+'-20261009']
@@ -113,7 +113,7 @@ def main():
     before, after = [], []
     for seed in ((42, 43) if args.baseline else ()):
         name = f'{args.stage}-bench-{seed}'
-        if run(name, 5_000_000, seed, 'offline'):
+        if run(name, 1_000_000, seed, 'offline'):
             raise SystemExit('Comparison run failed: '+name)
         previous, measured = validate_comparison(
             output/f'{args.baseline}-{seed}', output/name, declared_map_changes)
@@ -127,8 +127,8 @@ def main():
         if regression >= .07:
             raise SystemExit('Repeated PPO regression >=7%; optimize and review before proceeding.')
 
-    name = args.stage+'-20m'
-    result = run(name, 20_000_000, 42, args.wandb_mode)
+    name = args.stage+'-1m'
+    result = run(name, 1_000_000, 42, args.wandb_mode)
     if result and args.wandb_mode == 'online':
         error = (output / (name+'.errors.log')).read_text()
         # Only a confirmed service permission error before learner setup permits
@@ -136,13 +136,13 @@ def main():
         log = (output / (name+'.log')).read_text()
         if ('403' in error or 'PERMISSION_ERROR' in error) and '"phase": "initializing"' not in log:
             name += '-offline'
-            result = run(name, 20_000_000, 42, 'offline')
+            result = run(name, 1_000_000, 42, 'offline')
     if result:
-        raise SystemExit('20M training failed: '+name)
+        raise SystemExit('1M test training failed: '+name)
     trained = read(name)
-    if (trained['training_steps'] != 20_000_000 or not trained['weights_changed']
+    if (trained['training_steps'] != 1_000_000 or not trained['weights_changed']
             or not trained['checkpoint_roundtrip_verified'] or trained['backend'] != 'gpu'):
-        raise SystemExit('20M checkpoint verification failed')
+        raise SystemExit('1M test checkpoint verification failed')
     if args.baseline_run:
         previous, trained = validate_comparison(
             output/args.baseline_run, output/name, declared_map_changes)

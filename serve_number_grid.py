@@ -19,6 +19,7 @@ import numpy as np
 
 from stoix.envs.number_grid import MAP, NumberGrid, CONTINUE
 from stoix.envs.number_grid_buildings import DEFAULT_FACTION, FACTIONS
+from stoix.envs.number_grid_lords import LORDS
 
 ROOT = Path(__file__).resolve().parent
 
@@ -32,13 +33,16 @@ class GameService:
         state, _ = reset(jax.random.PRNGKey(0))
         jax.block_until_ready(advance(state, jnp.int32(2)))
 
-    def environment(self, faction):
+    def environment(self, faction, lord_type=MAP.get('lord_type', 'warrior')):
         if faction not in FACTIONS:
             raise ValueError('Неизвестная фракция.')
-        if faction not in self.environments:
-            env = NumberGrid(map_config={**MAP, 'faction': faction})
-            self.environments[faction] = (env, jax.jit(env.reset), jax.jit(env.step))
-        return self.environments[faction]
+        if not isinstance(lord_type, str) or lord_type not in LORDS:
+            raise ValueError('Неизвестный тип правителя.')
+        key = (faction, lord_type)
+        if key not in self.environments:
+            env = NumberGrid(map_config={**MAP, 'faction': faction, 'lord_type': lord_type})
+            self.environments[key] = (env, jax.jit(env.reset), jax.jit(env.step))
+        return self.environments[key]
 
     def snapshot(self, env, state, total_reward):
         state = jax.device_get(state)
@@ -51,32 +55,47 @@ class GameService:
                 'map_commands': np.asarray(env.map_commands(state)).tolist(),
                 'max_hp': np.asarray(env.max_hp(state)).tolist(),
                 'building_status': np.asarray(env.construction.status(state)).tolist(),
+                'spell_status': np.asarray(env.spell_research.status(state)).tolist() if env.spell_research_enabled else [],
                 'rest_penalty': float(env.rest_penalty(state)),
+                'movement_cap': int(env.movement_cap(state)),
+                'travel_costs': np.asarray(env.travel_costs(state)).tolist(),
                 'capital_quotes': np.asarray(env.capital.quotes(state, env.max_hp(state))).tolist(),
                 'potion_quotes': np.asarray(env.potion_rules.quotes(state, env.max_hp(state))).tolist(),
+                'recruitment_quotes': ({k: np.asarray(v).tolist() for k,v in env.recruitment.quotes(state).items()}
+                                      if env.recruitment_enabled else None),
+                'site_quotes': ({k: np.asarray(v).tolist() for k,v in env.site_rules.quotes(state).items()}
+                                if env.sites_enabled else None),
+                'territory_quotes': ({k: np.asarray(v).tolist() for k,v in env.territory_quotes(state).items()}
+                                     if env.territory_enabled else None),
                 'unit_experience': np.asarray(env.unit_experience(state)).tolist(),
                 'unit_stats': (np.asarray(env.unit_stats(state)).tolist()
                                if env.basic_combat else None)}
 
-    def create(self, seed, faction=DEFAULT_FACTION):
+    def create(self, seed, faction=DEFAULT_FACTION, lord_type=MAP.get('lord_type', 'warrior')):
         with self.lock:
-            env, reset, _ = self.environment(faction)
+            env, reset, _ = self.environment(faction, lord_type)
             state, _ = reset(jax.random.PRNGKey(seed))
             token = secrets.token_urlsafe(24)
-            self.sessions[token] = (faction, state, 0.)
+            self.sessions[token] = ((faction, lord_type), state, 0.)
             while len(self.sessions) > 64:
                 self.sessions.popitem(last=False)
             return {'session': token, 'map': env.map_config, 'construction': env.construction.metadata(),
                     'turn_rules': env.turn_metadata(), 'combat': env.combat_info,
                     'capital': env.capital.metadata(), 'potions': env.potion_rules.metadata(),
+                    'equipment': env.item_rules.metadata if env.items_enabled else None,
+                    'recruitment': env.recruitment.metadata if env.recruitment_enabled else None,
+                    'territory': env.territory.metadata if env.territory_enabled else None,
+                    'ruins': env.ruins.metadata if env.ruins_enabled else None,
+                    'spell_research': env.spell_research.metadata if env.spell_research_enabled else None,
+                    'sites': env.site_rules.metadata if env.sites_enabled else None,
                     'snapshot': self.snapshot(env, state, 0.), 'events': []}
 
     def act(self, token, action):
         with self.lock:
             if token not in self.sessions:
                 raise KeyError('Сессия истекла. Начните новую игру.')
-            faction, state, total = self.sessions[token]
-            env, _, advance = self.environment(faction)
+            key, state, total = self.sessions[token]
+            env, _, advance = self.environment(*key)
             if bool(state.done):
                 raise ValueError('Игра завершена. Начните новую игру.')
             if not (0 <= action < env.action_space().num_values and bool(env.action_mask(state)[action])):
@@ -93,7 +112,7 @@ class GameService:
                 state, ts = advance(state, jnp.int32(CONTINUE))
                 total += float(ts.reward)
                 events.append({**self.snapshot(env, state, total), 'reward': float(ts.reward)})
-            self.sessions[token] = (faction, state, total)
+            self.sessions[token] = (key, state, total)
             self.sessions.move_to_end(token)
             return {'session': token, 'snapshot': self.snapshot(env, state, total), 'events': events}
 
@@ -143,7 +162,7 @@ def make_handler(service, port):
                     faction = body.get('faction', MAP.get('faction', DEFAULT_FACTION))
                     if not isinstance(faction, str):
                         raise ValueError('Фракция должна быть строкой.')
-                    result = service.create(seed, faction)
+                    result = service.create(seed, faction, body.get('lord_type', MAP.get('lord_type', 'warrior')))
                 elif self.path == '/api/step':
                     action = body.get('action')
                     if type(action) is not int:

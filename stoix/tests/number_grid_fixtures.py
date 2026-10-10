@@ -19,6 +19,24 @@ def current_environment():
     return NumberGrid()
 
 
+@lru_cache(maxsize=None)
+def batch_layout(count, capacity):
+    """Fuse padding/slicing of the whole state tree instead of launching per leaf."""
+    import jax
+    import jax.numpy as jnp
+
+    @jax.jit
+    def pad(args):
+        return jax.tree.map(
+            lambda x: jnp.concatenate((x, jnp.repeat(x[:1], capacity-count, axis=0))), args)
+
+    @jax.jit
+    def trim(result):
+        return jax.tree.map(lambda x: x[:count], result)
+
+    return pad, trim
+
+
 def compiled_method(env, name, batched=False):
     """Keep a stable JIT function identity for immutable test environments."""
     import jax
@@ -39,8 +57,12 @@ def compiled_method(env, name, batched=False):
             def shared_batch(*args):
                 count = jax.tree.leaves(args)[0].shape[0]
                 capacity = max(64,1 << (count-1).bit_length())
-                padded = jax.tree.map(lambda x:jnp.concatenate((x,jnp.repeat(x[:1],capacity-count,axis=0))),args)
-                return jax.tree.map(lambda x:x[:count],invoke(*padded))
+                if count == capacity:
+                    return invoke(*args)
+                pad, trim = batch_layout(count, capacity)
+                # Keep the large transition separate: changing the case count
+                # must only compile these tiny adapters, not the combat graph.
+                return trim(invoke(*pad(args)))
             env._test_jit_methods[key] = shared_batch
         else:
             env._test_jit_methods[key] = invoke

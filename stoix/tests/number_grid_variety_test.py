@@ -17,17 +17,17 @@ def env(current_game):
 
 
 def battle(env, enemy):
-    state, _ = env.reset(jax.random.PRNGKey(42))
-    return env._begin_battle(state.replace(enemy=jnp.int32(enemy)))
+    state, _ = compiled_method(env,'reset')(jax.random.PRNGKey(42))
+    return compiled_method(env,'_begin_battle')(state.replace(enemy=jnp.int32(enemy)))
 
 
 def stack(states):
     return jax.tree.map(lambda *values: jnp.stack(values), *states)
 
 
-def test_48x48_map_with_41_squads_and_reference_profiles(env):
-    assert env.size == 48 and env.num_opponents == 41
-    assert len(set(map(tuple, MAP['opponent_positions']))) == 41
+def test_48x48_map_with_46_squads_and_reference_profiles(env):
+    assert env.size == 48 and env.num_opponents == 46
+    assert len(set(map(tuple, MAP['opponent_positions']))) == 44
     assert MAP['enemy_rosters'][24:27] == [
         ['orc','orc',None,None,None,None],
         ['goblin','orc','goblin',None,None,None],
@@ -53,11 +53,11 @@ def test_48x48_map_with_41_squads_and_reference_profiles(env):
             if key and UNITS[key].get('size', 1) == 2:
                 assert slot < 3 and roster[slot+3] is None
     initial, ts = compiled_method(env,'reset')(jax.random.PRNGKey(1))
-    assert ts.observation.shape == (1031,) and env.num_actions == 87
-    chex.assert_trees_all_equal(ts.observation[315+5*env.num_opponents:327+5*env.num_opponents], jnp.array([.5]*5+[0]*7))
+    assert ts.observation.shape == (1547,) and env.num_actions == 212
+    chex.assert_trees_all_equal(ts.observation[435+5*env.num_opponents:447+5*env.num_opponents], jnp.array([.5]*4+[0]*8))
     state = battle(env, 21)
     obs = compiled_method(env,'observation')(state)
-    chex.assert_trees_all_equal(obs[321+5*env.num_opponents:327+5*env.num_opponents], jnp.array([1,.5,1,0,.5,0]))
+    chex.assert_trees_all_equal(obs[441+5*env.num_opponents:447+5*env.num_opponents], jnp.array([1,.5,1,0,.5,0]))
     traits_start = 112+5*env.num_opponents
     assert obs[traits_start+10*4] == 1  # role HEALER normalized by 4
     assert env.unit_traits(state)[10, 0] == HEALER
@@ -80,11 +80,13 @@ def test_large_unit_formation_rejects_overlap_and_rear_anchors():
     chex.assert_trees_all_equal(allies.hero_full, jnp.array([250]*3+[0]*3))
     for size in (0, 3, True, 1.5):
         with pytest.raises(ValueError, match='size'):
-            NumberGrid(map_config={**MAP, 'hero_combat_stats':[dict(size=size)]+[{}]*4})
+            NumberGrid(map_config={**MAP, 'hero_combat_stats':[dict(size=size)]+[{}]*3})
 
 
 def test_titan_has_one_health_pool_action_target_and_kill_reward(env):
     state = enemy_roster_state(env,battle(env,21),['titan','squire','titan',None,'acolyte',None]).replace(actor=jnp.int32(3))
+    from stoix.tests.number_grid_fixtures import hero_roster_state
+    state = hero_roster_state(env,state,['possessed','duke','possessed','cultist','cultist',None])
     mask = compiled_method(env,'action_mask')(state)
     chex.assert_trees_all_equal(mask[SHOOT:SHOOT+6], jnp.array([1,1,1,0,1,0], bool))
     attack = compiled_method(env,'_battle_step')
@@ -143,8 +145,10 @@ def test_player_healing_mask_step_and_protections_agree():
     config['enemy_rosters'] = [[('squire' if i < 3 else 'archer') if key else None
         for i,key in enumerate(row)] for row in config['enemy_rosters']]
     config['hero_roster'][4] = 'acolyte'
+    config['hero_units'] = 5
     config['hero_combat_stats'] = [dict(armor=90, immunities=['life'], protections=['life']),
                                    {}, {}, {}, dict(accuracy=0)]
+    config['initial_potions'],config['chests'] = {},[]
     env = NumberGrid(map_config=config)
     state = battle(env, 0).replace(actor=jnp.int32(4))
     state = state.replace(hp=state.hp.at[0].set(110).at[1].set(150).at[2].set(0).at[3].set(20).at[4].set(40),

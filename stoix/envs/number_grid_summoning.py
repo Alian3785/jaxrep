@@ -4,7 +4,7 @@ import jax.numpy as jnp
 
 from stoix.envs.number_grid_combat import HP, DAMAGE, ACCURACY, ARMOR, INITIATIVE, MELEE
 
-COPY_ALLY, COPY_ACTIONS = 81, 6
+COPY_ALLY, COPY_ACTIONS = 57, 6
 COPIED, SUMMONED = 33, 34
 SHOOT, DEFEND, CONTINUE = 8, 14, 17
 
@@ -132,6 +132,7 @@ class Summoning:
         hp = jnp.minimum(stats[HP], jnp.maximum(1, hp)).astype(jnp.int32)
         updates = dict(unit_ids=form, unit_levels=level, hp=hp,
                        copied=jnp.bool_(True), copy_stats=stats, copy_traits=traits,
+                       copy_secondary=self._secondary_stats(state,target,temporary=False),
                        armor_shreds=jnp.int32(0), weakened=jnp.bool_(False),
                        primary_override=jnp.int32(-1), preweak_damage=jnp.int32(-1),
                        powerup=jnp.bool_(False), powerup_layered=jnp.bool_(False),
@@ -150,8 +151,9 @@ class Summoning:
         uid, level = state.unit_ids[slot],state.unit_levels[slot]
         raw = self.progression.raw_stats(uid,level)
         values = jnp.minimum(raw,self.progression.stat_caps[uid])
-        if self.has_weakening or self.has_powerups:
+        if self.has_weakening or self.has_powerups or self.has_potion_buffs:
             values = values.at[DAMAGE].set(raw[DAMAGE])
+        values = self._potion_stats(state,values,slot=slot,temporary=False)
         values = jnp.where(state.copied[slot],state.copy_stats[slot],values)
         values = jnp.where(state.decay_form[slot] > 0,self.progression.base_stats[state.decay_form[slot]],values)
         values = values.at[HP].set(jnp.where(state.fenrir[slot],275.,values[HP]))
@@ -262,7 +264,8 @@ class Summoning:
         return jax.lax.fori_loop(0,12,kill,hp)
 
     def _restore_roster(self, state, hp, ended):
-        own_hp = self.progression.stats(state.native_ids,state.native_levels)[:,HP]
+        own_stats = self.progression.stats(state.native_ids,state.native_levels)
+        own_hp = self._potion_stats(state,own_stats,temporary=False)[:,HP]
         restored = jnp.rint(hp*own_hp/jnp.maximum(state.copy_stats[:,HP],1)).astype(jnp.int32)
         restored = jnp.where(hp > 0,jnp.maximum(1,restored),0)
         hp = jnp.where(ended & state.copied,restored,hp)

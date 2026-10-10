@@ -33,7 +33,7 @@
 
 .treasury .resource-list {display:grid;gap:7px;margin:14px 0;font-size:12px}.resource-list>div{display:flex;justify-content:space-between;gap:12px}.resource-list b{font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}#city-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.city-card{border:1px solid #d4dece;border-radius:12px;padding:16px;display:grid;gap:10px}.city-card p{margin:0}.city-card small{line-height:1.5}.legend .city{background:#9b82b0}.legend .mine{background:#69aea4;transform:rotate(45deg)}.legend .land{background:#e6cfb5}.legend .obstacle{background:#899088}
 
-.legend i.mercenary{background:#e5dcc7;border:1px solid #8e7b59}
+.legend i.mercenary{background:#e5dcc7;border:1px solid #8e7b59}.legend i.spell-shop{background:#ddd5ef;border:1px solid #7b68a8}
 
 .legend .ruin{background:#d6c9b4;border:1px solid #9a7b56}
 

@@ -14,6 +14,16 @@ import threading
 from urllib.parse import urlsplit
 
 import hashlib
+import os
+import sys
+
+# The map fixes ACTION_NAMES at import time, so select it before importing the env.
+_selected = argparse.ArgumentParser(add_help=False)
+_selected.add_argument('--map')
+_selected = _selected.parse_known_args(sys.argv[1:])[0].map
+if _selected:
+    os.environ['NUMBER_GRID_MAP'] = _selected
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -225,7 +235,7 @@ def make_handler(service, port):
         def do_GET(self):
             path = urlsplit(self.path).path
             if path == '/api/health':
-                return self.send_json(200, {'ok':True, 'environment':MAP['name'], 'backend':jax.default_backend(),
+                return self.send_json(200, {'ok':True, 'environment':MAP['name'], 'map':os.environ.get('NUMBER_GRID_MAP', 'current'), 'backend':jax.default_backend(),
                                             'agent': service.agent.info if service.agent else None})
             if path == '/api/info':
                 return self.send_json(200, {'map':MAP})
@@ -281,6 +291,7 @@ def make_handler(service, port):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', type=int, default=8769)
+    parser.add_argument('--map', help='current (default), default (reference Default map) or a map JSON path')
     parser.add_argument('--model', help='Results folder with params.msgpack: enables agent hints and moves')
     parser.add_argument('--allow-cpu', action='store_true', help='Run human mode on the JAX CPU backend')
     args = parser.parse_args()

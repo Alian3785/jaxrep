@@ -6,7 +6,7 @@ campaign_env_data.py / campaign_env_inventory.py. See docs/HERO_ITEMS.md.
 import jax
 import jax.numpy as jnp
 
-ARTIFACT, BANNER, BOOK, BOOTS, VALUABLE = range(5)
+ARTIFACT, BANNER, BOOK, BOOTS, VALUABLE, USABLE = range(6)
 SLOT_NAMES = ('Артефакт 1', 'Артефакт 2', 'Знамя', 'Книга', 'Сапоги')
 
 
@@ -69,6 +69,12 @@ ITEMS = (
           ('sapphire','Sapphire',1500),('diamond','Diamond',1750),
           ('ancient_relic','Ancient Relic',2000),('royal_scepter','Royal Scepter',2500),
           ('imperial_crown','Imperial Crown',5000)))),
+    # Orbs, talismans and scrolls are carried but not used yet: never equipped or sold.
+    _item('vampire_orb','Vampire Orb','9009',USABLE,800,'Сфера: призыв Вампира в бою; применение пока не реализовано'),
+    _item('lich_orb','Lich Orb','9010',USABLE,800,'Сфера: призыв Лича в бою; применение пока не реализовано'),
+    _item('orb_of_life','Orb of Life','9019',USABLE,800,'Сфера: воскрешение в бою; применение пока не реализовано'),
+    _item('zombie_talisman','Zombie Talisman','9107',USABLE,400,'Талисман: призыв Зомби в бою; применение пока не реализовано'),
+    _item('mind_ward_scroll','Mind ward scroll','5011',USABLE,600,'Свиток: защита от первой атаки Разума; применение пока не реализовано'),
 )
 ITEM_BY_KEY = {p['key']: p for p in ITEMS}
 

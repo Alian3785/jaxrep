@@ -10,9 +10,8 @@ import jax.numpy as jnp
 import numpy as np
 
 from stoix.envs.number_grid_combat import ATTACK_TYPES, HP
-from stoix.envs.number_grid_spells import CATALOG
-from stoix.envs.number_grid_buildings import DEFAULT_FACTION
-from stoix.envs.number_grid_territory import CITY_BONUS
+from stoix.envs.number_grid_spells import shop_spell_ids, spell_book
+from stoix.envs.number_grid_territory import CAPITAL_REGENERATION, CITY_BONUS
 
 SPELL_CAST, SPELL_KILL, SUMMON_CAST = 48, 49, 50
 KINDS = ('damage', 'debuff', 'summon_battle', 'moves', 'heal', 'buff', 'ward', 'health_bonus')
@@ -32,7 +31,8 @@ def casting_enabled(game_map):
 
 
 def _rows(game_map):
-    return CATALOG['factions'][game_map.get('faction', DEFAULT_FACTION)]
+    own, extras = spell_book(game_map)
+    return own + extras
 
 
 def cast_action_names(game_map):
@@ -50,11 +50,22 @@ def cast_summon_keys(game_map):
 
 class SpellCastRules:
     def __init__(self, game_map, research, construction, progression, territory, ruins, start):
-        self.rows = research.rows
-        self.count = research.count
+        own, extras = spell_book(game_map)
+        self.rows = own + extras
+        self.count = len(self.rows)
         self.start, self.end = start, start + self.count
-        self.bits, self.allowed = research.bits, research.allowed
         self.limit = 2 if construction.lord['id'] == 'mage' else 1
+        sold = set(shop_spell_ids(game_map))
+        if sold:
+            # A purchase bypasses the ruler's level limit for casting, never research
+            # (_is_spellbook_spell_blocked_by_typeoflord). Other factions' spells have
+            # their own actions, limited to one cast a day (_spell_shop_cast_limit_reached).
+            self.bits = jnp.left_shift(jnp.uint32(1), jnp.arange(self.count, dtype=jnp.uint32))
+            self.allowed = jnp.concatenate((research.allowed, jnp.ones(len(extras), bool))) | jnp.array(
+                [row['id'] in sold for row in self.rows])
+            self.limits = jnp.array([self.limit] * len(own) + [1] * len(extras), jnp.int32)
+        else:
+            self.bits, self.allowed, self.limits = research.bits, research.allowed, self.limit
         casts = [row['cast'] for row in self.rows]
         kinds = [KINDS.index(c['kind']) for c in casts]
         self.kinds = jnp.array(kinds, jnp.int32)
@@ -105,7 +116,14 @@ class SpellCastRules:
         protected = np.array([city >= 0 for city in np.asarray(territory.enemy_city)])
         if ruins is not None:
             protected |= np.asarray(ruins.enemy_ruin) >= 0
+        if territory.has_capital_guards:
+            protected |= np.asarray(territory.capital_guards)  # capital location, not a field stack
         self.field = jnp.array(~protected)
+        # Reference _heal_wounded_enemy_teams_for_turn: the objective dragon recovers fully.
+        full = game_map.get('enemy_full_regeneration', [])
+        if any(type(i) is not int or not 0 <= i < len(game_map['opponent_positions']) for i in full):
+            raise ValueError('enemy_full_regeneration must list stack indices')
+        self.full_regeneration = jnp.array([i in full for i in range(len(game_map['opponent_positions']))]) if full else None
         self.enemy_city = territory.enemy_city
         self.enemy_ids = progression.enemy_ids
         self.occupied = self.enemy_ids != 0
@@ -118,6 +136,8 @@ class SpellCastRules:
         self.metadata = dict(start=start, daily_limit=self.limit, reward=CAST_REWARD,
             summon_engage_reward=SUMMON_ENGAGE_REWARD,
             spells=[dict(id=row['id'], name=row['name'], action=start + i, **row['cast'], restore=restore[i],
+                         level=row['level'], description=row['description'], foreign=i >= len(own), sold=row['id'] in sold,
+                         daily_limit=self.limit if i < len(own) else 1,
                          summon_slot=slots[i] if kinds[i] == SUMMON else None,
                          unit_name=(progression.rows[progression.ids[row['cast']['unit']]]['name']
                                     if row['cast']['kind'] == 'summon_battle' else None))
@@ -145,7 +165,8 @@ class SpellCastRules:
         any_target, field_target, _ = self.targets(state) if targets is None else targets
         sel = (lambda x: x) if index is None else (lambda x: x[index])
         learned = (state.learned_spells & sel(self.bits)) != 0
-        ready = (sel(self.allowed) & learned & (sel(state.spell_casts) < self.limit)
+        limits = self.limits if isinstance(self.limits, int) else sel(self.limits)
+        ready = (sel(self.allowed) & learned & (sel(state.spell_casts) < limits)
                  & jnp.all(state.mana >= sel(self.costs), axis=-1) & ~state.in_battle & ~state.done)
         living = (state.hp[:6] > 0) & (state.unit_ids[:6] != 0)
         kind = sel(self.kinds)
@@ -167,7 +188,7 @@ class SpellCastRules:
         mana = jnp.all(state.mana >= self.costs, axis=-1)
         code = jnp.where(self.available(state, max_hp, cap, targets), 0, 4)
         code = jnp.where(mana, code, 3)
-        code = jnp.where(state.spell_casts < self.limit, code, 2)
+        code = jnp.where(state.spell_casts < self.limits, code, 2)
         code = jnp.where(learned, code, 1)
         return jnp.where(state.done, 6, jnp.where(state.in_battle, 5, code))
 
@@ -244,7 +265,11 @@ class SpellCastRules:
         city = jnp.maximum(self.enemy_city, 0)
         percent = (jnp.where(owned, OWN_LAND_REGENERATION, FIELD_REGENERATION)
                    + jnp.where(self.enemy_city >= 0, self.city_bonus[state.city_levels[city]] if self.territory.count else 0, 0))
+        if self.territory.has_capital_guards:
+            percent = percent + jnp.where(self.territory.capital_guards, CAPITAL_REGENERATION, 0)
         heal = jnp.maximum(1, jnp.rint(maximum * percent[:, None] / 100.).astype(jnp.int32))
+        if self.full_regeneration is not None:
+            heal = jnp.where(self.full_regeneration[:, None], maximum, heal)
         recovering = resting & state.alive[:, None] & self.occupied & (current > 0) & (wounds > 0)
         return state.replace(
             enemy_wounds=jnp.where(recovering, jnp.maximum(wounds - heal, 0), wounds),
@@ -325,7 +350,7 @@ class SpellCastRules:
         any_target, field_target, distance = self.targets(state)
         scale = self.size - 1
         return jnp.concatenate((
-            state.spell_casts / self.limit,
+            state.spell_casts / self.limits,
             ((state.spell_effects & self.bits) != 0).astype(jnp.float32),
             jnp.sum(state.enemy_wounds, axis=1) / self.base_totals,
             ((state.enemy_spell_effects != 0) + 2. * state.summon_marks) / 3.,

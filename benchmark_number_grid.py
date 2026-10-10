@@ -20,7 +20,7 @@ from flax import serialization
 from omegaconf import OmegaConf
 from stoix.systems.ppo.anakin.ff_ppo import learner_setup
 from stoix.utils.make_env import make
-from stoix.envs.number_grid import MAP, NumberGrid, wrap_wall_action_mask
+from stoix.envs.number_grid import MAP, NumberGrid, load_map, wrap_wall_action_mask
 from numbergrid_config import ROOT, make_config
 from numbergrid_tracking import NumberGridTracking, add_tracking_arguments
 
@@ -87,7 +87,7 @@ def run_training(args, tracking):
     total = training_budget(args)
     if os.environ.get('NUMBERGRID_ALLOW_CPU') != '1' and (len(jax.devices()) != 1 or jax.devices()[0].platform != 'gpu'):
         raise RuntimeError('This measured profile requires exactly one CUDA GPU.')
-    game_map = json.loads(Path(args.map).read_text(encoding='utf-8')) if args.map else MAP
+    game_map = load_map(args.map) if args.map else MAP
     config = make_config(total, args.seed, map_config=game_map)
     run_name = f"number_grid-{game_map['size']}x{game_map['size']}" + ('-step-cost' if game_map.get('step_cost', 0) else '') + ('-smoke' if args.smoke else '')
     if game_map.get('exploration_bonus', 0):
@@ -264,6 +264,6 @@ if __name__ == '__main__':
     p.add_argument('--total-timesteps', type=int, help='Default: 1,000,000 in test mode, otherwise 5,000,000')
     p.add_argument('--seed', type=int, default=42)
     p.add_argument('--output')
-    p.add_argument('--map', help='Optional saved map JSON for reproducible comparisons')
+    p.add_argument('--map', help='current (number_grid_map.json, default), default (reference Default map) or a saved map JSON')
     add_tracking_arguments(p)
     train(p.parse_args())

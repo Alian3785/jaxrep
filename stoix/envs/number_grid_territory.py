@@ -14,6 +14,7 @@ MANA_KINDS = ('infernal', 'life', 'death', 'runes', 'elves')
 RESOURCE_KINDS = ('gold',) + MANA_KINDS
 RESOURCE_NAMES = ('Золото', 'Мана преисподней', 'Мана жизни', 'Мана смерти', 'Мана рун', 'Мана эльфов')
 CITY_CAPTURED, CITY_UPGRADED, OBSTACLE = 43, 44, 45
+CAPITAL_ARMOR, CAPITAL_REGENERATION = 50, 35  # GVars PROT_CAP and the capital REGEN bonus
 CITY_GROWTH = (0, 15, 15, 20, 20, 25)
 CITY_BONUS = (0, 10, 15, 20, 25, 30)
 CITY_COST = (0, 150, 250, 500, 750, 0)
@@ -125,6 +126,17 @@ class TerritoryRules:
         self.city_enemies = jnp.array([[tuple(p)==tuple(c['position']) for p in enemy_positions] for c in self.cities],bool).reshape(self.count,len(enemy_positions))
         self.goal_cities = jnp.any(self.city_enemies,axis=1)
         self.enemy_city = jnp.array([next((i for i,c in enumerate(self.cities) if tuple(p)==tuple(c['position'])),-1) for p in enemy_positions],jnp.int32)
+        # Enemy capitals: an obstacle footprint and one guard stack on its open tile.
+        # The guard is never a victory goal and has no scripted bot or land spread.
+        self.enemy_capitals = list(game_map.get('enemy_capitals', []))
+        guards = [c.get('guard') for c in self.enemy_capitals]
+        if any(type(g) is not int or not 0 <= g < self.enemy_count
+               or list(enemy_positions[g]) != list(c.get('position', [])) for g, c in zip(guards, self.enemy_capitals)):
+            raise ValueError('Each enemy capital needs a guard stack on its position')
+        if len(set(guards)) != len(guards) or any(self.enemy_city[g] >= 0 for g in guards):
+            raise ValueError('Capital guards must be distinct stacks outside cities')
+        self.has_capital_guards = bool(guards)
+        self.capital_guards = jnp.array([i in guards for i in range(self.enemy_count)], bool)
         offsets = [(r,c) for r in range(-2,3) for c in range(-2,3)]
         self.local_offsets = jnp.array(offsets,jnp.int32)
         # Mana, six income values, independent source growth, city and mine rows,
@@ -135,7 +147,9 @@ class TerritoryRules:
             mine_income=50,base_income=self.base_income.tolist(),capital_growth=10,
             city_growth=CITY_GROWTH,city_bonus=CITY_BONUS,city_costs=self.costs.tolist(),
             capital_regeneration=35,capital_armor=50,own_land_regeneration=10,
-            lord_type=self.lord,lord_regeneration=self.lord_regen,obstacles=game_map.get('obstacles',[]))
+            lord_type=self.lord,lord_regeneration=self.lord_regen,obstacles=game_map.get('obstacles',[]),
+            enemy_capitals=self.enemy_capitals,capital_guard_armor=CAPITAL_ARMOR,
+            capital_guard_regeneration=CAPITAL_REGENERATION)
 
     def _cells(self, positions):
         return positions[...,0]*self.size+positions[...,1]
@@ -216,10 +230,14 @@ class TerritoryRules:
             last_event=jnp.where(valid,CITY_UPGRADED,state.last_event))
 
     def defender_armor(self,state):
-        if not self.count:
-            return jnp.int32(0)
-        index = self.enemy_city[jnp.maximum(state.enemy,0)]
-        return jnp.where((state.enemy>=0)&(index>=0)&~state.city_owned[jnp.maximum(index,0)],self.fort_bonus[state.city_levels[jnp.maximum(index,0)]],0)
+        armor = jnp.int32(0)
+        if self.count:
+            index = self.enemy_city[jnp.maximum(state.enemy,0)]
+            armor = jnp.where((state.enemy>=0)&(index>=0)&~state.city_owned[jnp.maximum(index,0)],self.fort_bonus[state.city_levels[jnp.maximum(index,0)]],0)
+        if self.has_capital_guards:
+            # Reference _resolve_settlement_defender_armor_bonus: the capital tile's guard.
+            armor = armor+jnp.where((state.enemy>=0)&self.capital_guards[jnp.maximum(state.enemy,0)],CAPITAL_ARMOR,0)
+        return armor
 
     def observation(self,state):
         cities = jnp.concatenate((self.positions/(self.size-1),state.city_levels[:,None]/5.,state.city_owned[:,None],

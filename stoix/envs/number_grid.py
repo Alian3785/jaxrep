@@ -6,6 +6,7 @@ use the sole legal CONTINUE action. Saved maps can still use numeric rules.
 import dataclasses
 import json
 import math
+import os
 from pathlib import Path
 import jax
 import jax.numpy as jnp
@@ -19,8 +20,8 @@ from stoix.envs.number_grid_progression import ProgressionRules
 from stoix.envs.number_grid_summoning import Summoning, COPY_ALLY, COPY_ACTIONS, advance_linked_queue
 from stoix.envs.number_grid_chests import ChestRules
 from stoix.envs.number_grid_items import ItemRules
-from stoix.envs.number_grid_sites import SiteRules, trade_action_names
-from stoix.envs.number_grid_recruitment import RecruitmentRules, recruit_action_names, HIRED, DISMISSED
+from stoix.envs.number_grid_sites import SiteRules, sites_present, trade_action_names
+from stoix.envs.number_grid_recruitment import RecruitmentRules, mercenary_camps, recruit_action_names, HIRED, DISMISSED
 from stoix.envs.number_grid_ruins import RuinRules
 from stoix.envs.number_grid_terrain import TerrainRules
 from stoix.envs.number_grid_spells import SpellResearchRules, research_action_names
@@ -37,19 +38,36 @@ from stoix.envs.number_grid_legacy import (
     DIRECTIONS, NumberGrid as NumericNumberGrid, NumberGridState,
 )
 
-MAP = json.loads((Path(__file__).resolve().parents[2] / 'number_grid_map.json').read_text())
+_ROOT = Path(__file__).resolve().parents[2]
+# Named maps for training and human mode; anything else is a JSON path.
+MAP_FILES = {'current': _ROOT / 'number_grid_map.json', 'default': _ROOT / 'maps/default.json'}
+
+
+def load_map(name=None):
+    """'current' (number_grid_map.json), 'default' (Python reference Default) or a path."""
+    return json.loads(Path(MAP_FILES.get(name or 'current', name)).read_text(encoding='utf-8'))
+
+
+# NUMBER_GRID_MAP selects the module map; it fixes ACTION_NAMES for human mode.
+MAP = load_map(os.environ.get('NUMBER_GRID_MAP'))
 SHOOT, DEFEND, WAIT, RETREAT, CONTINUE = 8, 14, 15, 16, 17
 REST = BUILD_START + BUILD_SLOTS
 BASE_ACTIONS, FENRIR = REST + 1, CAPITAL_ACTIONS
-_SITE_ACTION_NAMES = trade_action_names(MAP)
-ACTIONS = POTION_START + 6*len(scenario_potions(MAP)) + len(_SITE_ACTION_NAMES) + len(recruit_action_names(MAP)) + (len(MAP.get('cities', [])) if MAP.get('territory') else 0) + len(research_action_names(MAP)) + len(cast_action_names(MAP))
+def action_names(game_map):
+    return ('N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW') + tuple(
+        f'shoot_{i}' for i in range(6)) + ('defend', 'wait', 'retreat', 'continue') + tuple(
+        f'build_{i}' for i in range(BUILD_SLOTS)) + ('rest',) + tuple(
+        f'heal_{i}' for i in range(6)) + tuple(f'revive_{i}' for i in range(6)) + ('transform_fenrir',) + tuple(
+        f'copy_ally_{slot}' for slot in range(6)) + tuple(
+        f'potion_{item["key"]}_{slot}' for item in scenario_potions(game_map) for slot in range(6)) + trade_action_names(
+        game_map) + recruit_action_names(game_map) + (tuple('upgrade_city_'+str(i) for i in range(len(game_map.get('cities', []))))
+        if game_map.get('territory') else ()) + research_action_names(game_map) + cast_action_names(game_map)
+
+
+ACTION_NAMES = action_names(MAP)
+ACTIONS = len(ACTION_NAMES)
 MAX_MOVEMENT_POINTS, MOVE_COST = 20, 2
 BATTLE_ENTRY_COST = (MAX_MOVEMENT_POINTS + 1) // 2
-ACTION_NAMES = ('N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW') + tuple(
-    f'shoot_{i}' for i in range(6)) + ('defend', 'wait', 'retreat', 'continue') + tuple(
-        f'build_{i}' for i in range(BUILD_SLOTS)) + ('rest',) + tuple(
-            f'heal_{i}' for i in range(6)) + tuple(f'revive_{i}' for i in range(6)) + ('transform_fenrir',) + tuple(f'copy_ally_{slot}' for slot in range(6)) + tuple(
-                f'potion_{item["key"]}_{slot}' for item in scenario_potions(MAP) for slot in range(6)) + _SITE_ACTION_NAMES + recruit_action_names(MAP) + (tuple('upgrade_city_'+str(i) for i in range(len(MAP.get('cities', [])))) if MAP.get('territory') else ()) + research_action_names(MAP) + cast_action_names(MAP)
 MOVE, ENGAGE, HIT, MISS, GUARD, DELAY, FLEE, ESCAPE, VICTORY, DEFEAT, WITHDRAW, LIMIT = range(12)
 BUILD, RESTED, IMMUNE, WARD, HEAL = 12, 13, 14, 15, 16
 TRANSFORMED = 22
@@ -157,6 +175,7 @@ class BattleState(NumberGridState):
     hire_rewarded_capacity: jax.Array
     mercenary_stock: jax.Array
     merchant_stock: jax.Array
+    spell_stock: jax.Array  # spell shop offers left
     last_sale_gold: jax.Array
     last_sold_count: jax.Array
     last_trade_item: jax.Array
@@ -469,7 +488,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             self.random_size = max(self.random_size,80)+4
         if self.capital_enabled:
             self.capital = CapitalRules(self.progression, self.construction, game_map['agent_position'])
-        self.sites_enabled = any(game_map.get(kind) is not None for kind in ('merchant', 'trainer', 'mercenary'))
+        self.sites_enabled = sites_present(game_map)
         if self.sites_enabled:
             if not self.potions_enabled or not self.progression_enabled:
                 raise ValueError('Sites require potion inventory and unit progression')
@@ -477,7 +496,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
                 self.item_rules if self.items_enabled else None, self.progression, self.num_actions)
             self.num_actions = self.site_rules.end
         self.recruitment_enabled = bool(game_map.get('faction_recruitment', False))
-        if game_map.get('mercenary') is not None and not self.recruitment_enabled:
+        if mercenary_camps(game_map) and not self.recruitment_enabled:
             raise ValueError('Mercenary camps require recruitment')
         if self.recruitment_enabled:
             if not self.capital_enabled:
@@ -500,6 +519,9 @@ class NumberGrid(Summoning, NumericNumberGrid):
             self.num_actions = self.territory.end
             self.capital.territory = self.territory
             self.recruitment.territory = self.territory
+        # Capital guards stay on the map but are never required for victory.
+        self.goal_enemies = (~self.territory.capital_guards
+                             if self.territory_enabled and self.territory.has_capital_guards else None)
         self.spell_research_enabled = bool(game_map.get('spell_research', False))
         if self.spell_research_enabled:
             if not self.territory_enabled:
@@ -690,6 +712,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             hire_rewarded_capacity=zero,
             mercenary_stock=(self.recruitment.initial_stock if self.recruitment_enabled else jnp.zeros(0, jnp.int32)),
             merchant_stock=(self.site_rules.initial_stock if self.sites_enabled else jnp.zeros(0, jnp.int32)),
+            spell_stock=(self.site_rules.spell_initial_stock if self.sites_enabled else jnp.zeros(0, jnp.int32)),
             last_sale_gold=zero, last_sold_count=zero, last_trade_item=jnp.int32(-1),
             ruin_looted=jnp.zeros(self.ruins.count if self.ruins_enabled else 0,bool),last_ruin=jnp.int32(-1),
             chest_alive=jnp.ones(self.chest_rules.count if self.chests_enabled else 0, bool),
@@ -1450,6 +1473,9 @@ class NumberGrid(Summoning, NumericNumberGrid):
             mask = jnp.where(state.post_victory > 0,post,mask)
         return jnp.where(state.done, jnp.arange(self.num_actions) == CONTINUE, mask)
 
+    def _goals_left(self, alive):
+        return jnp.any(alive if self.goal_enemies is None else alive & self.goal_enemies)
+
     def _timestep(self, state, reward, first=False):
         ts = super()._timestep(state, reward, first)
         if self.battle_mode:
@@ -1605,7 +1631,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
                 bonus += cast_bonus + engage_bonus
             next_state = self.territory.upgrade(next_state,action)
             next_state = self.territory.capture(next_state,moved)
-            won = ~jnp.any(next_state.alive) & self.territory.goals_captured(next_state)
+            won = ~self._goals_left(next_state.alive) & self.territory.goals_captured(next_state)
             next_state = next_state.replace(won=won,done=next_state.done|won)
             bonus += 3*won.astype(jnp.float32)
         if self.spell_research_enabled:
@@ -2201,7 +2227,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             withdrawal &= ~healing
             next_actor = jnp.where(healing,jnp.argmax(pending),next_actor).astype(jnp.int32)
         alive = state.alive.at[state.enemy].set(~victory)
-        won = ~jnp.any(alive) & ~lost
+        won = ~self._goals_left(alive) & ~lost
         if self.territory_enabled:
             won &= self.territory.goals_captured(state)
         back = victory | withdrawal
@@ -2369,7 +2395,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             next_state = self.casting.finish_battle(state, next_state, hp, victory, back)
         if self.territory_enabled:
             next_state = self.territory.capture(next_state,victory & ~summon_battle)
-            final_win = ~jnp.any(next_state.alive) & ~next_state.lost & self.territory.goals_captured(next_state)
+            final_win = ~self._goals_left(next_state.alive) & ~next_state.lost & self.territory.goals_captured(next_state)
             next_state = next_state.replace(won=final_win,done=next_state.done|final_win)
             won = final_win
         # reward_magic_enemy_defeat_multiplier=0: a summon victory pays no defeat/ruin reward.

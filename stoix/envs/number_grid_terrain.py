@@ -5,6 +5,8 @@ A dead leader doubles tile cost and disables flight/terrain boots.
 """
 import jax.numpy as jnp
 
+from stoix.envs.number_grid_sites import site_entries
+
 PLAIN, ROAD, FOREST, WATER = range(4)
 KINDS = ('plain', 'road', 'forest', 'water')
 COSTS = (2, 1, 4, 6)
@@ -22,10 +24,9 @@ class TerrainRules:
         occupied = set()
         grid = [PLAIN]*(self.size*self.size)
         obstacles = {tuple(p) for p in game_map.get('obstacles', [])}
-        for kind in ('merchant', 'trainer', 'mercenary'):
-            if game_map.get(kind):
-                r,c = game_map[kind]['position']
-                obstacles.update((r+dr,c+dc) for dr in range(3) for dc in range(3))
+        for _, site in site_entries(game_map):
+            r,c = site['position']
+            obstacles.update((r+dr,c+dc) for dr in range(3) for dc in range(3))
         for ruin in game_map.get('ruins', []):
             r,c = ruin['position']
             obstacles.update((r+dr,c+dc) for dr in range(3) for dc in range(3))

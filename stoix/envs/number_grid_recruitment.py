@@ -3,11 +3,26 @@ import jax
 import jax.numpy as jnp
 
 HIRED, DISMISSED = 41, 42
+
+
+def mercenary_camps(game_map):
+    """Camp definitions in site order: one 'mercenary' or a 'mercenaries' list."""
+    from stoix.envs.number_grid_sites import site_entries
+    return [value for kind, value in site_entries(game_map) if kind == 'mercenary']
+
+
+def mercenary_offers(game_map):
+    """(camp, roster entry, action suffix); a unit sold by two camps gets the camp number."""
+    offers = [(i, r) for i, camp in enumerate(mercenary_camps(game_map)) for r in camp.get('roster', [])]
+    units = [r['unit'] for _, r in offers]
+    return [(i, r, r['unit'] if units.count(r['unit']) == 1 else f"{i}_{r['unit']}") for i, r in offers]
+
+
 def recruit_action_names(game_map):
     if not game_map.get('faction_recruitment'):
         return ()
     return (tuple('hire_'+str(i) for i in range(5))
-            + tuple('hire_mercenary_'+r['unit'] for r in game_map.get('mercenary', {}).get('roster', []))
+            + tuple('hire_mercenary_'+suffix for _, _, suffix in mercenary_offers(game_map))
             + tuple('dismiss_'+str(i) for i in range(6)))
 # Order and row placement: reference hire.py / campaign_env_data.py.
 OFFERS = {
@@ -24,12 +39,18 @@ class RecruitmentRules:
         self.territory = None
         self.progression = progression
         self.sites = sites
-        roster = game_map.get('mercenary', {}).get('roster', [])
-        if game_map.get('mercenary') is not None and (not roster or sites is None):
+        camps = mercenary_camps(game_map)
+        offers = mercenary_offers(game_map)
+        roster = [r for _, r, _ in offers]
+        if camps and (any(not camp.get('roster') for camp in camps) or sites is None):
             raise ValueError('Mercenary camp requires a roster and site rules')
         if any(type(r.get('stock')) is not int or r['stock'] < 1 for r in roster):
             raise ValueError('Mercenary stock must be a positive integer')
         self.initial_stock = jnp.array([r['stock'] for r in roster], jnp.int32)
+        self.camp_count = len(camps)
+        # Site index of each offer's camp; camps follow merchants/trainers in site order.
+        self.offer_sites = (sites.kind_sites['mercenary'][jnp.array([i for i, _, _ in offers], jnp.int32)]
+                            if camps else jnp.zeros(0, jnp.int32))
         self.keys = OFFERS[construction.faction]+tuple(r['unit'] for r in roster)
         self.offer_count = len(self.keys)
         self.start, self.dismiss_start, self.end = start, start+self.offer_count, start+self.offer_count+6
@@ -50,14 +71,15 @@ class RecruitmentRules:
         if not positions or any(len(p) != 2 or any(type(v) is not int or not 0 < v < game_map['size']-1 for v in p) for p in positions):
             raise ValueError('Recruitment positions must be interior map cells')
         self.positions = jnp.array(positions, jnp.int32)
-        self.observation_size = 4+3*self.offer_count+2*len(positions)+(len(roster)+1 if roster else 0)
+        self.observation_size = 4+3*self.offer_count+2*len(positions)+(len(roster)+self.camp_count if roster else 0)
         self.scale = game_map['size']-1
         self.metadata = dict(positions=positions, dismiss_start=self.dismiss_start,
             leadership_levels=[1, 3, 6], leadership_capacity=[3, 4, 5],
             vacancy_penalty=.05, hire_reward=3., offers=[dict(
                 key=k, name=r['name'], unit_id=progression.ids[k], cost=int(self.costs[i]),
                 size=r.get('size', 1), action=start+i, mercenary=i >= 5,
-                stock_index=i-5 if i >= 5 else None, row='front' if r['role'] == 'melee' else 'back',
+                stock_index=i-5 if i >= 5 else None, camp=int(self.offer_sites[i-5]) if i >= 5 else None,
+                row='front' if r['role'] == 'melee' else 'back',
                 building=construction.rows[required[i]]['name'] if required[i] >= 0 else None,
                 building_action=18+required[i] if required[i] >= 0 else None)
                 for i, (k, r) in enumerate(zip(self.keys, rows))])
@@ -101,7 +123,9 @@ class RecruitmentRules:
         built = (self.required < 0) | ((state.buildings & jnp.left_shift(jnp.uint32(1), jnp.maximum(self.required, 0).astype(jnp.uint32))) != 0)
         access = jnp.full(self.offer_count, at & jnp.any(heroes), bool)
         if self.initial_stock.size:
-            access = access.at[5:].set(self.sites.common(state, 'mercenary') & (state.mercenary_stock > 0))
+            camp = (self.sites.common(state, 'mercenary') if self.camp_count == 1
+                    else (self.sites.at_sites(state) & self.sites.ready(state))[self.offer_sites])
+            access = access.at[5:].set(camp & (state.mercenary_stock > 0))
         hire = common & access & built & (self.composition(state)[2] >= self.sizes) & (state.gold >= self.prices(state)) & (self.targets(state) >= 0)
         targets = self.dismiss_targets(state)
         dismiss = common & jnp.any(heroes & (state.hp[:6] > 0)) & (state.unit_ids[targets] != 0) & ~heroes[targets]
@@ -138,7 +162,9 @@ class RecruitmentRules:
         parts = [self.composition(state)/5., self.ids/len(self.progression.rows),
             self.prices(state)/1000., (self.targets(state)+1)/6., self.positions.reshape(-1)/self.scale]
         if self.initial_stock.size:
-            parts.extend((state.mercenary_stock/self.initial_stock, jnp.atleast_1d(self.sites.at(state, 'mercenary'))))
+            camps = (jnp.atleast_1d(self.sites.at(state, 'mercenary')) if self.camp_count == 1
+                     else self.sites.at_sites(state)[self.sites.kind_sites['mercenary']])
+            parts.extend((state.mercenary_stock/self.initial_stock, camps))
         return jnp.concatenate(parts)
 
     def quotes(self, state):

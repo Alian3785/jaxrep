@@ -58,6 +58,11 @@ def potion_counts(value, label):
     return value
 
 
+def merchants(game_map):
+    from stoix.envs.number_grid_sites import site_entries
+    return [value for kind, value in site_entries(game_map) if kind == 'merchant']
+
+
 def scenario_potions(game_map):
     initial = potion_counts(game_map.get('initial_potions', {}), 'initial_potions')
     chests = game_map.get('chests', [])
@@ -79,8 +84,7 @@ def scenario_potions(game_map):
             totals[key] = totals.get(key, 0)+count
             if totals[key] > 2**31-1:
                 raise ValueError('Chest loot plus initial inventory must fit int32')
-    merchant = game_map.get('merchant')
-    if merchant is not None:
+    for merchant in merchants(game_map):
         if not isinstance(merchant, dict):
             raise ValueError('merchant must be an object')
         for key, count in potion_counts(merchant.get('potions', {}), 'Merchant potions').items():
@@ -111,8 +115,9 @@ class PotionRules:
         for chest in game_map.get('chests',[])+game_map.get('ruins',[]):
             for key,count in chest.get('potions',{}).items():
                 totals[key]=totals.get(key,0)+count
-        for key,count in game_map.get('merchant',{}).get('potions',{}).items():
-            totals[key]=totals.get(key,0)+count
+        for merchant in merchants(game_map):
+            for key,count in merchant.get('potions',{}).items():
+                totals[key]=totals.get(key,0)+count
         self.max_permanent_doses=max((totals.get(p['key'],0) for p in self.items
                                       if p['duration']=='permanent'),default=0)
         source_bits = {'ward_Fire':4,'ward_Water':8,'ward_Earth':2,'ward_Air':256}

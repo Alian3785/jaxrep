@@ -49,8 +49,8 @@ def test_boot_percentages_scale_with_base_movement(all_items):
 
 def test_complete_catalogue_and_scenario_inventory(current_game):
     env,state,_,_=current_game
-    assert len(ITEMS)==55 and len({p['key'] for p in ITEMS})==55
-    assert [sum(p['category']==c for p in ITEMS) for c in range(5)]==[21,11,8,5,10]
+    assert len(ITEMS)==60 and len({p['key'] for p in ITEMS})==60
+    assert [sum(p['category']==c for p in ITEMS) for c in range(6)]==[21,11,8,5,10,5]
     assert [sum(c['items'].values()) for c in MAP['chests']]==[3]*5
     assert env.item_rules.capacity==15 and env.item_rules.count==15
     assert env.num_actions==229 and compiled_method(env,'observation')(state).shape==(1678,)

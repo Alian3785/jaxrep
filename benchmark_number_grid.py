@@ -102,7 +102,7 @@ def run_training(args, tracking):
     output.mkdir(parents=True, exist_ok=True)
     measured_sources = ['benchmark_number_grid.py', 'numbergrid_config.py', 'numbergrid_tracking.py',
                         'stoix/envs/number_grid_buildings.py', 'stoix/envs/data/buildings.json',
-                        'stoix/envs/number_grid_spells.py', 'stoix/envs/number_grid_lords.py', 'stoix/envs/data/spells.json',
+                        'stoix/envs/number_grid_spells.py', 'stoix/envs/number_grid_casting.py', 'stoix/envs/number_grid_lords.py', 'stoix/envs/data/spells.json',
                         'stoix/envs/data/units.json', 'stoix/envs/number_grid_effects.py', 'stoix/envs/number_grid_wards.py', 'stoix/envs/number_grid_summoning.py',
                         'stoix/envs/number_grid.py', 'stoix/envs/number_grid_combat.py', 'stoix/envs/number_grid_progression.py', 'stoix/envs/number_grid_capital.py', 'stoix/envs/number_grid_potions.py', 'stoix/envs/number_grid_chests.py', 'stoix/envs/number_grid_items.py', 'stoix/envs/number_grid_item_combat.py', 'stoix/envs/number_grid_sites.py', 'stoix/envs/number_grid_recruitment.py', 'stoix/envs/number_grid_territory.py', 'stoix/envs/number_grid_ruins.py', 'stoix/envs/number_grid_terrain.py', 'stoix/envs/data/training_prices.json', 'stoix/envs/number_grid_legacy.py',
                         'stoix/utils/make_env.py', 'stoix/wrappers/number_grid_metrics.py',

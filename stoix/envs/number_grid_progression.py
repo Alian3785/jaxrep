@@ -16,6 +16,7 @@ from stoix.envs.number_grid_buildings import CATALOG
 from stoix.envs.number_grid_effects import CAPITAL_GUARDS
 from stoix.envs.number_grid_casting import cast_summon_keys
 from stoix.envs.number_grid_battle_items import battle_item_unit_keys
+from stoix.envs import number_grid_hero_skills as hero_skills
 
 
 @lru_cache(maxsize=8)
@@ -61,8 +62,24 @@ class ProgressionRules:
                 result.append(cache[signature])
             return result
 
-        hero = roster_ids(game_map['hero_roster'], game_map.get(
-            'hero_combat_stats', [{} for _ in range(game_map['hero_units'])]))
+        hero_overrides = game_map.get('hero_combat_stats', [{} for _ in range(game_map['hero_units'])])
+        if hero_skills.enabled(game_map):
+            # The player's heroes get their own rows: Might follows the lord, not the unit.
+            might, skills = hero_skills.might_bonus(game_map), hero_skills.skill_list(game_map)
+
+            def with_skills(key, override):
+                row = {**UNITS[key], **override}
+                result = dict(override, hero_skills=skills, level_bonuses=sorted(
+                    row.get('level_bonuses', [])+[might], key=lambda b: b['level']))
+                if row['level'] >= might['level']:
+                    # Growth starts above the row's level, so a hero starting past Might gets it now.
+                    result['damage'] = round(row['damage']*might['multiplier'])
+                return result
+
+            keys = [key for key in game_map['hero_roster'] if key is not None]
+            hero_overrides = [with_skills(key, o) if UNITS[key].get('hero') else o
+                              for key, o in zip(keys, hero_overrides)]
+        hero = roster_ids(game_map['hero_roster'], hero_overrides)
         enemy_overrides = game_map.get('enemy_combat_stats',
                                       [[{} for _ in range(n)] for n in game_map['enemy_units']])
         enemies = [roster_ids(roster, overrides) for roster, overrides in
@@ -292,6 +309,7 @@ class ProgressionRules:
             self.metadata.append(None if i == 0 else dict(
                 name=row['name'], key=row['key'], faction=row['faction'], level=row['level'],
                 hero=row.get('hero', False), level_bonuses=row.get('level_bonuses', []),
+                hero_skills=row.get('hero_skills', []),
                 unit_type=row.get('unit_type', ''),
                 secondary_attack_type=row.get('secondary_attack_type', ''),
                 role=row['role'], size=row.get('size', 1), attack_type=row['attack_type'],

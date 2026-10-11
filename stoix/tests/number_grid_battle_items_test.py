@@ -72,19 +72,23 @@ def test_equip_needs_access_and_happens_once_per_day(default_game):
     lore = stocked.replace(unit_levels=stocked.unit_levels.at[1].set(10))
     assert allowed(mask(lore), rules.equip_start, rules.use_start) == [
         'equip_healing', 'equip_vampire_orb', 'equip_zombie_talisman']
-    first, _ = step(book, jnp.int32(equip['vampire_orb']))
+    # Default needs book lore (level 11) to read a book: rest unequips it and the orb's access.
+    unread, _ = step(step(book, jnp.int32(equip['vampire_orb']))[0], jnp.int32(REST))
+    assert unread.equipped[3] == -1 and unread.battle_items.tolist() == [-1, -1]
+    first, _ = step(lore, jnp.int32(equip['vampire_orb']))
     assert first.battle_items.tolist() == [rules.keys.index('vampire_orb'), -1]
     assert first.last_event == ITEM_EQUIPPED and first.battle_item_equipped_today
     assert not jnp.any(mask(first)[rules.equip_start:rules.use_start])  # once per day
     rested, _ = step(first, jnp.int32(REST))
-    assert allowed(mask(rested), rules.equip_start, rules.use_start) == ['equip_healing']  # one orb owned
+    assert allowed(mask(rested), rules.equip_start, rules.use_start) == [
+        'equip_healing', 'equip_zombie_talisman']  # the one orb is in a slot
     full, _ = step(rested, jnp.int32(equip['healing']))
     assert full.battle_items.tolist() == [rules.keys.index('vampire_orb'), rules.keys.index('healing')]
     assert full.battle_item_charges.tolist() == [1, 1]
     rested, _ = step(full, jnp.int32(REST))
     assert not jnp.any(mask(rested)[rules.equip_start:rules.use_start])  # both slots taken
-    # Reference sync: losing the book or the last potion empties the slot.
-    lost, _ = step(owned(env, rested, 'vampire_orb'), jnp.int32(REST))
+    # Reference sync: losing the orb or the last potion empties its slot.
+    lost, _ = step(owned(env, rested, 'zombie_talisman'), jnp.int32(REST))
     assert lost.battle_items.tolist() == [-1, rules.keys.index('healing')]
     drunk, _ = step(rested.replace(potions=rested.potions.at[healing].set(0)), jnp.int32(REST))
     assert drunk.battle_items.tolist() == [rules.keys.index('vampire_orb'), -1]

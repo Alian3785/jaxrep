@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import shutil
 import time
 
 os.environ.setdefault('JAX_PLATFORMS', 'cuda')
@@ -33,7 +34,8 @@ def unreplicate(tree):
     return jax.tree.map(lambda x: x[0, 0], tree)
 
 
-def evaluate(actor, params, episodes=1024, seed=1042, greedy=True, map_config=None):
+def make_evaluator(actor, episodes=1024, seed=1042, greedy=True, map_config=None):
+    """Compile once and evaluate multiple checkpoints on the same episodes."""
     env = wrap_wall_action_mask(NumberGrid(map_config=map_config))
     @jax.jit
     def run(p):
@@ -50,11 +52,85 @@ def evaluate(actor, params, episodes=1024, seed=1042, greedy=True, map_config=No
         states, ts, returns, _ = jax.lax.while_loop(
             condition, advance, (states, ts, jnp.zeros(episodes), jax.random.PRNGKey(seed + 1)))
         return states.won, states.step_count, returns
-    won, lengths, returns = jax.device_get(run(params))
-    return dict(episodes=episodes, successes=int(won.sum()), success_rate=float(won.mean()),
-                mean_return=float(returns.mean()), mean_length=float(lengths.mean()),
-                min_length=int(lengths.min()), max_length=int(lengths.max()),
-                action_selection='argmax' if greedy else 'sample', seed=seed)
+    def evaluate_params(params):
+        won, lengths, returns = jax.device_get(run(params))
+        return dict(episodes=episodes, successes=int(won.sum()), success_rate=float(won.mean()),
+                    mean_return=float(returns.mean()), mean_length=float(lengths.mean()),
+                    min_length=int(lengths.min()), max_length=int(lengths.max()),
+                    action_selection='argmax' if greedy else 'sample', seed=seed)
+    return evaluate_params
+
+
+def evaluate(actor, params, episodes=1024, seed=1042, greedy=True, map_config=None):
+    return make_evaluator(actor, episodes, seed, greedy, map_config)(params)
+
+
+def save_checkpoint(output, params, steps):
+    directory = output / 'checkpoints'
+    directory.mkdir(exist_ok=True)
+    checkpoint = serialization.to_bytes(params)
+    path = directory / f'{steps:09d}.msgpack'
+    path.write_bytes(checkpoint)
+    return dict(training_steps=steps, path=str(path.relative_to(output)),
+                sha256=hashlib.sha256(checkpoint).hexdigest())
+
+
+def checkpoint_score(candidate):
+    """Actual map wins first; return breaks ties, then prefer an earlier checkpoint."""
+    evaluation = candidate['evaluation']
+    return (evaluation['success_rate'], evaluation['mean_return'], -candidate['training_steps'])
+
+
+def select_best_checkpoint(output, candidates, actor, params, game_map, result,
+                           final_evaluator, sampled_evaluator, tracking, status):
+    started = time.perf_counter()
+    evaluate_candidate = make_evaluator(actor, episodes=128, seed=2042, map_config=game_map)
+    records = []
+    for candidate in candidates:
+        checkpoint = (output / candidate['path']).read_bytes()
+        if hashlib.sha256(checkpoint).hexdigest() != candidate['sha256']:
+            raise ValueError('Intermediate checkpoint hash mismatch')
+        restored = serialization.from_bytes(params, checkpoint)
+        evaluation = evaluate_candidate(restored.actor_params)
+        record = {**candidate, 'evaluation': evaluation}
+        records.append(record)
+        save_json(output / 'checkpoint_selection.json', records)
+        status('selecting', checkpoint_steps=candidate['training_steps'],
+               checked=len(records), candidates=len(candidates), evaluation=evaluation)
+        tracking.log({'training_steps': candidate['training_steps'],
+                      'selection/win_rate': evaluation['success_rate'],
+                      'selection/return_mean': evaluation['mean_return']})
+    best = max(records, key=checkpoint_score)
+    checkpoint = (output / best['path']).read_bytes()
+    restored = serialization.from_bytes(params, checkpoint)
+    if best['training_steps'] == result['training_steps']:
+        final, sampled = result['final_evaluation'], result['sampled_evaluation']
+    else:
+        final = final_evaluator(restored.actor_params)
+        sampled = sampled_evaluator(restored.actor_params)
+    destination = output / 'best'
+    destination.mkdir()
+    (destination / 'params.msgpack').write_bytes(checkpoint)
+    for name in ('config.json', 'map.json', 'source_hashes.json', 'packages.txt'):
+        shutil.copyfile(output / name, destination / name)
+    best_result = {key: result[key] for key in (
+        'environment', 'algorithm', 'recurrent', 'device', 'backend', 'jax', 'cuda_runtime',
+        'python', 'seed', 'mean_steps_per_second', 'parameter_count', 'num_envs',
+        'rollout_length', 'observation_size', 'learner_source_sha256', 'source_hashes', 'tracking')}
+    best_result.update(training_steps=best['training_steps'], checkpoint_sha256=best['sha256'],
+                       final_evaluation=final, sampled_evaluation=sampled,
+                       selection_evaluation=best['evaluation'], source_run=str(output),
+                       source_run_training_steps=result['training_steps'],
+                       timing='Learner speed belongs to the full source run; selected weights are from training_steps.')
+    save_json(destination / 'results.json', best_result)
+    tracking.log({'training_steps': result['training_steps'],
+                  'best/checkpoint_steps': best['training_steps'],
+                  'best/argmax_win_rate': final['success_rate'],
+                  'best/sample_win_rate': sampled['success_rate']})
+    return dict(path='best', training_steps=best['training_steps'],
+                selection_episodes=128, selection_seed=2042, candidates=len(records),
+                final_evaluation=final, sampled_evaluation=sampled,
+                selection_seconds=time.perf_counter()-started)
 
 
 def train(args):
@@ -63,6 +139,11 @@ def train(args):
     with NumberGridTracking(args) as tracking:
         result = run_training(args, tracking)
     result['tracking'] = tracking.metadata.copy()
+    if result.get('best_checkpoint'):
+        best_path = tracking.output / result['best_checkpoint']['path'] / 'results.json'
+        best_result = json.loads(best_path.read_text())
+        best_result['tracking'] = result['tracking']
+        save_json(best_path, best_result)
     result['total_runner_seconds'] = time.perf_counter() - started
     save_json(tracking.output / 'results.json', result)
     save_json(tracking.output / 'status.json', dict(phase='complete', **result))
@@ -162,6 +243,8 @@ def run_training(args, tracking):
     step_size = config.arch.num_updates_per_eval * config.arch.num_envs * config.system.rollout_length
     rows = []
     training_seconds = 0.0
+    checkpoints = []
+    intermediate_checkpoint_seconds = 0.0
     loop_started = time.perf_counter()
     for i in range(total // step_size):
         begin = time.perf_counter()
@@ -184,6 +267,11 @@ def run_training(args, tracking):
                    episode_success_rate=summary['episode_success_rate'],
                    mean_episode_length=summary['mean_episode_length'],
                    episodes=int(summary['episodes']), episode_wins=int(summary['episode_wins']))
+            if getattr(args, 'select_best', False):
+                checkpoint_started = time.perf_counter()
+                checkpoints.append(save_checkpoint(output, unreplicate(state.params), (i + 1) * step_size))
+                save_json(output / 'checkpoints.json', checkpoints)
+                intermediate_checkpoint_seconds += time.perf_counter() - checkpoint_started
     training_loop_seconds = time.perf_counter() - loop_started
     with (output / 'metrics.csv').open('w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=list(rows[0]))
@@ -211,10 +299,12 @@ def run_training(args, tracking):
         raise AssertionError('Checkpoint roundtrip failed')
     checkpoint_seconds = time.perf_counter()-checkpoint_started
     final_eval_started = time.perf_counter()
-    final = evaluate(actor, restored.actor_params, episodes=1024, map_config=game_map)
+    final_evaluator = make_evaluator(actor, map_config=game_map)
+    final = final_evaluator(restored.actor_params)
     final_evaluation_seconds = time.perf_counter()-final_eval_started
     sample_eval_started = time.perf_counter()
-    sampled = evaluate(actor, restored.actor_params, episodes=1024, greedy=False, map_config=game_map)
+    sampled_evaluator = make_evaluator(actor, greedy=False, map_config=game_map)
+    sampled = sampled_evaluator(restored.actor_params)
     sampled_evaluation_seconds = time.perf_counter()-sample_eval_started
     tracking.evaluation(final, total)
     tracking.evaluation(sampled, total)
@@ -238,6 +328,7 @@ def run_training(args, tracking):
         final_evaluation_seconds=final_evaluation_seconds,
         sampled_evaluation_seconds=sampled_evaluation_seconds,
         checkpoint_seconds=checkpoint_seconds,
+        intermediate_checkpoint_seconds=intermediate_checkpoint_seconds,
         parameter_count=sum(x.size for x in jax.tree.leaves(params)),
         num_envs=config.arch.num_envs, rollout_length=config.system.rollout_length,
         observation_size=int((env.observation_space().spaces['observation']
@@ -258,6 +349,11 @@ def run_training(args, tracking):
         result['rest_penalty_total'] = float(sum(row.get('rest_penalty', 0) for row in rows))
         result['transition_definition'] = 'One agent decision, including all automatic enemy turns, skips and completed retreats up to the next decision. Internal activations spend no additional step budget or per-step penalties.'
     result['source_hashes'] = source_hashes
+    if checkpoints:
+        result['best_checkpoint'] = select_best_checkpoint(
+            output, checkpoints, actor, params, game_map, result,
+            final_evaluator, sampled_evaluator, tracking, status)
+        result['total_runner_seconds'] = time.perf_counter() - started
     save_json(output / 'results.json', result)
     tracking.summary(result)
     status('complete', **result)
@@ -271,6 +367,8 @@ if __name__ == '__main__':
     p.add_argument('--total-timesteps', type=int, help='Default: 1,000,000 in test mode, otherwise 5,000,000')
     p.add_argument('--seed', type=int, default=42)
     p.add_argument('--output')
+    p.add_argument('--select-best', action='store_true',
+                   help='Save checkpoints at 1M summaries; select by wins on 128 fixed episodes and evaluate the best on 1024 other episodes')
     p.add_argument('--map', help='current (number_grid_map.json, default), default (reference Default map) or a saved map JSON')
     p.add_argument('--no-unit-swaps', action='store_true',
                    help='Remove the party swap actions and features from the map (unit_swaps: false)')

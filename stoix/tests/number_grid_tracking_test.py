@@ -341,3 +341,47 @@ def test_both_stage_modes_validate_saved_artifacts_before_reporting_regression(c
     with pytest.raises(ValueError, match='config.json'):
         stage.main()
     assert not (before.parent/'after-comparison.json').exists()
+
+
+def test_best_checkpoint_prefers_map_wins_and_exports_the_selected_weights(tmp_path, monkeypatch):
+    """A high reward without the map objective must not beat an earlier winning model."""
+    import jax.numpy as jnp
+    from flax import serialization
+    import benchmark_number_grid as benchmark
+    from stoix.base_types import ActorCriticParams
+
+    first = ActorCriticParams({'weight': jnp.asarray([1.])}, {'weight': jnp.asarray([11.])})
+    last = ActorCriticParams({'weight': jnp.asarray([2.])}, {'weight': jnp.asarray([22.])})
+    candidates = [benchmark.save_checkpoint(tmp_path, first, 1_000_000),
+                  benchmark.save_checkpoint(tmp_path, last, 2_000_000)]
+    for name in ('config.json', 'map.json', 'source_hashes.json', 'packages.txt'):
+        (tmp_path / name).write_text('{}')
+    def evaluate(params):
+        wins = 1 if float(params['weight'][0]) == 1 else 0
+        return {'successes': wins, 'success_rate': wins / 128,
+                'mean_return': 1. if wins else 100., 'episodes': 128, 'seed': 2042}
+    monkeypatch.setattr(benchmark, 'make_evaluator', lambda *args, **kwargs: evaluate)
+    result = dict.fromkeys(('environment', 'algorithm', 'recurrent', 'device', 'backend', 'jax',
+                           'cuda_runtime', 'python', 'seed', 'mean_steps_per_second', 'parameter_count',
+                           'num_envs', 'rollout_length', 'observation_size', 'learner_source_sha256',
+                           'source_hashes', 'tracking'), 'test')
+    result.update(training_steps=2_000_000, final_evaluation={'successes': 0}, sampled_evaluation={'successes': 0})
+    final = Mock(return_value={'successes': 8, 'success_rate': 8 / 1024, 'episodes': 1024, 'seed': 1042})
+    sampled = Mock(return_value={'successes': 5, 'success_rate': 5 / 1024, 'episodes': 1024, 'seed': 1042})
+    selected = benchmark.select_best_checkpoint(tmp_path, candidates, None, last, {}, result,
+                                                final, sampled, Mock(), Mock())
+    saved = json.loads((tmp_path / 'best/results.json').read_text())
+    weights = serialization.from_bytes(last, (tmp_path / 'best/params.msgpack').read_bytes())
+    assert float(weights.actor_params['weight'][0]) == 1.
+    assert float(weights.critic_params['weight'][0]) == 11.
+    assert selected['training_steps'] == saved['training_steps'] == 1_000_000
+    assert saved['source_run_training_steps'] == 2_000_000
+    assert saved['final_evaluation']['successes'] == 8
+    assert saved['checkpoint_sha256'] == candidates[0]['sha256']
+    assert float(final.call_args.args[0]['weight'][0]) == 1.
+    records = json.loads((tmp_path / 'checkpoint_selection.json').read_text())
+    assert len(records) == 2
+    assert benchmark.checkpoint_score(records[0]) > benchmark.checkpoint_score(records[1])
+    tied = {**records[0], 'training_steps': 2_000_000,
+            'evaluation': {**records[0]['evaluation'], 'mean_return': 2.}}
+    assert benchmark.checkpoint_score(tied) > benchmark.checkpoint_score(records[0])

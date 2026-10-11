@@ -46,7 +46,7 @@ def test_catalog_and_default_actions(default_game):
     assert ORBS[43]['key'] == 'orb_of_lycanthropy' and ORBS[43]['game_id'] is None  # reference-only
     assert [MAGIC_BY_KEY[k]['price'] for k in ('vampire_orb', 'zombie_talisman', 'orb_of_flame',
                                                'talisman_of_nightmare')] == [800, 400, 1000, 600]
-    assert {p['key'] for p in ITEMS if p['category'] == USABLE} == set(MAGIC_BY_KEY) | {'mind_ward_scroll'}
+    assert {p['key'] for p in ITEMS if p['category'] == USABLE} == set(MAGIC_BY_KEY)
     # Reference order: battle potions, then the scenario's orbs and talismans.
     assert rules.keys == ('healing', 'restoration', 'ointment', 'life',
                           'vampire_orb', 'lich_orb', 'orb_of_life', 'zombie_talisman')

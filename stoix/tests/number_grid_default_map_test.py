@@ -21,14 +21,15 @@ def test_default_map_layout_and_actions(default_game):
     env, state, _, _ = default_game
     names = action_names(DEFAULT)
     assert DEFAULT['size'] == 50 and len(DEFAULT['opponent_positions']) == 75
-    assert env.num_actions == len(names) == 261 and env.observation_size == 2452
+    assert env.num_actions == len(names) == 263 and env.observation_size == 2455
     assert [s['kind'] for s in env.site_rules.sites] == [
         'merchant', 'merchant', 'trainer', 'mercenary', 'mercenary', 'spell_shop']
     assert env.territory.count == 5 and len(env.territory.mines) == 12 and env.ruins.count == 5
     assert len(DEFAULT['chests']) == 18 and env.item_rules.capacity == 15
     shop = env.site_rules
     assert names[shop.spell_start:shop.end] == ('buy_spell_'+ARMAGEDDON, 'buy_spell_'+VERDANT)
-    assert names[env.casting.start:env.casting.end][-1] == 'cast_'+VERDANT and env.casting.count == 23
+    assert names[env.casting.start:env.casting.hire_action][-1] == 'cast_'+VERDANT and env.casting.count == 23
+    assert names[env.casting.hire_action:env.casting.end] == ('hire_scroll_mage', 'cast_mind_ward_scroll')
     assert names[env.casting.end:] == battle_item_action_names(DEFAULT)  # docs/BATTLE_ITEMS.md
     # Alar sells the reference merchant stock; Tralar only buys valuables.
     assert names[shop.buy_start:shop.train_start] == tuple('buy_'+k for k in DEFAULT['merchants'][0]['potions'])

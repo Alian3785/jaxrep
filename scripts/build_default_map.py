@@ -161,7 +161,7 @@ def build(layout):
         ruins=ruins,
         terrain=terrain,
     )
-    game_map['battle_observation_version'] = max(40, game_map['battle_observation_version'])
+    game_map['battle_observation_version'] = max(41, game_map['battle_observation_version'])
     # Reference equipment lore: banner 7, boots 8, artifacts 9, book 11, the lord's own lore at once.
     game_map['equipment_requires_skills'] = True
     if game_map['opponent_positions'][index[CAPITAL_GUARD]] != game_map['enemy_capitals'][0]['position']:

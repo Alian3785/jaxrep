@@ -89,7 +89,7 @@
   "battle_mode": true,
   "battle_max_rounds": 75,
   "battle_recovery": "Living units regenerate by native unit + lord + either fort or own-land bonus, rounded up once. City/capital recovery and recruitment require ownership; paid healing/revival still require the capital temple. Victory preserves wounds. Entry with a living hero captures cities only after both defenders are defeated.",
-  "battle_observation_version": 40,
+  "battle_observation_version": 41,
   "combat_rules_version": 2,
   "building_reward": 0.05,
   "blocked_buildings": [],

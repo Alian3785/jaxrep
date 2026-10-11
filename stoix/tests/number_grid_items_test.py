@@ -49,9 +49,9 @@ def test_boot_percentages_scale_with_base_movement(all_items):
 
 def test_complete_catalogue_and_scenario_inventory(current_game):
     env,state,_,_=current_game
-    assert len(ITEMS)==141 and len({p['key'] for p in ITEMS})==141
-    # Usable: 44 orbs, 41 talismans (number_grid_battle_items) and the Mind ward scroll.
-    assert [sum(p['category']==c for p in ITEMS) for c in range(6)]==[21,11,8,5,10,86]
+    assert len(ITEMS)==255 and len({p['key'] for p in ITEMS})==255
+    # Usable: 44 orbs, 41 talismans (number_grid_battle_items); 101 scrolls, 14 staves.
+    assert [sum(p['category']==c for p in ITEMS) for c in range(8)]==[21,11,8,5,10,85,101,14]
     assert [sum(c['items'].values()) for c in MAP['chests']]==[3]*5
     assert env.item_rules.capacity==15 and env.item_rules.count==15
     assert env.num_actions==229 and compiled_method(env,'observation')(state).shape==(1678,)

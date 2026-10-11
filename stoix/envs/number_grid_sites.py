@@ -7,7 +7,7 @@ import jax.numpy as jnp
 
 from stoix.envs.number_grid_battle_items import MAGIC_BY_KEY
 from stoix.envs.number_grid_items import (
-    ARTIFACT, BANNER, BOOK, BOOTS, ITEM_BY_KEY, USABLE, VALUABLE, item_counts,
+    ARTIFACT, BANNER, BOOK, BOOTS, ITEM_BY_KEY, SCROLL, STAFF, USABLE, VALUABLE, item_counts,
 )
 from stoix.envs.number_grid_spells import shop_spell_ids, spell_book
 
@@ -20,8 +20,9 @@ TRAINING_PRICES = json.loads((Path(__file__).parent/'data/training_prices.json')
 SITE_KINDS = (('merchant', 'merchants', 'Торговец'), ('trainer', 'trainers', 'Тренер'),
               ('mercenary', 'mercenaries', 'Лагерь наёмников'),
               ('spell_shop', 'spell_shops', 'Лавка заклинаний'))
-# Merchants sell equipment and hero battle items; scrolls, staves and valuables stay map loot.
-SHOP_GROUPS = {ARTIFACT: 'Артефакты', BANNER: 'Знамёна', BOOK: 'Книги', BOOTS: 'Сапоги'}
+# Merchants may sell any priced item but valuables, which they only buy.
+SHOP_GROUPS = {ARTIFACT: 'Артефакты', BANNER: 'Знамёна', BOOK: 'Книги', BOOTS: 'Сапоги',
+               SCROLL: 'Свитки', STAFF: 'Посохи'}
 
 
 def site_entries(game_map):
@@ -84,13 +85,13 @@ def shop_group(product):
 
 
 def merchant_items(merchant):
-    """A merchant's item stock: known keys of equipment, orbs and talismans, positive counts."""
+    """A merchant's item stock: known priced item keys except valuables, positive counts."""
     stock = item_counts(merchant.get('items', {}), 'Merchant items')
     if any(n < 1 for n in stock.values()):
         raise ValueError('Merchant stock must be a positive integer')
     if any(ITEM_BY_KEY[k]['category'] not in (*SHOP_GROUPS, USABLE) or ITEM_BY_KEY[k]['price'] <= 0
            for k in stock):
-        raise ValueError('Merchants sell priced equipment, orbs and talismans only')
+        raise ValueError('Merchants sell priced items other than valuables')
     return stock
 
 

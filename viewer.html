@@ -277,7 +277,7 @@
     }).filter(Boolean));
   }
   const movementCap=snap=>snap.movement_cap;
-  const openShopGroups=new Set(['Зелья']);
+  const closedShopGroups=new Set();
   function renderSites(snap){
     const info=siteInfo(),s=snap.state,panel=$('site-services');
     panel.hidden=!info;if(!info)return;
@@ -308,13 +308,13 @@
       const reason=document.createElement('small');reason.textContent=!stock?'Продано':s.gold<price?'Недостаточно золота':'';
       card.append(name,detail,button('Купить · '+fmt(price)+' золота',p.action),reason);return card;
     });
-    // Equipment, orbs and talismans fold into one section per category; potions stay open.
+    // One collapsible section per category: potions, artifacts, scrolls...
     const groups=[...new Set(info.buy.map(p=>p.group||'Зелья'))];
     $('merchant-stock').replaceChildren(...(groups.length<2?offers:groups.map(group=>{
       const box=document.createElement('details'),title=document.createElement('summary');box.className='site-group';
       const cards=offers.filter((_,i)=>(info.buy[i].group||'Зелья')===group);
-      title.textContent=group+' · '+cards.length;box.open=openShopGroups.has(group);
-      box.ontoggle=()=>box.open?openShopGroups.add(group):openShopGroups.delete(group);
+      title.textContent=group+' · '+cards.length;box.open=!closedShopGroups.has(group);
+      box.ontoggle=()=>box.open?closedShopGroups.delete(group):closedShopGroups.add(group);
       box.append(title,...cards);return box;
     })));
     const book=castInfo()?.spells||[];

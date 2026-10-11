@@ -1,5 +1,5 @@
 """Reference XP rules, battle integration and growing stats on JAX/CUDA."""
-from stoix.tests.number_grid_fixtures import compiled_method
+from stoix.tests.number_grid_fixtures import SCENARIO_PARTY, compiled_method
 import copy
 import json
 from pathlib import Path
@@ -182,6 +182,7 @@ def test_dynamic_armor_damage_retains_python_rounding(env):
 def test_foreign_buildings_do_not_fake_promotions():
     game_map = copy.deepcopy(MAP)
     game_map['faction'] = 'empire'
+    game_map['hero_roster'] = SCENARIO_PARTY  # Legions units in an Empire capital
     env = NumberGrid(map_config=game_map)
     s = battle(env).replace(actor=jnp.int32(0))
     s = s.replace(buildings=jnp.uint32(1), unit_xp=s.unit_xp.at[0].set(94), hp=s.hp.at[6].set(1))

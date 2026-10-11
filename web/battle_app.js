@@ -8,6 +8,7 @@
   let manualEquipment=null, manualBattleItems=null, manualSites=null, manualRecruitment=null, manualTerritory=null, manualRuins=null, manualSpells=null, manualCasting=null, spellsOpen=false;
   const records=data.records||[];
   const combatInfo=()=>mode==='manual'?(manualCombat||data.combat):data.combat;
+  const heroLevel=snap=>Math.max(0,...[0,1,2,3,4,5].filter(i=>combatInfo()?.catalogue?.[snap.state.unit_ids?.[i]]?.hero).map(i=>snap.unit_experience?.[i]?.[0]||0));
   const profile=i=>{
     const original=i>=0&&i<12?(current()?.state.unit_ids?combatInfo()?.catalogue?.[current().state.unit_ids[i]]:(i<6?combatInfo()?.heroes[i]:combatInfo()?.enemies[current()?.state.enemy]?.[i-6])):null;
     const lowered=combatInfo()?.catalogue?.[current()?.state.decay_form?.[i]];
@@ -237,7 +238,8 @@
       const item=info.items[s.equipped?.[slot]],row=document.createElement('div');row.className='equipment-slot';
       const title=document.createElement('span');title.textContent=name;
       const value=document.createElement('b');value.textContent=item?item.name:'Пусто';
-      const detail=document.createElement('small');detail.textContent=item?item.label+' · '+fmt(item.price)+' золота':'';
+      const level=info.requires_skills?info.skill_levels?.[slot]:0,hero=heroLevel(snap);
+      const detail=document.createElement('small');detail.textContent=item?item.label+' · '+fmt(item.price)+' золота':level>1&&hero<level?'Навык героя с '+level+' уровня':'';
       row.append(title,value,detail);return row;
     }));
     const counts=new Map();for(const id of s.item_inventory||[])if(id>=0)counts.set(id,(counts.get(id)||0)+1);
@@ -523,10 +525,10 @@
   function upgradeText(snap,i){
     const unit=profile(i),choices=unit?.upgrades;
     if(unit?.hero){
-      const level=snap.unit_experience?.[i]?.[0]||1;
-      const earned=(unit.level_bonuses||[]).filter(b=>b.level<=level).map(b=>b.name);
-      const next=(unit.level_bonuses||[]).find(b=>b.level>level);
-      return 'Герой: повышение без здания.'+(earned.length?' Бонусы: '+earned.join('; ')+'.':'')+
+      const level=snap.unit_experience?.[i]?.[0]||1,skills=unit.hero_skills?.length?unit.hero_skills:unit.level_bonuses||[];
+      const earned=skills.filter(b=>b.level<=level).map(b=>b.name);
+      const next=skills.find(b=>b.level>level);
+      return 'Герой: повышение без здания.'+(earned.length?(unit.hero_skills?.length?' Навыки: ':' Бонусы: ')+earned.join('; ')+'.':'')+
         (next?' На уровне '+next.level+': '+next.name+'.':'');
     }
     if(!choices)return '';

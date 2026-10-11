@@ -137,14 +137,20 @@ def test_hero_death_disables_equipment_until_revival(all_items):
 
 def test_reference_selection_and_skill_thresholds(all_items):
     env,state,_,_=all_items
-    rules=ItemRules(dict(initial_items={p['key']:1 for p in ITEMS},
-                         equipment_auto_equip='reference',equipment_requires_skills=True))
-    choose=jax.jit(rules.choose)
     state=inventory(env,state,'runestone','banner_war','boots_speed','elemental_boots','tome_air','tome_war')
-    assert jnp.all(choose(state,jnp.bool_(True),jnp.int32(1))==-1)
-    equipped=choose(state,jnp.bool_(True),jnp.int32(11))
-    names=[rules.keys[int(i)] if i>=0 else None for i in equipped]
-    assert names==['runestone',None,'banner_war','tome_air','boots_speed']
+    rules={lord:ItemRules(dict(initial_items={p['key']:1 for p in ITEMS},lord_type=lord,
+                               equipment_auto_equip='reference',equipment_requires_skills=True))
+           for lord in ('mage','warrior','guildmaster')}
+    choose={lord:jax.jit(r.choose) for lord,r in rules.items()}
+    def equipped(lord,level):
+        ids=choose[lord](state,jnp.bool_(True),jnp.int32(level))
+        return [rules[lord].keys[int(i)] if i>=0 else None for i in ids]
+    assert equipped('mage',1)==[None]*5
+    assert equipped('mage',11)==['runestone',None,'banner_war','tome_air','boots_speed']
+    # Banner 7, boots 8, artifacts 9, book 11; a warrior knows artifacts, a guildmaster boots.
+    assert equipped('mage',8)==[None,None,'banner_war',None,'boots_speed']
+    assert equipped('warrior',1)==['runestone']+[None]*4
+    assert equipped('guildmaster',1)==[None]*4+['boots_speed']
 
 
 def test_banner_health_regeneration_and_instant_retreat(all_items):

@@ -1,8 +1,10 @@
 """CUDA contracts: the Python reference Default map, its spell shop and capital guard."""
+import jax
 import jax.numpy as jnp
 
-from stoix.envs.number_grid import NumberGrid, REST, action_names, load_map
+from stoix.envs.number_grid import DEFEND, NumberGrid, REST, WAIT, action_names, load_map
 from stoix.envs.number_grid_battle_items import battle_item_action_names
+from stoix.envs.number_grid_combat import DAMAGE
 from stoix.envs.number_grid_casting import SPELL_CAST, SPELL_KILL, SUMMON_CAST
 from stoix.envs.number_grid_sites import SPELL_BOUGHT
 from stoix.envs.number_grid_territory import CAPITAL_ARMOR
@@ -33,8 +35,8 @@ def test_default_map_layout_and_actions(default_game):
     assert DEFAULT['enemy_rosters'][GUARD] == [None]*4+['g000uu3001', None]
     assert DEFAULT['enemy_capitals'][0]['position'] == DEFAULT['opponent_positions'][GUARD] == [11, 27]
     assert [int(i) for i in jnp.flatnonzero(env.territory.capital_guards)] == [GUARD]
-    ids = env.progression.ids
-    assert state.unit_ids[:6].tolist() == [ids['squire'], ids['g000uu0019'], ids['squire'], 0, ids['acolyte'], 0]
+    rows = env.progression.rows
+    assert [rows[i]['key'] if i else None for i in state.unit_ids[:6].tolist()] == DEFAULT['hero_roster']
     assert state.position.tolist() == [28, 6]
     assert int(state.gold) == 0 and state.spell_stock.tolist() == [1, 1]
 
@@ -118,3 +120,45 @@ def test_without_objective_cities_the_capital_guard_is_not_a_goal():
     only_guard = jnp.zeros(len(DEFAULT['opponent_positions']), bool).at[GUARD].set(True)
     assert not env.territory.objective_cities
     assert not env._goals_left(only_guard) and env._goals_left(only_guard.at[0].set(True))
+
+
+def test_reference_hero_skills(default_game):
+    """docs/HERO_SKILLS.md: Pathfinding, the warrior's Might at 9, Weapon Master at 12, equipment lore."""
+    env, initial, step, _ = default_game
+    progression, hero = env.progression, int(initial.unit_ids[1])
+    row, plain = progression.rows[hero], progression.ids['g000uu0019']
+    assert row['key'] == 'g000uu0019' and hero != plain  # the catalogue row keeps no Might
+    assert [b['level'] for b in row['level_bonuses']] == [4, 5, 9, 13, 14, 15]
+    assert [s['level'] for s in row['hero_skills']] == list(range(1, 16))
+    assert row['hero_skills'][8]['key'] == 'might' and row['hero_skills'][0]['key'] == 'artifact_knowledge'
+    damage = lambda i, level: float(progression.stat_levels[level, i, DAMAGE])
+    assert damage(hero, 8) == damage(plain, 8)
+    assert damage(hero, 9) == round(damage(plain, 9)*1.25)  # once, Python round
+    assert damage(hero, 10)-damage(hero, 9) == damage(plain, 10)-damage(plain, 9)
+    # Pathfinding from level 2: +4 points, round(20% of 20), on top of +1 per level.
+    levels = lambda level: initial.replace(unit_levels=initial.unit_levels.at[1].set(level))
+    assert [int(env.movement_cap(levels(n))) for n in (1, 2, 10, 12)] == [20, 25, 33, 33]
+    # Warrior: artifacts from the start, banner 7, book 11.
+    rules = env.item_rules
+    stocked = initial.replace(item_inventory=jnp.array(
+        [rules.keys.index(k) for k in ('ring_of_ages', 'banner_war', 'tome_arcanum')]+[-1]*(rules.capacity-3), jnp.int32))
+    choose = jax.jit(rules.choose)
+    worn = lambda level: [rules.keys[i] if i >= 0 else None for i in choose(stocked, True, jnp.int32(level)).tolist()]
+    assert worn(1) == ['ring_of_ages', None, None, None, None]
+    assert worn(7) == ['ring_of_ages', None, 'banner_war', None, None]
+    assert worn(11) == ['ring_of_ages', None, 'banner_war', 'tome_arcanum', None]
+    # Weapon Master: +25% battle XP for the party from level 12, as Tome of War.
+    battle, _ = step(initial.replace(position=jnp.array([28, 7], jnp.int32)), jnp.int32(1))
+    assert battle.in_battle and battle.enemy == 11
+
+    def shares(level):
+        won, _ = step(battle.replace(actor=jnp.int32(1), unit_levels=battle.unit_levels.at[1].set(level),
+                                     hp=battle.hp.at[6:].set(0), battle_xp=jnp.array([0, 120], jnp.int32)),
+                      jnp.int32(DEFEND))
+        for _ in range(6):
+            if won.in_battle:
+                won, _ = step(won, jnp.int32(WAIT))  # post-battle healing turns, then the award
+        assert not won.in_battle
+        return won.last_xp[:6].tolist()
+    assert shares(11) == [30, 30, 30, 0, 30, 0]
+    assert shares(12) == [38, 38, 38, 0, 38, 0]  # 30 x 1.25 = 37.5, half-up

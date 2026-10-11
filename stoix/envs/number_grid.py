@@ -29,6 +29,7 @@ from stoix.envs.number_grid_casting import SpellCastRules, SUMMON_CAST, cast_act
 from stoix.envs.number_grid_territory import TerritoryRules, OBSTACLE
 from stoix.envs.number_grid_item_combat import equipment_attack, transform_imp, transform_decay
 from stoix.envs import number_grid_battle_items as battle_items
+from stoix.envs import number_grid_hero_skills as hero_skills
 from stoix.envs.number_grid_battle_items import (BattleItemRules, battle_item_action_names, battle_items_enabled,
     BATTLE_ITEM)
 from stoix.envs.number_grid_wards import ward_tags, grant_wards, expire_wards
@@ -70,6 +71,7 @@ def action_names(game_map):
 ACTION_NAMES = action_names(MAP)
 ACTIONS = len(ACTION_NAMES)
 MAX_MOVEMENT_POINTS, MOVE_COST = 20, 2
+PATHFINDING_POINTS = round(MAX_MOVEMENT_POINTS*hero_skills.PATHFINDING_PERCENT/100)
 BATTLE_ENTRY_COST = (MAX_MOVEMENT_POINTS + 1) // 2
 MOVE, ENGAGE, HIT, MISS, GUARD, DELAY, FLEE, ESCAPE, VICTORY, DEFEAT, WITHDRAW, LIMIT = range(12)
 BUILD, RESTED, IMMUNE, WARD, HEAL = 12, 13, 14, 15, 16
@@ -280,6 +282,10 @@ class NumberGrid(Summoning, NumericNumberGrid):
         self.progression_enabled = bool(game_map.get('unit_progression', False))
         if self.progression_enabled and not self.basic_combat:
             raise ValueError('Unit progression requires basic combat')
+        # Reference skill ladder: Pathfinding, Weapon Master, the lord's Might (docs/HERO_SKILLS.md).
+        self.hero_skills = hero_skills.enabled(game_map)
+        if self.hero_skills and not self.progression_enabled:
+            raise ValueError('Hero skills require unit progression')
         self.capital_enabled = bool(game_map.get('capital_services', False))
         if self.capital_enabled and not self.progression_enabled:
             raise ValueError('Capital services require named units and progression')
@@ -817,8 +823,20 @@ class NumberGrid(Summoning, NumericNumberGrid):
 
     def _hero_level_movement_bonus(self, ids, levels):
         # User rule: +1 for levels 2..10, then no further growth.
-        return jnp.max(jnp.where(self.equipment_heroes[ids[:6]],
-                                 jnp.clip(levels[:6]-1, 0, 9), 0))
+        bonus = jnp.clip(levels[:6]-1, 0, 9)
+        if self.hero_skills:
+            # Pathfinding: round(20% of the base allowance) from level 2.
+            bonus += jnp.where(levels[:6] >= hero_skills.PATHFINDING_LEVEL, PATHFINDING_POINTS, 0)
+        return jnp.max(jnp.where(self.equipment_heroes[ids[:6]], bonus, 0))
+
+    def _party_experience_bonus(self, state):
+        """Tome of War or Weapon Master: +25% battle XP; they do not stack."""
+        bonus = self.item_rules.value(state,'experience',3) if self.items_enabled else False
+        if self.hero_skills:
+            # Reference _hero_has_weapon_master: any hero of the party, alive or not.
+            level = jnp.max(jnp.where(self.equipment_heroes[state.unit_ids[:6]], state.unit_levels[:6], 0))
+            bonus = (level >= hero_skills.WEAPON_MASTER_LEVEL) | bonus
+        return bonus
 
     def movement_cap(self,state):
         cap = (self.item_rules.movement_cap(state,MAX_MOVEMENT_POINTS)
@@ -2445,8 +2463,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             if self.has_copies or self.has_summons or self.has_item_summons:
                 state,hp = self._restore_roster(state,hp,raw_ended)
             ids, levels, xp, enemies, hp, gains, promoted = self.progression.finish(
-                state, hp, escaped, victory, lost, withdrawal, bank,
-                self.item_rules.value(state,'experience',3) if self.items_enabled else False)
+                state, hp, escaped, victory, lost, withdrawal, bank, self._party_experience_bonus(state))
             if self.spell_casting_enabled:
                 # The summon's growth is discarded with it; slot layers belong to the party.
                 promoted = jnp.where(summon_battle, promoted & jnp.uint32(0xFC0), promoted)

@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 
 from stoix.envs.number_grid_battle_items import MAGIC_ITEMS
+from stoix.envs.number_grid_hero_skills import lore_levels
 
 ARTIFACT, BANNER, BOOK, BOOTS, VALUABLE, USABLE = range(6)
 SLOT_NAMES = ('Артефакт 1', 'Артефакт 2', 'Знамя', 'Книга', 'Сапоги')
@@ -104,6 +105,8 @@ class ItemRules:
         if self.policy not in ('price','reference'):
             raise ValueError('equipment_auto_equip must be price or reference')
         self.require_skills = bool(game_map.get('equipment_requires_skills',False))
+        # Banner 7, boots 8, artifacts 9, book 11; the lord's own lore from the start.
+        self.skill_levels = lore_levels(game_map)
         # Table row 0 is the empty slot; state item IDs are zero-based, -1 empty.
         rows = ({},)+self.items
         self.tables = {key:jnp.array([p.get(key,default) for p in rows],dtype)
@@ -185,7 +188,7 @@ class ItemRules:
             selected.append(chosen)
         allowed=jnp.full(5,hero_alive)
         if self.require_skills:
-            allowed &= hero_level>=jnp.array([9,9,7,11,8])
+            allowed &= hero_level>=jnp.array(self.skill_levels)
         return jnp.where(allowed,jnp.stack(selected),-1)
 
     def numeric_bonus(self, state, intrinsic, hero):
@@ -220,4 +223,5 @@ class ItemRules:
     @property
     def metadata(self):
         return dict(items=list(self.items), slots=list(SLOT_NAMES),
-                    policy=self.policy, requires_skills=self.require_skills)
+                    policy=self.policy, requires_skills=self.require_skills,
+                    skill_levels=list(self.skill_levels))

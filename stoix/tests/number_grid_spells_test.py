@@ -107,7 +107,7 @@ def test_research_full_step_daily_reset_independent_build_limit_and_observation(
     assert denied.learned_spells == learned.learned_spells
     chex.assert_trees_all_equal(denied.mana,learned.mana)
     assert observe(learned).shape == (1694,) and env.num_actions == 244
-    research = observe(learned)[:-env.casting.observation_size]  # map casts follow research
+    research = observe(learned)[:-env.casting.observation_size-env.unit_swaps.observation_size]  # map casts and swaps follow research
     np.testing.assert_array_equal(research[-rules.count-4:-rules.count-1],[1,0,0])
     np.testing.assert_array_equal(research[-rules.count-1:], [1]+[0]*(rules.count-1)+[1])
     rested,_ = step(learned,jnp.int32(REST))
@@ -153,7 +153,7 @@ def test_lords_free_buildings_regeneration_city_prices_and_reset(current_game):
         assert not state.built_today and not state.spell_researched_today and state.learned_spells == 0
         assert state.day == 1 and ts.observation.shape == (1694,)
         chex.assert_trees_all_equal(state.unit_ids,initial.unit_ids)
-        np.testing.assert_array_equal(ts.observation[:-other.casting.observation_size][-21:-18],other.construction.lord_observation)
+        np.testing.assert_array_equal(ts.observation[:-other.casting.observation_size-other.unit_swaps.observation_size][-21:-18],other.construction.lord_observation)
         rules = other.spell_research
         funded = state.replace(mana=jnp.full(5,5000,jnp.int32),buildings=state.buildings | rules.tower_bit)
         mask = compiled_method(other,'action_mask')(funded)
@@ -188,7 +188,7 @@ def test_research_autoreset_preserves_final_observation_and_changes_prng(current
     assert jnp.all(ts.truncated()) and jnp.all(state.learned_spells == 0)
     assert not jnp.any(state.spell_researched_today) and not jnp.any(state.mana)
     assert not jnp.array_equal(state.battle_key,before_key)
-    cast = env.casting.observation_size
+    cast = env.casting.observation_size+env.unit_swaps.observation_size  # map casts and swaps follow research
     assert jnp.all(ts.extras['next_obs']['observation'][:,-18-cast] == 1)
     assert jnp.all(ts.extras['next_obs']['observation'][:,-1-cast] == 1)
     assert jnp.all(ts.observation['observation'][:,-18-cast:-cast] == 0)

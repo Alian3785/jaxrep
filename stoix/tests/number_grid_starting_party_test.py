@@ -61,6 +61,9 @@ def test_new_ruler_starts_with_its_own_hero_and_allowance():
     turns = env.turn_metadata()
     assert turns['movement_points'] == 35 and turns['battle_entry_cost'] == 18
     assert turns['dead_hero_movement_points'] == 20
+    # Two heroes in a fixed party: the larger allowance, as movement_cap takes it.
+    two = NumberGrid(map_config={**MAP, 'hero_roster': ['possessed', 'duke', 'possessed', RANGER, None, None]})
+    assert two.turn_metadata()['movement_points'] == 35 and two.turn_metadata()['battle_entry_cost'] == 18
 
 
 def test_hero_allowance_sets_rest_refill_battle_entry_and_dead_fallback(current_game):

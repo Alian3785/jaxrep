@@ -501,7 +501,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             self.pathfinding_points = jnp.array(
                 [round(m*hero_skills.PATHFINDING_PERCENT/100) for m in moves], jnp.int32)
             starting = [moves[i] for i in self.progression.initial_ids[:6].tolist() if moves[i]]
-            self.base_movement = starting[0] if starting else MAX_MOVEMENT_POINTS
+            self.base_movement = max(starting, default=MAX_MOVEMENT_POINTS)  # as movement_cap
         else:
             self.base_movement = MAX_MOVEMENT_POINTS
         if self.items_enabled:

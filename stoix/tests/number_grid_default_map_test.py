@@ -126,10 +126,30 @@ def test_capital_guard_armor_and_regeneration(default_game):
     near = initial.replace(position=jnp.array([guard[0]-dr, guard[1]-dc], jnp.int32))
     battle, _ = step(near, jnp.int32(direction))
     assert battle.in_battle and battle.enemy == GUARD and battle.battle_fort_armor == CAPITAL_ARMOR
-    # Rest: Myzrael +15% field +35% capital of 900; the Green Dragon heals fully.
+    # Rest: Myzrael's own 50% +35% capital of 900; the Green Dragon heals fully.
     wounds = initial.enemy_wounds.at[GUARD, 4].set(800).at[DRAGON, 1].set(500)
     rested, _ = step(initial.replace(enemy_wounds=wounds), jnp.int32(REST))
-    assert rested.enemy_wounds[GUARD, 4] == 350 and rested.enemy_wounds[DRAGON, 1] == 0
+    assert rested.enemy_wounds[GUARD, 4] == 35 and rested.enemy_wounds[DRAGON, 1] == 0
+
+
+def test_enemy_regeneration_uses_own_regen_and_place(default_game):
+    """Original getUnitRegen (D2ModdingToolset unitutils.cpp): Gunits REGEN + place."""
+    _, initial, step, _ = default_game
+    nobody = initial.replace(territory_claims=jnp.zeros_like(initial.territory_claims))
+    everywhere = initial.replace(territory_claims=jnp.full_like(initial.territory_claims, DEFAULT['size']**2))
+    # (stack, slot, max HP): the Troll (REGEN 50), a Squire in a level 1 city, an Orc guarding a ruin.
+    troll, city, ruin = (5, 1, 350), (21, 0, 100), (69, 0, 200)
+
+    def healed(state, stack, slot, hp):
+        hurt = state.replace(enemy_wounds=state.enemy_wounds.at[stack, slot].set(hp-1))
+        rested, _ = step(hurt, jnp.int32(REST))
+        return hp-1-int(rested.enemy_wounds[stack, slot])
+
+    assert healed(nobody, *troll) == 210  # 50% + 10% on land nobody owns
+    assert healed(everywhere, *troll) == 175  # no land bonus on the player's land
+    for state in (nobody, everywhere):
+        assert healed(state, *city) == 15  # 5% + 10% of a level 1 city, never the land bonus
+        assert healed(state, *ruin) == 40  # GVars REGEN_RUIN: a fixed 20%
 
 
 def test_capturing_both_objective_cities_wins(default_game):

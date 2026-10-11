@@ -132,7 +132,7 @@ def test_damage_hits_nearest_field_stack_spends_mana_and_daily_limit(current_gam
     np.testing.assert_allclose(tail[:rules.count], np.eye(rules.count)[1]+np.eye(rules.count)[2])
     assert float(tail[2*rules.count]) == pytest.approx(.3)  # 30 of the Squire's 100 HP
     np.testing.assert_allclose(tail[-5:], [0, 1, 1, 6/47, 6/47], rtol=1e-6)
-    # REST: limits expire; field stacks regenerate 15% (5% on the player's land).
+    # REST: limits expire; the Squire's own 5% +10% on land nobody owns (none on the player's).
     rested, _ = step(both, jnp.int32(REST))
     owned = bool(jax.jit(env.territory.owned)(rested, rules.positions)[0])
     assert rested.enemy_wounds[0, 0] == 30-(5 if owned else 15)

@@ -376,6 +376,10 @@ class SpellCastRules:
             position = jnp.argmax(inventory == self.item_index[item])
             shifted = jnp.concatenate((inventory[1:], jnp.full(1, -1, inventory.dtype)))
             burned = by_item & ~self.staff[item] & (jnp.arange(inventory.size) >= position)
+            if state.item_charges_spent.size:
+                charges = state.item_charges_spent
+                shifted_charges = jnp.concatenate((charges[1:], jnp.zeros(1, charges.dtype)))
+                state = state.replace(item_charges_spent=jnp.where(burned, shifted_charges, charges))
             state = state.replace(item_inventory=jnp.where(burned, shifted, inventory),
                 scroll_magic=state.scroll_magic | hiring, gold=state.gold - jnp.where(hiring, SCROLL_MAGE_COST, 0),
                 last_cast_item=jnp.where(by_item, item, -1).astype(jnp.int32),

@@ -7,7 +7,7 @@ import jax.numpy as jnp
 
 from stoix.envs.number_grid_battle_items import MAGIC_BY_KEY
 from stoix.envs.number_grid_items import (
-    ARTIFACT, BANNER, BOOK, BOOTS, ITEM_BY_KEY, SCROLL, STAFF, USABLE, VALUABLE, item_counts,
+    ARTIFACT, BANNER, BOOK, BOOTS, ITEM_BY_KEY, SCROLL, STAFF, USABLE, VALUABLE, item_counts, remove_items,
 )
 from stoix.envs.number_grid_spells import shop_spell_ids, spell_book
 
@@ -256,14 +256,6 @@ class SiteRules:
             parts.append(self.spell_available(state))
         return jnp.concatenate(parts) if parts else jnp.zeros(0, bool)
 
-    @staticmethod
-    def compact(inventory, remove):
-        # Stable compaction preserves acquisition order and leaves empty slots last.
-        keep = (inventory >= 0) & ~remove
-        n = inventory.size
-        destination = jnp.where(keep, jnp.cumsum(keep)-1, n)
-        return jnp.full_like(inventory, -1).at[destination].set(inventory, mode='drop')
-
     def autosell(self, state):
         if not self.has_merchant or not self.items or not self.items.capacity:
             return state
@@ -271,7 +263,7 @@ class SiteRules:
         remove = ((ids >= 0) & (self.items.tables['category'][ids+1] == VALUABLE)
                   & self.at(state, 'merchant') & ~state.in_battle & ~state.done)
         gold = jnp.sum(jnp.where(remove, self.items.tables['price'][ids+1]*SELL_PERCENT//100, 0))
-        return state.replace(item_inventory=self.compact(ids, remove), gold=state.gold+gold,
+        return remove_items(state, remove).replace(gold=state.gold+gold,
                              last_sale_gold=state.last_sale_gold+gold,
                              last_sold_count=state.last_sold_count+jnp.sum(remove))
 

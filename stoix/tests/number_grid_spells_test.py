@@ -7,7 +7,7 @@ import pytest
 
 from stoix.envs.number_grid import MAP, NumberGrid, ACTION_NAMES, BUILD_START, REST
 from stoix.envs.number_grid_buildings import BuildingRules, FACTIONS
-from stoix.envs.number_grid_lords import LORDS
+from stoix.envs.number_grid_lords import LORDS, STARTING_PARTIES
 from stoix.envs.number_grid_spells import CATALOG, SPELL_LEARNED, SpellResearchRules, research_action_names
 from stoix.envs.number_grid_casting import cast_action_names
 from stoix.envs.number_grid_territory import TerritoryRules
@@ -145,14 +145,15 @@ def test_lords_free_buildings_regeneration_city_prices_and_reset(current_game):
             starting = LORDS[lord]['starting_building']
             assert int(rules.initial_built) == (0 if starting is None else
                 1 << next(i for i,r in enumerate(rules.rows) if r['name']==starting))
-    # Full reset for each new ruler: free building, no gold/day spent, same scenario roster.
+    # Full reset for each new ruler: free building, no gold/day spent, the ruler's own party.
     for lord in ('mage','guildmaster'):
         other = NumberGrid(map_config={**MAP,'lord_type':lord})
         state,ts = compiled_method(other,'reset')(jax.random.PRNGKey(42))
         assert state.buildings == other.construction.initial_built and state.gold == 0
         assert not state.built_today and not state.spell_researched_today and state.learned_spells == 0
         assert state.day == 1 and ts.observation.shape == (1694,)
-        chex.assert_trees_all_equal(state.unit_ids,initial.unit_ids)
+        rows = other.progression.rows
+        assert [rows[i]['key'] if i else None for i in state.unit_ids[:6].tolist()] == STARTING_PARTIES['legions'][lord]
         np.testing.assert_array_equal(ts.observation[:-other.casting.observation_size-other.unit_swaps.observation_size][-21:-18],other.construction.lord_observation)
         rules = other.spell_research
         funded = state.replace(mana=jnp.full(5,5000,jnp.int32),buildings=state.buildings | rules.tower_bit)
@@ -213,6 +214,7 @@ def test_human_spell_book_masks_and_ruler_session_isolation(human_service):
     for lord in ('mage','guildmaster'):
         other = service.create(42,'legions',lord)
         assert other['map']['lord_type'] == lord and other['snapshot']['state']['learned_spells'] == 0
+        assert other['map']['hero_roster'] == STARTING_PARTIES['legions'][lord]  # the ruler's own hero
         assert other['snapshot']['state']['buildings'] != 0
         assert not other['snapshot']['state']['built_today']
         assert service.sessions[other['session']][0] == ('legions',lord)

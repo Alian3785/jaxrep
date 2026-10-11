@@ -5,6 +5,7 @@ import jax.numpy as jnp
 from stoix.envs.number_grid import DEFEND, NumberGrid, REST, WAIT, action_names, load_map
 from stoix.envs.number_grid_battle_items import battle_item_action_names
 from stoix.envs.number_grid_combat import DAMAGE
+from stoix.envs.number_grid_lords import STARTING_PARTIES
 from stoix.envs.number_grid_casting import SPELL_CAST, SPELL_KILL, SUMMON_CAST
 from stoix.envs.number_grid_progression import ProgressionRules
 from stoix.envs.number_grid_sites import SPELL_BOUGHT
@@ -40,7 +41,9 @@ def test_default_map_layout_and_actions(default_game):
     assert DEFAULT['enemy_capitals'][0]['position'] == DEFAULT['opponent_positions'][GUARD] == [11, 27]
     assert [int(i) for i in jnp.flatnonzero(env.territory.capital_guards)] == [GUARD]
     rows = env.progression.rows
-    assert [rows[i]['key'] if i else None for i in state.unit_ids[:6].tolist()] == DEFAULT['hero_roster']
+    # No fixed roster: the Empire warrior ruler's reference party (docs/STARTING_PARTIES.md).
+    assert 'hero_roster' not in DEFAULT and env.map_config['hero_roster'] == STARTING_PARTIES['empire']['warrior']
+    assert [rows[i]['key'] if i else None for i in state.unit_ids[:6].tolist()] == env.map_config['hero_roster']
     assert state.position.tolist() == [28, 6]
     assert int(state.gold) == 0 and state.spell_stock.tolist() == [1, 1]
 
@@ -140,7 +143,7 @@ def test_reference_hero_skills(default_game):
     assert damage(hero, 9) == round(damage(plain, 9)*1.25)  # once, Python round
     assert damage(hero, 10)-damage(hero, 9) == damage(plain, 10)-damage(plain, 9)
     # A hero starting past the Might level gets it at once.
-    started = ProgressionRules(dict(DEFAULT, hero_combat_stats=[{}, dict(level=10), {}, {}]), env.construction)
+    started = ProgressionRules(dict(env.map_config, hero_combat_stats=[{}, dict(level=10), {}, {}]), env.construction)
     late = started.initial_ids[1]
     assert started.base_levels[late] == 10
     assert float(started.stat_levels[10, late, DAMAGE]) == round(progression.rows[plain]['damage']*1.25)

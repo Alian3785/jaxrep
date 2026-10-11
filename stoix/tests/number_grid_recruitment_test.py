@@ -11,7 +11,7 @@ from stoix.tests.number_grid_fixtures import compiled_method, hero_roster_state
 
 def test_initial_roster_leadership_and_observation(current_game):
     env, state, _, _ = current_game
-    assert MAP['hero_roster'] == ['possessed', 'duke', 'possessed', 'cultist', None, None]
+    assert env.map_config['hero_roster'] == ['possessed', 'duke', 'possessed', 'cultist', None, None]
     assert int(jnp.sum(state.hp[:6] > 0)) == 4
     assert ACTIONS == len(ACTION_NAMES) == env.num_actions == 244
     assert env.observation_size == 1694

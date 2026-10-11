@@ -144,7 +144,7 @@ def test_player_healing_mask_step_and_protections_agree():
     # types are covered in the shared full-map and reference-actions suites.
     config['enemy_rosters'] = [[('squire' if i < 3 else 'archer') if key else None
         for i,key in enumerate(row)] for row in config['enemy_rosters']]
-    config['hero_roster'][4] = 'acolyte'
+    config['hero_roster'] = ['possessed', 'duke', 'possessed', 'cultist', 'acolyte', None]
     config['hero_units'] = 5
     config['hero_combat_stats'] = [dict(armor=90, immunities=['life'], protections=['life']),
                                    {}, {}, {}, dict(accuracy=0)]

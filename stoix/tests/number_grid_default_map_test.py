@@ -1,13 +1,11 @@
 """CUDA contracts: the Python reference Default map, its spell shop and capital guard."""
-import jax
 import jax.numpy as jnp
-import pytest
 
 from stoix.envs.number_grid import NumberGrid, REST, action_names, load_map
+from stoix.envs.number_grid_battle_items import battle_item_action_names
 from stoix.envs.number_grid_casting import SPELL_CAST, SPELL_KILL, SUMMON_CAST
 from stoix.envs.number_grid_sites import SPELL_BOUGHT
 from stoix.envs.number_grid_territory import CAPITAL_ARMOR
-from stoix.tests.number_grid_fixtures import compiled_method
 
 DEFAULT = load_map('default')
 SHOP = (4, 46)  # spell shop at [3, 43], approach offset (1, 3)
@@ -16,25 +14,19 @@ GUARD, DRAGON = 74, 30  # reference enemy ids 75 (Myzrael) and 31 (Green Dragon)
 DIRECTIONS = ((-1, 0), (-1, 1), (0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1))
 
 
-@pytest.fixture(scope='module')
-def default_game():
-    env = NumberGrid(map_config=DEFAULT)
-    state, _ = compiled_method(env, 'reset')(jax.random.PRNGKey(42))
-    return env, state, compiled_method(env, 'step'), compiled_method(env, 'action_mask')
-
-
 def test_default_map_layout_and_actions(default_game):
     env, state, _, _ = default_game
     names = action_names(DEFAULT)
     assert DEFAULT['size'] == 50 and len(DEFAULT['opponent_positions']) == 75
-    assert env.num_actions == len(names) == 229 and env.observation_size == 2432
+    assert env.num_actions == len(names) == 261 and env.observation_size == 2452
     assert [s['kind'] for s in env.site_rules.sites] == [
         'merchant', 'merchant', 'trainer', 'mercenary', 'mercenary', 'spell_shop']
     assert env.territory.count == 5 and len(env.territory.mines) == 12 and env.ruins.count == 5
     assert len(DEFAULT['chests']) == 18 and env.item_rules.capacity == 15
     shop = env.site_rules
     assert names[shop.spell_start:shop.end] == ('buy_spell_'+ARMAGEDDON, 'buy_spell_'+VERDANT)
-    assert names[env.casting.start:][-1] == 'cast_'+VERDANT and env.casting.count == 23
+    assert names[env.casting.start:env.casting.end][-1] == 'cast_'+VERDANT and env.casting.count == 23
+    assert names[env.casting.end:] == battle_item_action_names(DEFAULT)  # docs/BATTLE_ITEMS.md
     # Alar sells the reference merchant stock; Tralar only buys valuables.
     assert names[shop.buy_start:shop.train_start] == tuple('buy_'+k for k in DEFAULT['merchants'][0]['potions'])
     assert [int(i) for i in env.recruitment.offer_sites] == [3, 4, 4]
@@ -79,7 +71,7 @@ def test_spell_shop_sells_armageddon_and_verdant(default_game):
     assert [env.progression.rows[int(i)]['game_id'] for i in summoned.unit_ids[:6] if i] == ['g000uu8039']
 
 
-def test_capital_guard_armor_regeneration_and_goal(default_game):
+def test_capital_guard_armor_and_regeneration(default_game):
     env, initial, step, _ = default_game
     guard = DEFAULT['opponent_positions'][GUARD]
     assert not env.casting.field[GUARD]  # damage and weakening never target the capital
@@ -93,11 +85,36 @@ def test_capital_guard_armor_regeneration_and_goal(default_game):
     wounds = initial.enemy_wounds.at[GUARD, 4].set(800).at[DRAGON, 1].set(500)
     rested, _ = step(initial.replace(enemy_wounds=wounds), jnp.int32(REST))
     assert rested.enemy_wounds[GUARD, 4] == 350 and rested.enemy_wounds[DRAGON, 1] == 0
-    # Victory: every stack but the capital guard, and every defended city.
-    owned = jnp.ones_like(initial.city_owned)
-    only_guard = jnp.zeros_like(initial.alive).at[GUARD].set(True)
-    won, ts = step(initial.replace(alive=only_guard, city_owned=owned), jnp.int32(REST))
+
+
+def test_capturing_both_objective_cities_wins(default_game):
+    """Reference goal "cities" (maps/default.py FINAL_OBJECTIVE_CITIES)."""
+    env, initial, step, _ = default_game
+    names = [c['name'] for c in DEFAULT['cities']]
+    goals = [names.index('Порт Полонис'), names.index('Соругирилла')]
+    assert jnp.flatnonzero(env.territory.goal_cities).tolist() == goals
+    # Other stacks, cities and the capital guard may remain.
+    both = initial.city_owned.at[jnp.array(goals)].set(True)
+    won, ts = step(initial.replace(city_owned=both), jnp.int32(REST))
     assert won.won and won.done and float(ts.reward) > 2
-    one_left = only_guard.at[0].set(True)
-    open_, _ = step(initial.replace(alive=one_left, city_owned=owned), jnp.int32(REST))
+    one = initial.city_owned.at[goals[0]].set(True)
+    cleared = initial.replace(alive=jnp.zeros_like(initial.alive),
+                              city_owned=jnp.ones_like(one).at[goals[1]].set(False))
+    open_, _ = step(cleared, jnp.int32(REST))
     assert not open_.won and not open_.done
+    # Entering the last objective city after its defenders fell captures it and wins.
+    city = DEFAULT['cities'][goals[1]]['position']
+    blocked = env.territory.blocked_grid.reshape(50, 50)
+    direction, (dr, dc) = next((i, d) for i, d in enumerate(DIRECTIONS)
+                               if not blocked[city[0]-d[0], city[1]-d[1]])
+    near = initial.replace(position=jnp.array([city[0]-dr, city[1]-dc], jnp.int32), city_owned=one,
+                           alive=initial.alive & ~env.territory.city_enemies[goals[1]])
+    entered, ts = step(near, jnp.int32(direction))
+    assert entered.city_owned[goals[1]] and entered.won and entered.done and float(ts.reward) > 2
+
+
+def test_without_objective_cities_the_capital_guard_is_not_a_goal():
+    env = NumberGrid(map_config={**DEFAULT, 'cities': [dict(c, objective=False) for c in DEFAULT['cities']]})
+    only_guard = jnp.zeros(len(DEFAULT['opponent_positions']), bool).at[GUARD].set(True)
+    assert not env.territory.objective_cities
+    assert not env._goals_left(only_guard) and env._goals_left(only_guard.at[0].set(True))

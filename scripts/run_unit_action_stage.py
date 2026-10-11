@@ -85,7 +85,7 @@ def main():
     baseline = parser.add_mutually_exclusive_group(required=True)
     baseline.add_argument('--baseline', help='Prefix of paired 1M comparison runs')
     baseline.add_argument('--baseline-run', help='Previous stage fresh seed-42 1M run')
-    parser.add_argument('--wandb-mode', choices=('online', 'offline'), default='offline')
+    parser.add_argument('--tracking', choices=('auto', 'wandb', 'wandb-offline', 'comet'), default='wandb-offline')
     parser.add_argument('--map-changes', type=Path, help='JSON list of exact allowed map edits: path, before, after')
     args = parser.parse_args()
     declared_map_changes = (json.loads(args.map_changes.read_text(encoding='utf-8'))
@@ -102,9 +102,9 @@ def main():
     def run(name, transitions, seed, mode):
         command = ['bash', 'scripts/run_gpu.sh', 'benchmark_number_grid.py',
                    '--test-run', '--total-timesteps', str(transitions), '--seed', str(seed),
-                   '--output', str(output / name), '--wandb-mode', mode,
+                   '--output', str(output / name), '--tracking', mode,
                    '--wandb-project', 'numbergrid', '--wandb-entity', 'sergey3784',
-                   '--wandb-name', name+'-20261009']
+                   '--run-name', name+'-20261009']
         (output / (args.stage+'-status.json')).write_text(json.dumps(dict(phase=name)))
         with (output / (name+'.log')).open('w') as stdout, (output / (name+'.errors.log')).open('w') as stderr:
             result = subprocess.run(command, cwd=workspace, stdout=stdout, stderr=stderr)
@@ -113,7 +113,7 @@ def main():
     before, after = [], []
     for seed in ((42, 43) if args.baseline else ()):
         name = f'{args.stage}-bench-{seed}'
-        if run(name, 1_000_000, seed, 'offline'):
+        if run(name, 1_000_000, seed, 'wandb-offline'):
             raise SystemExit('Comparison run failed: '+name)
         previous, measured = validate_comparison(
             output/f'{args.baseline}-{seed}', output/name, declared_map_changes)
@@ -128,15 +128,15 @@ def main():
             raise SystemExit('Repeated PPO regression >=7%; optimize and review before proceeding.')
 
     name = args.stage+'-1m'
-    result = run(name, 1_000_000, 42, args.wandb_mode)
-    if result and args.wandb_mode == 'online':
+    result = run(name, 1_000_000, 42, args.tracking)
+    if result and args.tracking == 'wandb':
         error = (output / (name+'.errors.log')).read_text()
         # Only a confirmed service permission error before learner setup permits
         # an offline retry; training failures must never be silently retried.
         log = (output / (name+'.log')).read_text()
         if ('403' in error or 'PERMISSION_ERROR' in error) and '"phase": "initializing"' not in log:
             name += '-offline'
-            result = run(name, 1_000_000, 42, 'offline')
+            result = run(name, 1_000_000, 42, 'wandb-offline')
     if result:
         raise SystemExit('1M test training failed: '+name)
     trained = read(name)

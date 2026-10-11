@@ -6,6 +6,8 @@ campaign_env_data.py / campaign_env_inventory.py. See docs/HERO_ITEMS.md.
 import jax
 import jax.numpy as jnp
 
+from stoix.envs.number_grid_battle_items import MAGIC_ITEMS
+
 ARTIFACT, BANNER, BOOK, BOOTS, VALUABLE, USABLE = range(6)
 SLOT_NAMES = ('Артефакт 1', 'Артефакт 2', 'Знамя', 'Книга', 'Сапоги')
 
@@ -53,8 +55,8 @@ ITEMS = (
     _item('tome_earth','Tome of Earth','4003',BOOK,400,'Герою: защита от первой атаки Земли',ward=2),
     _item('tome_fire','Tome of Fire','4004',BOOK,400,'Герою: защита от первой атаки Огня',ward=4),
     _item('tome_war','Tome of War','4005',BOOK,600,'Отряду: +25% опыта за бой',experience=True),
-    _item('tome_arcanum','Tome of Arcanum','4006',BOOK,900,'Разрешает сферы; сферы пока не реализованы',orbs=True),
-    _item('tome_sorcery','Tome of Sorcery','4007',BOOK,1200,'Разрешает талисманы; талисманы пока не реализованы',talismans=True),
+    _item('tome_arcanum','Tome of Arcanum','4006',BOOK,900,'Разрешает сферы в боевых слотах героя',orbs=True),
+    _item('tome_sorcery','Tome of Sorcery','4007',BOOK,1200,'Разрешает талисманы в боевых слотах героя',talismans=True),
     _item('tome_mind','Tome of Thought','4008',BOOK,900,'Герою: защита от первой атаки Разума',ward=64),
     _item('elven_boots','Elven Boots','1010',BOOTS,1200,'Движение по лесу: 2 очка',forest=True),
     _item('elemental_boots','Boots of the Elements','1011',BOOTS,1600,'Движение по воде: 2 очка',water=True),
@@ -69,11 +71,9 @@ ITEMS = (
           ('sapphire','Sapphire',1500),('diamond','Diamond',1750),
           ('ancient_relic','Ancient Relic',2000),('royal_scepter','Royal Scepter',2500),
           ('imperial_crown','Imperial Crown',5000)))),
-    # Orbs, talismans and scrolls are carried but not used yet: never equipped or sold.
-    _item('vampire_orb','Vampire Orb','9009',USABLE,800,'Сфера: призыв Вампира в бою; применение пока не реализовано'),
-    _item('lich_orb','Lich Orb','9010',USABLE,800,'Сфера: призыв Лича в бою; применение пока не реализовано'),
-    _item('orb_of_life','Orb of Life','9019',USABLE,800,'Сфера: воскрешение в бою; применение пока не реализовано'),
-    _item('zombie_talisman','Zombie Talisman','9107',USABLE,400,'Талисман: призыв Зомби в бою; применение пока не реализовано'),
+    # Orbs and talismans: hero battle slots, number_grid_battle_items. The scroll is carried only.
+    *(dict(key=p['key'],name=p['name'],game_id=p['game_id'],category=USABLE,price=p['price'],label=p['label'])
+      for p in MAGIC_ITEMS),
     _item('mind_ward_scroll','Mind ward scroll','5011',USABLE,600,'Свиток: защита от первой атаки Разума; применение пока не реализовано'),
 )
 ITEM_BY_KEY = {p['key']: p for p in ITEMS}

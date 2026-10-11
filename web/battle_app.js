@@ -5,7 +5,7 @@
   const canvas=$('board'), ctx=canvas.getContext('2d');
   let mode='manual', session=null, manual=null, manualMap=null, busy=false, frame=0, recordIndex=0, timer=null, messages=[];
   let manualConstruction=null, manualTurnRules=null, manualCombat=null, manualCapital=null, manualPotions=null, capitalOpen=false, potionsOpen=false, selectedPotion=0, capitalKey=null;
-  let manualEquipment=null, manualSites=null, manualRecruitment=null, manualTerritory=null, manualRuins=null, manualSpells=null, manualCasting=null, spellsOpen=false;
+  let manualEquipment=null, manualBattleItems=null, manualSites=null, manualRecruitment=null, manualTerritory=null, manualRuins=null, manualSpells=null, manualCasting=null, spellsOpen=false;
   const records=data.records||[];
   const combatInfo=()=>mode==='manual'?(manualCombat||data.combat):data.combat;
   const profile=i=>{
@@ -43,6 +43,7 @@
   function turnRules(){return mode==='manual'?(manualTurnRules||data.turn_rules):data.turn_rules;}
   const potionInfo=()=>mode==='manual'?(manualPotions||data.potions):data.potions;
   const equipmentInfo=()=>mode==='manual'?(manualEquipment||data.equipment):data.equipment;
+  const battleItemInfo=()=>mode==='manual'?(manualBattleItems||data.battle_items):data.battle_items;
   const siteInfo=()=>mode==='manual'?(manualSites||data.sites):data.sites;
   const recruitmentInfo=()=>mode==='manual'?(manualRecruitment||data.recruitment):data.recruitment;
   const territoryInfo=()=>mode==='manual'?(manualTerritory||data.territory):data.territory;
@@ -229,7 +230,7 @@
   }
   function renderEquipment(snap){
     const info=equipmentInfo(),s=snap.state;
-    $('equipment-panel').hidden=!info;
+    $('equipment-panel').hidden=!info&&!battleItemInfo();
     if(!info)return;
     $('equipment-rule').textContent=(info.policy==='price'?'Более дорогие находки автоматически заменяют дешёвые в своём слоте.':'Автовыбор по правилам референса: сапоги — по движению, книга сохраняется, артефакты — по цене.')+' Заменённые вещи остаются в инвентаре.';
     $('equipment-slots').replaceChildren(...info.slots.map((name,slot)=>{
@@ -248,6 +249,49 @@
       row.textContent=item.name+' × '+count+' · '+cost+' золота'+(worn?' · надето: '+worn:'');
       row.title=item.label;return row;
     }));
+  }
+  function battleItemSlot(info,s,k){
+    const item=info.items[s.battle_items?.[k]];if(!item)return 'Пусто';
+    return item.name+(item.category==='talisman'?' · зарядов: '+s.battle_item_charges[k]+(s.battle_item_used?.[k]?' · уже применён в этом бою':''):item.category==='potion'?' · зелье, одно применение':' · сфера, одно применение');
+  }
+  function renderBattleItems(snap){
+    const info=battleItemInfo(),s=snap.state,mask=snap.action_mask,q=snap.battle_item_quotes;
+    $('battle-items').hidden=!info;$('battle-item-actions').hidden=!info||!s.in_battle;
+    if(!info)return;
+    $('battle-item-rule').textContent='Положить предмет в свободный слот можно на карте один раз за ход, снять нельзя. В бою герой применяет предмет вместо своего действия. Зелья доступны всегда; сферы и талисманы — с 10 уровня героя, лорду-магу или с книгой: Tome of Arcanum для сфер, Tome of Sorcery для талисманов. Сфера и зелье расходуются; у талисмана '+info.talisman_uses+' зарядов, не больше одного применения за бой.';
+    $('battle-item-slots').replaceChildren(...Array.from({length:info.slots},(_,k)=>{
+      const row=document.createElement('div');row.className='equipment-slot';
+      const title=document.createElement('span');title.textContent='Боевой слот '+(k+1);
+      const value=document.createElement('b');value.textContent=battleItemSlot(info,s,k);
+      const detail=document.createElement('small');detail.textContent=info.items[s.battle_items?.[k]]?.label||'';
+      row.append(title,value,detail);return row;
+    }));
+    $('battle-item-equip').replaceChildren(...info.items.map((item,i)=>{
+      if(!(q?.stock?.[i]>0))return null;
+      const b=document.createElement('button');b.dataset.action=item.equip_action;
+      b.textContent='В слот: '+item.name+' · есть '+q.stock[i];
+      b.title=item.label+(q.access[i]?'':' · нужен 10 уровень героя, лорд-маг или книга');
+      b.onclick=()=>sendAction(item.equip_action);return b;
+    }).filter(Boolean));
+    if(!s.in_battle)return;
+    const groups=[];
+    for(let k=0;k<info.slots;k++){
+      const item=info.items[s.battle_items?.[k]];if(!item)continue;
+      const box=document.createElement('div'),title=document.createElement('b');
+      title.textContent='Предмет '+(k+1)+': '+battleItemSlot(info,s,k)+(item.party?' · действует на весь отряд':'');box.append(title);
+      for(const [side,label] of [[0,'союзник'],[1,'враг']])for(let t=0;t<info.targets;t++){
+        const action=info.use_start+(side*info.slots+k)*info.targets+t;if(!mask[action])continue;
+        const b=document.createElement('button');b.dataset.action=action;b.textContent=label+' '+(t+1);
+        b.setAttribute('aria-label',item.name+' → '+unitName(t+6*side));b.onclick=()=>sendAction(action);box.append(b);
+      }
+      groups.push(box);
+    }
+    $('battle-item-actions').replaceChildren(...groups);
+  }
+  function battleItemText(s){
+    const item=battleItemInfo()?.items?.[s.last_battle_item];
+    const target=s.last_target>=0?unitName(s.last_target):item?.enemy?'вражеский отряд':'свой отряд';
+    return unitName(s.last_actor)+': '+(item?.name||'боевой предмет')+' → '+target.toLowerCase()+(s.last_damage?' (эффект: '+s.last_damage+')':'')+'.'+blockText(s);
   }
   const capitalInfo=()=>mode==='manual'?(manualCapital||data.capital):data.capital;
   const branchNames={
@@ -550,6 +594,8 @@
       case 43:return 'Город захвачен: '+(territoryInfo()?.cities||[]).filter((c,i)=>s.last_captured_cities[i]).map(c=>c.name).join(', ')+'. Доступны найм, храм и рост земли.';
       case 44:return 'Город улучшен: '+territoryInfo()?.cities[s.last_upgraded_city]?.name+' · −'+fmt(s.last_service_cost)+' золота.';
       case 45:return 'Путь закрыт препятствием.';
+      case 52:return battleItemText(s);
+      case 53:return 'Боевой слот героя: '+(battleItemInfo()?.items?.[s.last_battle_item]?.name||'предмет')+'. Следующий предмет можно положить после отдыха.';
       case 41:return 'Боец нанят: −'+fmt(s.last_service_cost)+' золота.';
       case 42:return 'Боец уволен. Место и лидерство освобождены.';
       case 1:return 'Атака отряда № '+(s.enemy+1)+'. Отряд остаётся на своей клетке; очков перемещения: '+s.movement_points+'.';
@@ -604,6 +650,7 @@
     renderCapitalServices(snap);
     renderPotions(snap);
     renderEquipment(snap);
+    renderBattleItems(snap);
     renderSites(snap);
     renderRecruitment(snap);
     renderTerritory(snap);
@@ -612,8 +659,11 @@
     renderMapCommands(snap);
     $('phase-label').textContent=s.in_battle?'Бой · отряд № '+(s.enemy+1):'Карта '+map.size+' × '+map.size;
     // A capital guard is not a victory goal; count only the stacks that must fall.
+    // With objective cities (reference "cities" goal) count those cities instead.
     const guards=new Set((territoryInfo()?.enemy_capitals||[]).map(c=>c.guard));
-    $('remaining').textContent=s.alive.filter((a,i)=>a&&!guards.has(i)).length;
+    const goalCities=(territoryInfo()?.cities||[]).map((c,i)=>c.objective?i:-1).filter(i=>i>=0);
+    $('remaining').textContent=goalCities.length?goalCities.filter(i=>!s.city_owned?.[i]).length:s.alive.filter((a,i)=>a&&!guards.has(i)).length;
+    $('remaining-label').textContent=goalCities.length?'целевых городов осталось ('+goalCities.map(i=>territoryInfo().cities[i].name).join(', ')+')':'отрядов осталось';
     $('chest-status').hidden=!(map.chests||[]).length;
     $('chest-status').textContent=(s.last_event===21?eventText(snap)+' ':'')+'Сундуков осталось: '+(s.chest_alive||[]).filter(Boolean).length+' / '+(map.chests||[]).length+'. Подойдите на соседнюю клетку, включая диагональ: всё содержимое попадёт в инвентарь.';
     $('wins').textContent=s.alive.filter(v=>!v).length;
@@ -643,7 +693,7 @@
     $('attack-hint').textContent=profile(s.actor)?.unit_type==='Succub'?'Массовое превращение в бесов без урона: выберите любого доступного живого противника.':profile(s.actor)?.unit_type==='Witch'?'Превращение: выберите живого противника.':profile(s.actor)?.unit_type==='Alchemist'?'Дополнительный ход: выберите живого союзника, кроме алхимика и отступающего.':profile(s.actor)?.unit_type==='Patriach'?'Выберите союзника: лечение живого или однократное воскрешение погибшего с 50% HP.':isPowerSupport(s.actor)?(['Dwarfdruid','Arhidruid'].includes(profile(s.actor)?.unit_type)?'Выберите союзника для усиления и очищения; себя — только для очищения.':'Усиление: выберите другого живого союзника.'):isMassHealer(s.actor)?'Массовое лечение всех живых союзников, кроме самого лекаря. Выберите любую доступную карточку.':isHealer(s.actor)?'Лечение: выберите живого союзника.':isMage(s.actor)?'Массовая атака: выберите любого живого врага.':isWarrior(s.actor)?(mask.slice(8,14).some(Boolean)?'Ход воина: выберите подсвеченного врага для удара мечом.':'Воин не достаёт до врагов. Можно защищаться, ждать или отступить.'):'Нажмите на живого противника, чтобы выстрелить.';
     if(isCopier(s.actor))$('attack-hint').textContent='Копирование: выберите доступного бойца любой стороны. Большие юниты и стражи недоступны.';
     if(isSummoner(s.actor))$('attack-hint').textContent='Призыв: выберите свободную клетку своего отряда. Большое существо занимает переднюю и заднюю клетки линии.';
-    const message=s.won?'Победа! Карта очищена.':s.lost?'Ваш отряд погиб. Начните новую игру.':s.done?'Достигнут лимит. Начните новую игру.':s.in_battle?'Выбирайте цели и берегите свой отряд.':!s.movement_points?'Очки перемещения закончились. Можно использовать зелья, строить или отдохнуть.':'Шаг на клетку врага — атака. Рядом с отрядом можно пройти без боя.';
+    const message=s.won?(goalCities.length?'Победа! Целевые города захвачены.':'Победа! Карта очищена.'):s.lost?'Ваш отряд погиб. Начните новую игру.':s.done?'Достигнут лимит. Начните новую игру.':s.in_battle?'Выбирайте цели и берегите свой отряд.':!s.movement_points?'Очки перемещения закончились. Можно использовать зелья, строить или отдохнуть.':'Шаг на клетку врага — атака. Рядом с отрядом можно пройти без боя.';
     $('message').textContent=message;
     $('map-controls').hidden=s.in_battle||capitalOpen||potionsOpen||spellsOpen;$('battle-controls').hidden=!s.in_battle||capitalOpen||potionsOpen||spellsOpen;
     $('continue').hidden=!s.in_battle||!mask[17];
@@ -695,7 +745,7 @@
   function showError(error){$('connection').textContent='Игра недоступна';$('message').textContent=error.message+' Для игры запустите open-numbergrid.cmd.';}
   async function resetGame(){
     if(busy)return;busy=true;render();
-    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||undefined,lord_type:$('lord-type').value||data.map.lord_type||'warrior'});session=result.session;manualMap=result.map;$('version').textContent=manualMap.name;manualConstruction=result.construction;manualTurnRules=result.turn_rules;manualCombat=result.combat;manualCapital=result.capital;manualPotions=result.potions;manualEquipment=result.equipment;manualSites=result.sites;manualRecruitment=result.recruitment;manualTerritory=result.territory;manualRuins=result.ruins;manualSpells=result.spell_research;manualCasting=result.spell_casting;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
+    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||undefined,lord_type:$('lord-type').value||data.map.lord_type||'warrior'});session=result.session;manualMap=result.map;$('version').textContent=manualMap.name;manualConstruction=result.construction;manualTurnRules=result.turn_rules;manualCombat=result.combat;manualCapital=result.capital;manualPotions=result.potions;manualEquipment=result.equipment;manualBattleItems=result.battle_items;manualSites=result.sites;manualRecruitment=result.recruitment;manualTerritory=result.territory;manualRuins=result.ruins;manualSpells=result.spell_research;manualCasting=result.spell_casting;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
     catch(error){busy=false;render();showError(error);return;}
     busy=false;render();
   }

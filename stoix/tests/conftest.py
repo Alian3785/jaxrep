@@ -17,6 +17,15 @@ def current_game():
 
 
 @pytest.fixture(scope='session')
+def default_game():
+    """The Python reference Default map; its battle-item suite shares these programs."""
+    from stoix.envs.number_grid import load_map
+    env = NumberGrid(map_config=load_map('default'))
+    state, _ = compiled_method(env, 'reset')(jax.random.PRNGKey(42))
+    return env, state, compiled_method(env, 'step'), compiled_method(env, 'action_mask')
+
+
+@pytest.fixture(scope='session')
 def human_service(current_game):
     from collections import OrderedDict
     import threading

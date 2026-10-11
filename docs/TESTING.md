@@ -67,7 +67,7 @@ bash scripts/run_gpu.sh -m pytest -q stoix/tests/number_grid_chex_test.py
 на большем бюджете выполняется отдельно по явному запросу пользователя.
 
 ```bash
-bash scripts/run_gpu.sh benchmark_number_grid.py --test-run --total-timesteps 1000000 --output results/test-learner/RUN --wandb-mode disabled
+bash scripts/run_gpu.sh benchmark_number_grid.py --test-run --total-timesteps 1000000 --output results/test-learner/RUN --tracking disabled
 ```
 
 В режиме `--test-run` бюджет по умолчанию равен 1 млн; превышение отклоняется

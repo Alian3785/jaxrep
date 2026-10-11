@@ -1,14 +1,98 @@
 """Reporting regressions included in the project's GPU-only test session."""
-from argparse import Namespace
+from argparse import ArgumentParser, Namespace
+import json
+import sys
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
 
-from numbergrid_tracking import NumberGridTracking
+from numbergrid_tracking import NumberGridTracking, add_tracking_arguments
 
 
 def tracker():
-    return NumberGridTracking(Namespace(wandb_mode='disabled'))
+    return NumberGridTracking(tracking_args('--tracking', 'disabled'))
+
+
+def tracking_args(*argv):
+    parser = ArgumentParser()
+    add_tracking_arguments(parser)
+    return parser.parse_args(list(argv))
+
+
+@pytest.fixture
+def services(monkeypatch):
+    """Fake W&B and Comet modules: no network, no saved keys touched."""
+    monkeypatch.setenv('COMET_DISABLE_AUTO_LOGGING', '1')
+    wandb = SimpleNamespace(__version__='test', login=Mock(return_value=True), Settings=dict, init=Mock())
+    wandb.init.side_effect = lambda **kwargs: Mock(
+        id='w1', project=kwargs['project'], dir=kwargs['dir'] + '/wandb/run/files',
+        url='https://wandb.test/run' if kwargs['mode'] == 'online' else None)
+    experiment = Mock(alive=True, url='https://comet.test/run', project_name='numbergrid')
+    experiment.get_key.return_value = 'c1'
+    comet = SimpleNamespace(__version__='test', get_config=Mock(), ExperimentConfig=dict,
+                            start=Mock(return_value=experiment))
+    comet.get_config.return_value.get_string.return_value = 'saved-key'
+    monkeypatch.setitem(sys.modules, 'wandb', wandb)
+    monkeypatch.setitem(sys.modules, 'comet_ml', comet)
+    return wandb, comet, experiment
+
+
+def start(tmp_path, *argv):
+    tracking = NumberGridTracking(tracking_args(*argv))
+    tracking.start(tmp_path, {'env': {'kwargs': {'map_config': {'size': 48}}}}, {'size': 48}, {})
+    return tracking
+
+
+def test_auto_tracking_prefers_reachable_wandb_cloud(tmp_path, services):
+    wandb, comet, _ = services
+    tracking = start(tmp_path)
+    assert tracking.metadata['service'] == 'wandb' and tracking.metadata['mode'] == 'online'
+    assert tracking.metadata['url'] == 'https://wandb.test/run'
+    assert wandb.login.call_args.kwargs['verify'] is True
+    comet.start.assert_not_called()
+
+
+def test_auto_tracking_uses_comet_when_wandb_cloud_is_blocked(tmp_path, services, capsys):
+    wandb, comet, experiment = services
+    wandb.login.side_effect = RuntimeError('Failed to authenticate: 403 Forbidden')
+    with start(tmp_path) as tracking:
+        tracking.log({'training_steps': 1_000_000, 'episodes/wins': 3})
+        tracking.summary({'training_steps': 1_000_000, 'tracking': {'nested': True}})
+    wandb.init.assert_not_called()
+    metadata = json.loads((tmp_path / 'tracking.json').read_text())
+    assert metadata['service'] == 'comet' and metadata['url'] == 'https://comet.test/run'
+    assert metadata['skipped'] == ['W&B cloud: RuntimeError: Failed to authenticate: 403 Forbidden']
+    assert metadata['status'] == 'finished'
+    assert 'Comet charts: https://comet.test/run' in capsys.readouterr().out
+    experiment.log_metrics.assert_called_once_with({'episodes/wins': 3}, step=1_000_000)
+    experiment.log_others.assert_called_once_with({'training_steps': 1_000_000})
+    parameters = experiment.log_parameters.call_args.args[0]
+    assert 'map_config' not in parameters['training']['env']['kwargs']
+    experiment.end.assert_called_once()
+
+
+def test_auto_tracking_records_offline_wandb_without_comet_key(tmp_path, services):
+    wandb, comet, _ = services
+    wandb.login.return_value = False
+    comet.get_config.return_value.get_string.return_value = None
+    tracking = start(tmp_path)
+    comet.start.assert_not_called()
+    assert tracking.metadata['service'] == 'wandb' and tracking.metadata['mode'] == 'offline'
+    assert tracking.metadata['url'] is None
+    assert tracking.metadata['skipped'] == ['W&B cloud: not logged in',
+                                            'Comet: RuntimeError: API key is not configured; run login-comet.cmd']
+
+
+@pytest.mark.parametrize('choice', ['wandb', 'comet'])
+def test_explicit_tracking_service_never_falls_back(tmp_path, services, choice):
+    wandb, comet, experiment = services
+    wandb.login.return_value = False
+    experiment.alive = False
+    with pytest.raises(RuntimeError):
+        start(tmp_path, '--tracking', choice)
+    wandb.init.assert_not_called()
+    assert comet.start.called == (choice == 'comet')
 
 
 @pytest.mark.parametrize('source', ['flag', 'environment', 'pytest'])
@@ -97,15 +181,17 @@ def test_failed_training_finishes_wandb_as_failed():
     run.finish.assert_called_once_with(exit_code=1)
 
 
-def test_disabled_tracking_preserves_metadata_without_creating_wandb_run(tmp_path):
+def test_disabled_tracking_preserves_metadata_without_creating_a_run(tmp_path, services):
+    wandb, comet, _ = services
     with tracker() as tracking:
         tracking.start(tmp_path, {}, {}, {})
         tracking.log({'training_steps': 0})
         assert tracking.run is None
-    import json
-    metadata = json.loads((tmp_path / 'wandb.json').read_text())
-    assert metadata['mode'] == 'disabled'
+    metadata = json.loads((tmp_path / 'tracking.json').read_text())
+    assert metadata['mode'] == 'disabled' and metadata['service'] is None
     assert metadata['status'] == 'finished'
+    wandb.login.assert_not_called()
+    comet.start.assert_not_called()
 
 
 def test_million_step_summary_includes_all_episodes_with_weighted_means():
@@ -168,7 +254,6 @@ def test_smoke_run_shorter_than_interval_still_has_training_chart_point():
 def comparison_runs(tmp_path):
     """Create complete run metadata without starting a learner."""
     import copy
-    import json
     game_map = {'name': 'before', 'size': 48, 'enemy_rosters': [['squire']]}
     config = {'arch': {'seed': 42, 'total_timesteps': 1_000_000, 'num_envs': 250},
               'env': {'kwargs': {'map_config': game_map}},
@@ -211,7 +296,6 @@ def test_comparison_accepts_normalized_packages_and_only_declared_map_change(com
 
 def test_comparison_rejects_ppo_seed_budget_dependency_and_metadata_drift(comparison_runs):
     """Settings omitted by the former six-field check must invalidate speed comparisons."""
-    import json
     from scripts.run_unit_action_stage import validate_comparison
     write, _ = comparison_runs
     before = write('before')

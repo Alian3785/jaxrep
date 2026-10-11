@@ -16,9 +16,8 @@ def transform_imp(env,state,used,slots,selected):
            else env.size_table[state.enemy])
     priority=jnp.where(selected & (state.turn_phase[slots]<2),
                        jnp.where(sizes[slots]==2,50.,30.),state.priority[slots])
+    state=_suspend_weakening(state,slots,selected,first)
     state=state.replace(
-        saved_weakened=state.saved_weakened.at[slots].set(jnp.where(first,state.weakened[slots],state.saved_weakened[slots])),
-        weakened=state.weakened.at[slots].set(state.weakened[slots]&~selected),
         imp=state.imp.at[slots].set(state.imp[slots]|selected),
         imp_wards=state.imp_wards.at[slots].set(saved),
         priority=state.priority.at[slots].set(priority))
@@ -28,7 +27,12 @@ def transform_imp(env,state,used,slots,selected):
 def transform_decay(env,state,hp,used,slots,selected):
     lower=env.progression.lower_forms[env._effective_ids(state)[slots]]
     lower=jnp.where(state.fenrir[slots] & (state.decay_form[slots]==0),0,lower)
-    selected &= lower>0
+    return transform_form(env,state,hp,used,slots,selected,lower)
+
+
+def transform_form(env,state,hp,used,slots,selected,forms):
+    """Wight level-down and Orb of Lycanthropy: a temporary catalogue form."""
+    selected &= forms>0
     first=selected & ~state.imp[slots] & (state.decay_form[slots]==0)
     old_max=env._combat_stats(state)[slots,HP]
     mask=jnp.zeros(12,bool).at[slots].set(selected)
@@ -36,20 +40,29 @@ def transform_decay(env,state,hp,used,slots,selected):
     state=env._capture_initiative_form(state,mask,first_mask)
     state=env._capture_ward_forms(state,mask,first_mask)
     state=env._capture_damage_forms(state,mask,first_mask)
-    native=env.progression.base_stats[lower]
+    native=env.progression.base_stats[forms]
     scaled=jnp.rint(hp[slots]/jnp.maximum(old_max,1)*native[:,HP]).astype(jnp.int32)
     scaled=jnp.where(hp[slots]>0,jnp.maximum(scaled,1),0)
     hp=hp.at[slots].set(jnp.where(selected,scaled,hp[slots]))
     saved=jnp.where(first,used[slots],state.imp_wards[slots])
+    state=_suspend_weakening(state,slots,selected,first)
     state=state.replace(
-        saved_weakened=state.saved_weakened.at[slots].set(jnp.where(first,state.weakened[slots],state.saved_weakened[slots])),
-        weakened=state.weakened.at[slots].set(state.weakened[slots]&~selected),
-        decay_form=state.decay_form.at[slots].set(jnp.where(selected,lower,state.decay_form[slots])),
+        decay_form=state.decay_form.at[slots].set(jnp.where(selected,forms,state.decay_form[slots])),
         decay_shreds=state.decay_shreds.at[slots].set(jnp.where(selected,0,state.decay_shreds[slots])),
         imp=state.imp.at[slots].set(state.imp[slots]&~selected),
         imp_wards=state.imp_wards.at[slots].set(saved),
         priority=state.priority.at[slots].set(jnp.where(selected & (state.turn_phase[slots]<2),native[:,INITIATIVE],state.priority[slots])))
     return state,hp,used.at[slots].set(jnp.where(selected,jnp.uint32(0),used[slots])),selected
+
+
+def _suspend_weakening(state,slots,selected,first):
+    """A temporary form starts unweakened; the native form keeps its debuff."""
+    update={}
+    for name in ('weakened','item_weakened'):
+        current,saved=getattr(state,name),getattr(state,'saved_'+name)
+        update['saved_'+name]=saved.at[slots].set(jnp.where(first,current[slots],saved[slots]))
+        update[name]=current.at[slots].set(current[slots]&~selected)
+    return state.replace(**update)
 
 
 def equipment_attack(env,state,hp,used,target,connected,inflicted,random_values):

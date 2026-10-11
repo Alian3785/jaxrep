@@ -62,10 +62,12 @@ def train(args):
     started = time.perf_counter()
     with NumberGridTracking(args) as tracking:
         result = run_training(args, tracking)
-    result['wandb'] = tracking.metadata.copy()
+    result['tracking'] = tracking.metadata.copy()
     result['total_runner_seconds'] = time.perf_counter() - started
     save_json(tracking.output / 'results.json', result)
     save_json(tracking.output / 'status.json', dict(phase='complete', **result))
+    if result['tracking']['url']:
+        print('Charts: ' + result['tracking']['url'], flush=True)
     return result
 
 
@@ -222,10 +224,10 @@ def run_training(args, tracking):
         mean_steps_per_second=total/training_seconds, ppo_compile_seconds=compile_seconds,
         training_loop_seconds=training_loop_seconds,
         training_loop_steps_per_second=total/training_loop_seconds,
-        wandb_logging_seconds=tracking.logging_seconds,
-        wandb_init_seconds=tracking.metadata['init_seconds'],
+        tracking_logging_seconds=tracking.logging_seconds,
+        tracking_init_seconds=tracking.metadata['init_seconds'],
         completed_training_episodes=tracking.episodes, won_training_episodes=tracking.wins,
-        wandb=tracking.metadata.copy(),
+        tracking=tracking.metadata.copy(),
         initial_evaluation=initial, final_evaluation=final, sampled_evaluation=sampled,
         initial_evaluation_seconds=initial_evaluation_seconds,
         final_evaluation_seconds=final_evaluation_seconds,

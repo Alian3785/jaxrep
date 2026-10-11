@@ -32,6 +32,8 @@ from stoix.envs import number_grid_battle_items as battle_items
 from stoix.envs import number_grid_hero_skills as hero_skills
 from stoix.envs.number_grid_battle_items import (BattleItemRules, battle_item_action_names, battle_items_enabled,
     BATTLE_ITEM)
+from stoix.envs.number_grid_unit_swaps import UnitSwapRules, unit_swap_action_names, UNITS_SWAPPED
+from stoix.envs import number_grid_unit_swaps as unit_swaps
 from stoix.envs.number_grid_wards import ward_tags, grant_wards, expire_wards
 from stoix.envs.number_grid_effects import armor_after_shreds, source_protection, advance_poison_queue, advance_periodic_queue, vampiric_heal
 from stoix.envs.number_grid_buildings import (
@@ -65,7 +67,8 @@ def action_names(game_map):
         f'copy_ally_{slot}' for slot in range(6)) + tuple(
         f'potion_{item["key"]}_{slot}' for item in scenario_potions(game_map) for slot in range(6)) + trade_action_names(
         game_map) + recruit_action_names(game_map) + (tuple('upgrade_city_'+str(i) for i in range(len(game_map.get('cities', []))))
-        if game_map.get('territory') else ()) + research_action_names(game_map) + cast_action_names(game_map) + battle_item_action_names(game_map)
+        if game_map.get('territory') else ()) + research_action_names(game_map) + cast_action_names(game_map) + battle_item_action_names(game_map) + unit_swap_action_names(
+        game_map)
 
 
 ACTION_NAMES = action_names(MAP)
@@ -174,6 +177,11 @@ class BattleState(NumberGridState):
     last_cast_spell: jax.Array
     last_spell_target: jax.Array
     last_spell_amount: jax.Array
+    scroll_magic: jax.Array  # scrolls/staves readable: map flag, mage hero or the hired reader
+    last_cast_item: jax.Array  # scenario scroll/staff of the latest cast, -1 for the book
+    unit_swaps_today: jax.Array  # successful party swaps since the last REST
+    unit_swaps_used: jax.Array  # swap actions already used since the last REST, one bit each
+    last_swap: jax.Array  # swap pair of the latest map transition, -1 for none
     territory_claims: jax.Array
     city_owned: jax.Array
     city_levels: jax.Array
@@ -579,7 +587,8 @@ class NumberGrid(Summoning, NumericNumberGrid):
             if not self.spell_research_enabled:
                 raise ValueError('Spell casting requires spell research')
             self.casting = SpellCastRules(game_map, self.spell_research, self.construction, self.progression,
-                self.territory, self.ruins if self.ruins_enabled else None, self.num_actions)
+                self.territory, self.ruins if self.ruins_enabled else None, self.num_actions,
+                self.item_rules if self.items_enabled else None)
             self.num_actions = self.casting.end
             self.has_spell_mods = self.casting.has_mods
             self.has_spell_wards = self.casting.has_wards
@@ -587,38 +596,44 @@ class NumberGrid(Summoning, NumericNumberGrid):
         if self.battle_items_enabled:
             self.battle_item_rules.place(self.num_actions)
             self.num_actions = self.battle_item_rules.end
+        self.unit_swaps_enabled = unit_swaps.enabled(game_map)
+        if self.unit_swaps_enabled:
+            if not self.progression_enabled:
+                raise ValueError('Unit swaps require unit progression')
+            self.unit_swaps = UnitSwapRules(game_map, self.progression, self.num_actions)
+            self.num_actions = self.unit_swaps.end
         if self.basic_combat:
             self.terrain = TerrainRules(game_map, self.progression if self.progression_enabled else None)
         self.restored_hp = jnp.concatenate((self.hero_full, jnp.zeros(6, jnp.int32)))
         # User-defined prototype rule: ceil(10% max HP) once per strategic rest.
         self.rest_healing = jnp.concatenate(((self.hero_full + 9) // 10, jnp.zeros(6, jnp.int32)))
         self.observation_version = int(game_map.get('battle_observation_version', 1))
-        if self.basic_combat and self.observation_version not in (7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40):
+        if self.basic_combat and self.observation_version not in (7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42):
             raise ValueError('Combat rules version 2 requires observation version 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 or 18')
-        if not self.basic_combat and self.observation_version in (4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40):
+        if not self.basic_combat and self.observation_version in (4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42):
             raise ValueError('Observation versions 7вЂ“18 require combat rules version 2')
-        if (self.warrior_slot >= 0 or self.has_enemy_warriors) and self.observation_version not in (3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40):
+        if (self.warrior_slot >= 0 or self.has_enemy_warriors) and self.observation_version not in (3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42):
             raise ValueError('Warrior maps require battle_observation_version 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 or 18')
-        self.observation_size = (4 + 5 * self.num_opponents + (141 if self.basic_combat else 48) + 6 if self.observation_version in (2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40)
+        self.observation_size = (4 + 5 * self.num_opponents + (141 if self.basic_combat else 48) + 6 if self.observation_version in (2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42)
                                  else self.observation_size + 2 * self.num_opponents + 12 * 8 + 6)
 
-        if self.observation_version in (8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40):
+        if self.observation_version in (8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42):
             self.observation_size += 48
-        if self.progression_enabled != (self.observation_version in (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40)):
+        if self.progression_enabled != (self.observation_version in (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42)):
             raise ValueError('Unit progression requires observation version 9, 10, 11, 12, 13, 14, 15, 16, 17 or 18')
         if self.progression_enabled:
             self.observation_size += 60
         if self.observation_version >= 10:
             self.observation_size += 12
-        if self.capital_enabled != (self.observation_version in (11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40)):
+        if self.capital_enabled != (self.observation_version in (11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42)):
             raise ValueError("Capital services require observation version 11, 12, 13, 14, 15, 16, 17 or 18")
         if self.capital_enabled:
             self.observation_size += 17
-        if self.potions_enabled != (self.observation_version in (12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40)):
+        if self.potions_enabled != (self.observation_version in (12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42)):
             raise ValueError("Map potions require observation version 12, 13, 14, 15, 16, 17 or 18")
         if self.potions_enabled:
             self.observation_size += self.potion_rules.count+(36 if self.has_potion_buffs else 0)
-        if self.chests_enabled != (self.observation_version in (13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40)):
+        if self.chests_enabled != (self.observation_version in (13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42)):
             raise ValueError('Map chests require observation version 13, 14, 15, 16, 17 or 18')
         if self.chests_enabled:
             self.observation_size += (1+self.chest_rules.features.shape[1])*self.chest_rules.count
@@ -651,11 +666,17 @@ class NumberGrid(Summoning, NumericNumberGrid):
         if self.spell_casting_enabled:
             if self.observation_version < 39:
                 raise ValueError('Spell casting requires observation version 39')
+            if self.casting.item_count and self.observation_version < 41:
+                raise ValueError('Scrolls and staves require observation version 41')
             self.observation_size += self.casting.observation_size
         if self.battle_items_enabled:
             if self.observation_version < 40:
                 raise ValueError('Battle items require observation version 40')
             self.observation_size += self.battle_item_rules.observation_size
+        if self.unit_swaps_enabled:
+            if self.observation_version < 42:
+                raise ValueError('Unit swaps require observation version 42')
+            self.observation_size += self.unit_swaps.observation_size
         if self.observation_version >= 14:
             self.observation_size += 12
         if self.observation_version >= 15:
@@ -750,7 +771,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             potion_active=jnp.zeros(12,jnp.uint32),potion_wards=jnp.zeros(12,jnp.uint32),
             learned_spells=jnp.uint32(0), spell_researched_today=jnp.bool_(False),
             last_researched_spell=jnp.int32(-1), mana=jnp.zeros(5,jnp.int32),
-            spell_casts=jnp.zeros(self.casting.count if self.spell_casting_enabled else 0,jnp.int32),
+            spell_casts=jnp.zeros(self.casting.book_count if self.spell_casting_enabled else 0,jnp.int32),
             spell_effects=jnp.uint32(0),
             enemy_spell_effects=jnp.zeros(self.num_opponents if self.spell_casting_enabled else 0,jnp.uint32),
             enemy_wounds=jnp.zeros((self.num_opponents if self.spell_casting_enabled else 0,6),jnp.int32),
@@ -758,6 +779,9 @@ class NumberGrid(Summoning, NumericNumberGrid):
             summon_battle=jnp.bool_(False), spell_party=jnp.zeros((4,6),jnp.int32),
             spell_mods=jnp.tile(jnp.array((0.,1.,1.,0.,1.),jnp.float32),(12,1)), spell_wards=jnp.zeros(12,jnp.uint32),
             last_cast_spell=jnp.int32(-1), last_spell_target=jnp.int32(-1), last_spell_amount=zero,
+            scroll_magic=jnp.bool_(self.spell_casting_enabled and self.casting.scroll_magic_start),
+            last_cast_item=jnp.int32(-1),
+            unit_swaps_today=zero, unit_swaps_used=jnp.uint32(0), last_swap=jnp.int32(-1),
             territory_claims=self.territory.initial_claims if self.territory_enabled else jnp.zeros(0,jnp.int32),
             city_owned=jnp.zeros(self.territory.count if self.territory_enabled else 0,bool),
             city_levels=self.territory.initial_levels if self.territory_enabled else jnp.zeros(0,jnp.int32),
@@ -1345,7 +1369,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         if self.basic_combat:
             context = jnp.concatenate((context, self.construction.observation(state), jnp.asarray(
                 [state.gold / 1000., state.movement_points / MAX_MOVEMENT_POINTS], jnp.float32)))
-        if self.observation_version in (2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40):
+        if self.observation_version in (2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42):
             # No duplicate max-HP arrays or obsolete numeric battle strengths.
             # Signed queue priority contains both order and waiting/acted status.
             world = jnp.stack((self.opponent_positions[:,0] / (self.size-1),
@@ -1354,7 +1378,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             active = (state.hp > 0) & ~state.escaped
             queue = jnp.where(active & (state.turn_phase == 0), state.priority,
                              jnp.where(active & (state.turn_phase == 1), -state.priority, 0.))
-            hp_scale = (jnp.maximum(self.max_hp(state), 1) if self.observation_version in (3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40)
+            hp_scale = (jnp.maximum(self.max_hp(state), 1) if self.observation_version in (3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42)
                         else self.hero_hp)
             if self.basic_combat:
                 queue /= self.priority_scale
@@ -1375,7 +1399,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
                 growth = jnp.stack((ids / (len(self.progression.rows)-1), xp[:, 0]/100.,
                                    xp[:, 1]/1000., xp[:, 2]/10000., xp[:, 3]/jnp.maximum(xp[:, 2], 1)), axis=1)
                 context = jnp.concatenate((growth.reshape(-1), context))
-            if self.observation_version in (8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40):
+            if self.observation_version in (8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42):
                 # Compact exact source/bitset encoding; keeps the GPU policy input small.
                 context = jnp.concatenate((self.unit_traits(state).reshape(-1) /
                                            jnp.tile(jnp.array([4. if self.observation_version >= 10 else 3., 9., 511., 511.]), 12), context))
@@ -1440,6 +1464,8 @@ class NumberGrid(Summoning, NumericNumberGrid):
                 context=jnp.concatenate((context,self.casting.observation(state)))
             if self.battle_items_enabled:
                 context=jnp.concatenate((context,self.battle_item_rules.observation(state)))
+            if self.unit_swaps_enabled:
+                context=jnp.concatenate((context,self.unit_swaps.observation(state)))
             return jnp.concatenate((state.position / (self.size-1),
                                     jnp.asarray([state.number / self.number_scale,
                                                  state.step_count / self.max_steps],jnp.float32),
@@ -1550,6 +1576,8 @@ class NumberGrid(Summoning, NumericNumberGrid):
         if self.battle_items_enabled and self.battle_item_rules.count:
             rules = self.battle_item_rules
             mask = jnp.concatenate((mask, rules.equip_available(self, state), rules.use_available(self, state)))
+        if self.unit_swaps_enabled:
+            mask = jnp.concatenate((mask, self.unit_swaps.available(state)))
         if self.has_copies:
             copy = self._actor_copies(state) & controlled
             valid_copy = self._copy_targets(state)
@@ -1754,10 +1782,15 @@ class NumberGrid(Summoning, NumericNumberGrid):
         if self.recruitment_enabled:
             next_state, hire_bonus = self.recruitment.apply(next_state, action, self._clear_roster_slots)
             bonus += hire_bonus
+        if self.unit_swaps_enabled:
+            next_state, swap_bonus = self.unit_swaps.apply(next_state, action, resting)
+            bonus += swap_bonus
         if self.items_enabled:
             changed=resting | jnp.any(next_state.last_item_loot>0) | (next_state.last_potion>=0) | (action>=REVIVE_START)&(action<REVIVE_START+6)
             if self.recruitment_enabled:
                 changed |= (next_state.last_event == HIRED) | (next_state.last_event == DISMISSED)
+            if self.unit_swaps_enabled:
+                changed |= next_state.last_event == UNITS_SWAPPED  # the equipment holder may change
             next_state=jax.lax.cond(changed,self._refresh_equipment,lambda s:s,next_state)
         if self.battle_items_enabled and self.battle_item_rules.count:
             rules = self.battle_item_rules
@@ -2583,14 +2616,14 @@ class NumberGrid(Summoning, NumericNumberGrid):
         if self.spell_casting_enabled:
             # One nearest-stack search serves the validity check and the cast itself.
             spell_targets = self.casting.targets(state)
-            index = jnp.clip(action-self.casting.start, 0, self.casting.count-1)
-            world_valid |= ((action >= self.casting.start) & (action < self.casting.end)
-                            & self.casting.available(state, self.max_hp(state), self.movement_cap(state), spell_targets, index))
+            world_valid |= self.casting.valid(state, action, self.max_hp(state), self.movement_cap(state), spell_targets)
         item_rules = self.battle_item_rules if self.battle_items_enabled and self.battle_item_rules.count else None
         if item_rules is not None:
             index = jnp.clip(action-item_rules.equip_start, 0, item_rules.count-1)
             world_valid |= ((action >= item_rules.equip_start) & (action < item_rules.use_start)
                             & item_rules.equip_available(self, state)[index])
+        if self.unit_swaps_enabled:
+            world_valid |= self.unit_swaps.valid(state, action)
         controlled = (state.actor < 6) & ~state.retreating[state.actor] & ~state.paralyzed[state.actor] & ~state.long_paralyzed[state.actor]
         target_slot = jnp.clip(action - SHOOT, 0, 5)
         own_target = self._actor_is_healer(state) if self.basic_combat and self.has_healers else jnp.bool_(False)

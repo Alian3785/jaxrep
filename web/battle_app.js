@@ -5,7 +5,7 @@
   const canvas=$('board'), ctx=canvas.getContext('2d');
   let mode='manual', session=null, manual=null, manualMap=null, busy=false, frame=0, recordIndex=0, timer=null, messages=[];
   let manualConstruction=null, manualTurnRules=null, manualCombat=null, manualCapital=null, manualPotions=null, capitalOpen=false, potionsOpen=false, selectedPotion=0, capitalKey=null;
-  let manualEquipment=null, manualBattleItems=null, manualSites=null, manualRecruitment=null, manualTerritory=null, manualRuins=null, manualSpells=null, manualCasting=null, spellsOpen=false;
+  let manualEquipment=null, manualBattleItems=null, manualSites=null, manualRecruitment=null, manualTerritory=null, manualRuins=null, manualSpells=null, manualCasting=null, manualSwaps=null, spellsOpen=false;
   const records=data.records||[];
   const combatInfo=()=>mode==='manual'?(manualCombat||data.combat):data.combat;
   const heroLevel=snap=>Math.max(0,...[0,1,2,3,4,5].filter(i=>combatInfo()?.catalogue?.[snap.state.unit_ids?.[i]]?.hero).map(i=>snap.unit_experience?.[i]?.[0]||0));
@@ -50,6 +50,7 @@
   const territoryInfo=()=>mode==='manual'?(manualTerritory||data.territory):data.territory;
   const spellInfo=()=>mode==='manual'?(manualSpells||data.spell_research):data.spell_research;
   const castInfo=()=>mode==='manual'?(manualCasting||data.spell_casting):data.spell_casting;
+  const swapInfo=()=>mode==='manual'?(manualSwaps||data.unit_swaps):data.unit_swaps;
   const manaNames=['Преисподняя','Жизнь','Смерть','Руны','Природа'];
   const elementNames={weapon:'оружия',earth:'Земли',fire:'Огня',water:'Воды',poison:'яда',death:'Смерти',mind:'Разума',life:'Жизни',air:'Воздуха'};
   const statNames={armor:'броня',damage:'урон',accuracy:'точность',initiative:'инициатива'};
@@ -98,7 +99,7 @@
       return card;
     }));
     // Spells of another faction bought in a spell shop: no research, one cast per day.
-    $('spell-list').append(...(casting?.spells||[]).slice(info.spells.length).map((cast,k)=>{
+    $('spell-list').append(...(casting?.spells||[]).slice(info.spells.length).filter(c=>!c.item_only).map((cast,k)=>{
       const i=info.spells.length+k,learned=(snap.state.learned_spells>>>i)&1;
       const card=document.createElement('article');card.className='spell-card'+(learned?' is-learned':'');
       card.hidden=$('spell-level').value!=='all'&&Number($('spell-level').value)!==cast.level;
@@ -117,6 +118,30 @@
       castButton.disabled=mode!=='manual'||busy||!session||!snap.action_mask[cast.action];castButton.onclick=()=>sendAction(cast.action);
       card.append(effect,price,castState,castButton);
     }
+    renderScrolls(snap,casting,quotes);
+  }
+  // Scrolls and staves: docs/SCROLLS_AND_STAVES.md.
+  function renderScrolls(snap,casting,quotes){
+    const items=casting?.items||[],s=snap.state;
+    $('scroll-section').hidden=!items.length;
+    if(!items.length)return;
+    $('scroll-status').textContent=(s.scroll_magic?'Свитки и посохи читает отряд героя.':'Читать свитки некому: нужен герой-маг или нанятый маг ('+fmt(casting.hire_cost)+' золота, один раз за игру).')+' Свиток не требует маны и сгорает. Посох остаётся, тратит свою ману и требует героя-мага, правителя-мага или мудрость магии ('+casting.lore_level+' уровень героя). Дневного лимита нет; одно и то же заклинание не складывается.';
+    const hire=document.createElement('button');hire.dataset.action=casting.hire_action;hire.textContent='Нанять мага · '+fmt(casting.hire_cost)+' золота';
+    hire.hidden=!!s.scroll_magic;hire.disabled=mode!=='manual'||busy||!session||!snap.action_mask[casting.hire_action];hire.onclick=()=>sendAction(casting.hire_action);
+    $('scroll-hire').replaceChildren(hire);
+    const labels=['Можно применить','Нужен маг для чтения свитков','Нет в инвентаре','Недостаточно маны','Нет цели или эффект уже действует','Недоступно во время боя','Игра завершена','Нужен герой-маг, правитель-маг или мудрость магии'];
+    $('scroll-list').replaceChildren(...items.map((item,k)=>{
+      const spell=casting.spells[item.spell],owned=quotes?.owned?.[k]??0,code=quotes?.item_status?.[k]??6,target=quotes?.item_target?.[k]??-1;
+      const card=document.createElement('article');card.className='spell-card'+(owned?' is-learned':'');
+      const title=document.createElement('h3');title.textContent=item.name+' · '+owned+' шт.';
+      const label=document.createElement('p');label.textContent=item.label;
+      const effect=document.createElement('p');effect.className='spell-effect';effect.textContent=castEffect(spell);
+      const price=document.createElement('p');price.className='spell-cost';price.textContent=item.cast_mana?'Применение: '+item.cast_mana.map((n,j)=>n?manaNames[j]+' '+fmt(n):null).filter(Boolean).join(' · '):'Применение: без маны, свиток сгорает';
+      const state=document.createElement('p');state.className='spell-state';state.textContent=labels[code]+(code===0&&target>=0?' · цель: отряд № '+(target+1):'');
+      const button=document.createElement('button');button.dataset.action=item.action;button.textContent=item.category==='scroll'?'Прочитать':'Применить';button.setAttribute('aria-label',button.textContent+': '+item.name);
+      button.disabled=mode!=='manual'||busy||!session||!snap.action_mask[item.action];button.onclick=()=>sendAction(item.action);
+      card.append(title,label,effect,price,state,button);return card;
+    }));
   }
   const ruinInfo=()=>mode==='manual'?(manualRuins||data.ruins):data.ruins;
   const lootText=ruin=>[...Object.entries(ruin.potions||{}),...Object.entries(ruin.items||{})].filter(([,n])=>n).map(([key,n])=>(potionInfo()?.find(p=>p.key===key)?.name||equipmentInfo()?.items.find(p=>p.key===key)?.name||key)+' × '+n).concat(ruin.gold?[fmt(ruin.gold)+' золота']:[]).join(', ');
@@ -560,6 +585,27 @@
     }
     $('hero-experience').replaceChildren(...cards);
   }
+  // Slots 0-2: front row, 3-5: back row; slot s and s+3 form a column.
+  const swapCell=i=>(i<3?'Перед ':'Тыл ')+(i%3+1);
+  const swapUnit=i=>current()?.state.unit_ids?.[i]?role(i):i>=3&&profile(i-3)?.size===2?'('+role(i-3)+')':'пусто';
+  function renderSwaps(snap){
+    const info=swapInfo(),s=snap.state;$('unit-swaps').hidden=!info;if(!info)return;
+    $('swap-status').textContent=s.done?'Эпизод завершён.':s.in_battle?'Перестановка доступна после боя.':'Сегодня осталось '+(info.limit-s.unit_swaps_today)+' из '+info.limit+'. Каждая пара — один раз за ход. Очки перемещения не тратятся; штраф −'+fmt(info.penalty)+' за перестановку. Большой боец переносит всю свою линию.';
+    $('swap-formation').replaceChildren(...[0,1,2].flatMap(c=>[c+3,c]).map(i=>{
+      const cell=document.createElement('span');cell.className=s.unit_ids?.[i]?'':'empty';
+      cell.textContent=swapCell(i)+': '+swapUnit(i)+(s.unit_ids?.[i]?' · '+s.hp[i]+' HP':'');return cell;
+    }));
+    $('swap-actions').replaceChildren(...info.pairs.map(([a,b],k)=>{
+      const button=document.createElement('button');button.dataset.action=info.start+k;
+      button.textContent=swapCell(a)+' ⇄ '+swapCell(b);button.title=swapUnit(a)+' ⇄ '+swapUnit(b);
+      button.onclick=()=>sendAction(info.start+k);return button;
+    }));
+  }
+  function swapText(s){
+    const info=swapInfo(),[a,b]=info?.pairs?.[s.last_swap]||[];if(a==null)return null;
+    const big=[a,b].some(i=>profile(i%3)?.size===2);
+    return 'Перестановка: '+swapCell(a)+' ⇄ '+swapCell(b)+(big?', большой боец перенёс всю линию':'')+'. Осталось сегодня: '+(info.limit-s.unit_swaps_today)+'. Штраф −'+fmt(info.penalty)+'.';
+  }
   function xpSummary(snap){
     const parts=[];
     for(let i=0;i<12;i++){
@@ -577,22 +623,25 @@
   const summonEnded=s=>castInfo()?.spells[s.last_cast_spell]?.kind==='summon_battle';
   function castText(s){
     const spell=castInfo()?.spells[s.last_cast_spell];if(!spell)return '';
-    const stack='отряд № '+(s.last_spell_target+1);
-    if(s.last_event===50)return 'Заклинание «'+spell.name+'»: '+spell.unit_name+' вступает в отдельный бой, '+stack+'.';
-    if(s.last_event===49)return 'Заклинание «'+spell.name+'» уничтожило '+stack+' (−'+s.last_spell_amount+' HP). Награды за победу нет.';
+    const stack='отряд № '+(s.last_spell_target+1),item=s.last_cast_item>=0?castInfo()?.items?.[s.last_cast_item]:null;
+    const name=(item?(item.category==='scroll'?'Свиток':'Посох')+' «'+item.name+'»: з':'З')+'аклинание «'+spell.name+'»';
+    if(s.last_event===50)return name+': '+spell.unit_name+' вступает в отдельный бой, '+stack+'.';
+    if(s.last_event===49)return name+' уничтожило '+stack+' (−'+s.last_spell_amount+' HP). Награды за победу нет.';
     switch(spell.kind){
-      case 'damage':return 'Заклинание «'+spell.name+'»: '+stack+' теряет '+s.last_spell_amount+' HP. Раны сохраняются, враг восстанавливает их каждый ход.';
-      case 'debuff':return 'Заклинание «'+spell.name+'» ослабило '+stack+' до следующего хода.';
-      case 'heal':return 'Заклинание «'+spell.name+'»: восстановлено '+s.last_spell_amount+' HP.';
-      case 'moves':return 'Заклинание «'+spell.name+'»: +'+s.last_spell_amount+' очков перемещения.';
+      case 'damage':return name+': '+stack+' теряет '+s.last_spell_amount+' HP. Раны сохраняются, враг восстанавливает их каждый ход.';
+      case 'debuff':return name+' ослабило '+stack+' до следующего хода.';
+      case 'heal':return name+': восстановлено '+s.last_spell_amount+' HP.';
+      case 'moves':return name+': +'+s.last_spell_amount+' очков перемещения.';
     }
-    return 'Заклинание «'+spell.name+'» действует на отряд героя до следующего хода.';
+    return name+' действует на отряд героя до следующего хода.';
   }
   function actionEventText(snapshot){
     const s=snapshot.state,a=unitName(s.last_actor),t=unitName(s.last_target);
     switch(s.last_event){
       case 47:return 'Изучено заклинание: '+spellInfo()?.spells[s.last_researched_spell]?.name+'. Следующее исследование доступно завтра.';
       case 48:case 49:case 50:return castText(s);
+      case 55:return swapText(s);
+      case 54:return 'Нанят маг для чтения свитков · −'+fmt(castInfo()?.hire_cost??500)+' золота. Свитки и посохи доступны до конца игры.';
       case 43:return 'Город захвачен: '+(territoryInfo()?.cities||[]).filter((c,i)=>s.last_captured_cities[i]).map(c=>c.name).join(', ')+'. Доступны найм, храм и рост земли.';
       case 44:return 'Город улучшен: '+territoryInfo()?.cities[s.last_upgraded_city]?.name+' · −'+fmt(s.last_service_cost)+' золота.';
       case 45:return 'Путь закрыт препятствием.';
@@ -681,6 +730,7 @@
     if(!s.in_battle)$('rest-hint').textContent+=' Живым бойцам: +'+(snap.territory_quotes?[...new Set(snap.territory_quotes.regeneration.filter((v,i)=>snap.max_hp[i]&&s.hp[i]>0))].join('–'):(turns.regeneration_percent+10*(equipmentInfo()?.items?.[s.equipped?.[2]]?.regeneration||0)))+'% максимального HP с округлением вверх (до максимума).';
     const heroes=Array.from({length:6},(_,i)=>profile(i));
     renderExperience(snap);
+    renderSwaps(snap);
     $('party-health').textContent=partyText(heroes.filter((u,i)=>u&&s.hp[i]>0))+' · '+s.hp.slice(0,6).reduce((a,b)=>a+b,0)+' здоровья';
     $('party-title').textContent=partyText(heroes)+'.';
     $('mage-rule').hidden=!heroes.some(u=>u?.role==='area');
@@ -747,7 +797,7 @@
   function showError(error){$('connection').textContent='Игра недоступна';$('message').textContent=error.message+' Для игры запустите open-numbergrid.cmd.';}
   async function resetGame(){
     if(busy)return;busy=true;render();
-    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||undefined,lord_type:$('lord-type').value||data.map.lord_type||'warrior'});session=result.session;manualMap=result.map;$('version').textContent=manualMap.name;manualConstruction=result.construction;manualTurnRules=result.turn_rules;manualCombat=result.combat;manualCapital=result.capital;manualPotions=result.potions;manualEquipment=result.equipment;manualBattleItems=result.battle_items;manualSites=result.sites;manualRecruitment=result.recruitment;manualTerritory=result.territory;manualRuins=result.ruins;manualSpells=result.spell_research;manualCasting=result.spell_casting;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
+    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||undefined,lord_type:$('lord-type').value||data.map.lord_type||'warrior'});session=result.session;manualMap=result.map;$('version').textContent=manualMap.name;manualConstruction=result.construction;manualTurnRules=result.turn_rules;manualCombat=result.combat;manualCapital=result.capital;manualPotions=result.potions;manualEquipment=result.equipment;manualBattleItems=result.battle_items;manualSites=result.sites;manualRecruitment=result.recruitment;manualTerritory=result.territory;manualRuins=result.ruins;manualSpells=result.spell_research;manualCasting=result.spell_casting;manualSwaps=result.unit_swaps;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
     catch(error){busy=false;render();showError(error);return;}
     busy=false;render();
   }

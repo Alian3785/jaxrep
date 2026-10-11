@@ -90,6 +90,9 @@ def run_training(args, tracking):
     if os.environ.get('NUMBERGRID_ALLOW_CPU') != '1' and (len(jax.devices()) != 1 or jax.devices()[0].platform != 'gpu'):
         raise RuntimeError('This measured profile requires exactly one CUDA GPU.')
     game_map = load_map(args.map) if args.map else MAP
+    if args.no_unit_swaps:
+        # Training without party swaps: the map then has no swap actions at all (docs/UNIT_SWAPS.md).
+        game_map = {**game_map, 'unit_swaps': False}
     config = make_config(total, args.seed, map_config=game_map)
     run_name = f"number_grid-{game_map['size']}x{game_map['size']}" + ('-step-cost' if game_map.get('step_cost', 0) else '') + ('-smoke' if args.smoke else '')
     if game_map.get('exploration_bonus', 0):
@@ -98,13 +101,15 @@ def run_training(args, tracking):
         run_name += '-wall-mask'
     if game_map.get('battle_mode', False):
         run_name += '-archer-battles'
+    if args.no_unit_swaps:
+        run_name += '-no-unit-swaps'
     output = Path(args.output) if args.output else ROOT / 'results' / run_name
     if output.exists() and any(output.iterdir()):
         raise FileExistsError(f'Output already contains files; choose another --output: {output}')
     output.mkdir(parents=True, exist_ok=True)
     measured_sources = ['benchmark_number_grid.py', 'numbergrid_config.py', 'numbergrid_tracking.py',
                         'stoix/envs/number_grid_buildings.py', 'stoix/envs/data/buildings.json',
-                        'stoix/envs/number_grid_spells.py', 'stoix/envs/number_grid_casting.py', 'stoix/envs/number_grid_lords.py', 'stoix/envs/data/spells.json',
+                        'stoix/envs/number_grid_spells.py', 'stoix/envs/number_grid_casting.py', 'stoix/envs/number_grid_unit_swaps.py', 'stoix/envs/number_grid_lords.py', 'stoix/envs/data/spells.json',
                         'stoix/envs/data/units.json', 'stoix/envs/number_grid_effects.py', 'stoix/envs/number_grid_wards.py', 'stoix/envs/number_grid_summoning.py',
                         'stoix/envs/number_grid.py', 'stoix/envs/number_grid_combat.py', 'stoix/envs/number_grid_progression.py', 'stoix/envs/number_grid_capital.py', 'stoix/envs/number_grid_potions.py', 'stoix/envs/number_grid_chests.py', 'stoix/envs/number_grid_items.py', 'stoix/envs/number_grid_item_combat.py', 'stoix/envs/number_grid_sites.py', 'stoix/envs/number_grid_recruitment.py', 'stoix/envs/number_grid_territory.py', 'stoix/envs/number_grid_ruins.py', 'stoix/envs/number_grid_terrain.py', 'stoix/envs/data/training_prices.json', 'stoix/envs/number_grid_legacy.py',
                         'stoix/utils/make_env.py', 'stoix/wrappers/number_grid_metrics.py',
@@ -267,5 +272,7 @@ if __name__ == '__main__':
     p.add_argument('--seed', type=int, default=42)
     p.add_argument('--output')
     p.add_argument('--map', help='current (number_grid_map.json, default), default (reference Default map) or a saved map JSON')
+    p.add_argument('--no-unit-swaps', action='store_true',
+                   help='Remove the party swap actions and features from the map (unit_swaps: false)')
     add_tracking_arguments(p)
     train(p.parse_args())

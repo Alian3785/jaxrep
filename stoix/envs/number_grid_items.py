@@ -8,8 +8,9 @@ import jax.numpy as jnp
 
 from stoix.envs.number_grid_battle_items import MAGIC_ITEMS
 from stoix.envs.number_grid_hero_skills import lore_levels
+from stoix.envs.number_grid_spell_items import SPELL_ITEMS
 
-ARTIFACT, BANNER, BOOK, BOOTS, VALUABLE, USABLE = range(6)
+ARTIFACT, BANNER, BOOK, BOOTS, VALUABLE, USABLE, SCROLL, STAFF = range(8)
 SLOT_NAMES = ('Артефакт 1', 'Артефакт 2', 'Знамя', 'Книга', 'Сапоги')
 
 
@@ -72,10 +73,12 @@ ITEMS = (
           ('sapphire','Sapphire',1500),('diamond','Diamond',1750),
           ('ancient_relic','Ancient Relic',2000),('royal_scepter','Royal Scepter',2500),
           ('imperial_crown','Imperial Crown',5000)))),
-    # Orbs and talismans: hero battle slots, number_grid_battle_items. The scroll is carried only.
+    # Orbs and talismans: hero battle slots, number_grid_battle_items.
     *(dict(key=p['key'],name=p['name'],game_id=p['game_id'],category=USABLE,price=p['price'],label=p['label'])
       for p in MAGIC_ITEMS),
-    _item('mind_ward_scroll','Mind ward scroll','5011',USABLE,600,'Свиток: защита от первой атаки Разума; применение пока не реализовано'),
+    # Scrolls and staves: map casts, number_grid_casting / number_grid_spell_items.
+    *(dict(key=p['key'],name=p['name'],game_id=p['game_id'],category=SCROLL if p['category']=='scroll' else STAFF,
+           price=p['price'],label=p['label']) for p in SPELL_ITEMS),
 )
 ITEM_BY_KEY = {p['key']: p for p in ITEMS}
 

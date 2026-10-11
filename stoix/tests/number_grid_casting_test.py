@@ -61,7 +61,7 @@ def test_catalog_cast_data_actions_and_summons(current_game):
     storm = next(row for row in rows if row['id'] == 'g000ss0033')
     assert storm['cast'] == dict(kind='damage', cast_mana=[0, 150, 0, 150, 0], amount=50, element='earth')
     names = cast_action_names(MAP)
-    assert ACTION_NAMES[212:] == names and len(names) == 17 and env.num_actions == 229
+    assert ACTION_NAMES[212:229] == names and len(names) == 17 and env.num_actions == 244
     assert env.casting.start == 212 and env.casting.limit == 1
     meta = env.casting.metadata['spells']
     assert [m['unit_name'] for m in meta if m['kind'] == 'summon_battle'] == ['Адская гончая', 'Белиарх', 'Мститель']
@@ -128,7 +128,7 @@ def test_damage_hits_nearest_field_stack_spends_mana_and_daily_limit(current_gam
     assert float(ts.reward) == pytest.approx(-env.step_cost)
     both, _ = step(burned, jnp.int32(rules.start+2))
     assert both.enemy_wounds[0, 0] == 30
-    tail = compiled_method(env, 'observation')(both)[-rules.observation_size:]
+    tail = compiled_method(env, 'observation')(both)[-rules.observation_size-env.unit_swaps.observation_size:-env.unit_swaps.observation_size]
     np.testing.assert_allclose(tail[:rules.count], np.eye(rules.count)[1]+np.eye(rules.count)[2])
     assert float(tail[2*rules.count]) == pytest.approx(.3)  # 30 of the Squire's 100 HP
     np.testing.assert_allclose(tail[-5:], [0, 1, 1, 6/47, 6/47], rtol=1e-6)

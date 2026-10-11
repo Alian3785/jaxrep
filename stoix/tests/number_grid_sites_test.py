@@ -77,8 +77,8 @@ def test_exact_three_purchase_actions_and_finite_stock(current_game):
     assert rules.buy_keys==('invulnerability','healing','life')
     assert initial.merchant_stock.tolist()==[1,10,10]
     assert rules.buy_start==171 and rules.train_start==174
-    assert env.num_actions==ACTIONS==229 and len(ACTION_NAMES)==229
-    assert env.observation_size==1678 and compiled_method(env,'observation')(initial).shape==(1678,)
+    assert env.num_actions==ACTIONS==244 and len(ACTION_NAMES)==244
+    assert env.observation_size==1694 and compiled_method(env,'observation')(initial).shape==(1694,)
     state=at_site(env,initial,'merchant').replace(movement_points=jnp.int32(0))
     before=state
     state,_=advance(state,jnp.int32(rules.buy_start))
@@ -194,7 +194,7 @@ def test_site_metadata_and_quotes_reach_human_service(human_service):
     assert 'sell' not in game['sites']
     assert game['snapshot']['state']['merchant_stock']==[1,10,10]
     assert game['snapshot']['site_quotes']['buy']==[700,150,400]
-    assert len(game['snapshot']['action_mask'])==229
+    assert len(game['snapshot']['action_mask'])==244
     assert game['snapshot']['site_quotes']['train'][1][0]==4
 
 

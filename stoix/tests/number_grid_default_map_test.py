@@ -33,7 +33,7 @@ def test_default_map_layout_and_actions(default_game):
     assert names[env.casting.start:env.casting.hire_action][-1] == 'cast_'+VERDANT and env.casting.count == 23
     assert names[env.casting.hire_action:env.casting.end] == ('hire_scroll_mage', 'cast_mind_ward_scroll')
     assert names[env.casting.end:env.unit_swaps.start] == battle_item_action_names(DEFAULT)  # docs/BATTLE_ITEMS.md
-    assert names[env.unit_swaps.start:] == unit_swap_action_names(DEFAULT)  # docs/UNIT_SWAPS.md
+    assert names[env.unit_swaps.start:] == unit_swap_action_names(env.map_config)  # docs/UNIT_SWAPS.md
     # Alar sells the reference merchant stock; Tralar only buys valuables.
     assert names[shop.buy_start:shop.train_start] == tuple('buy_'+k for k in DEFAULT['merchants'][0]['potions'])
     assert [int(i) for i in env.recruitment.offer_sites] == [3, 4, 4]

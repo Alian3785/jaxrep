@@ -66,10 +66,19 @@ class ProgressionRules:
         if hero_skills.enabled(game_map):
             # The player's heroes get their own rows: Might follows the lord, not the unit.
             might, skills = hero_skills.might_bonus(game_map), hero_skills.skill_list(game_map)
+
+            def with_skills(key, override):
+                row = {**UNITS[key], **override}
+                result = dict(override, hero_skills=skills, level_bonuses=sorted(
+                    row.get('level_bonuses', [])+[might], key=lambda b: b['level']))
+                if row['level'] >= might['level']:
+                    # Growth starts above the row's level, so a hero starting past Might gets it now.
+                    result['damage'] = round(row['damage']*might['multiplier'])
+                return result
+
             keys = [key for key in game_map['hero_roster'] if key is not None]
-            hero_overrides = [dict(o, level_bonuses=sorted(
-                o.get('level_bonuses', UNITS[key].get('level_bonuses', []))+[might], key=lambda b: b['level']),
-                hero_skills=skills) if UNITS[key].get('hero') else o for key, o in zip(keys, hero_overrides)]
+            hero_overrides = [with_skills(key, o) if UNITS[key].get('hero') else o
+                              for key, o in zip(keys, hero_overrides)]
         hero = roster_ids(game_map['hero_roster'], hero_overrides)
         enemy_overrides = game_map.get('enemy_combat_stats',
                                       [[{} for _ in range(n)] for n in game_map['enemy_units']])

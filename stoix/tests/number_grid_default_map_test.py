@@ -6,6 +6,7 @@ from stoix.envs.number_grid import DEFEND, NumberGrid, REST, WAIT, action_names,
 from stoix.envs.number_grid_battle_items import battle_item_action_names
 from stoix.envs.number_grid_combat import DAMAGE
 from stoix.envs.number_grid_casting import SPELL_CAST, SPELL_KILL, SUMMON_CAST
+from stoix.envs.number_grid_progression import ProgressionRules
 from stoix.envs.number_grid_sites import SPELL_BOUGHT
 from stoix.envs.number_grid_territory import CAPITAL_ARMOR
 
@@ -135,6 +136,11 @@ def test_reference_hero_skills(default_game):
     assert damage(hero, 8) == damage(plain, 8)
     assert damage(hero, 9) == round(damage(plain, 9)*1.25)  # once, Python round
     assert damage(hero, 10)-damage(hero, 9) == damage(plain, 10)-damage(plain, 9)
+    # A hero starting past the Might level gets it at once.
+    started = ProgressionRules(dict(DEFAULT, hero_combat_stats=[{}, dict(level=10), {}, {}]), env.construction)
+    late = started.initial_ids[1]
+    assert started.base_levels[late] == 10
+    assert float(started.stat_levels[10, late, DAMAGE]) == round(progression.rows[plain]['damage']*1.25)
     # Pathfinding from level 2: +4 points, round(20% of 20), on top of +1 per level.
     levels = lambda level: initial.replace(unit_levels=initial.unit_levels.at[1].set(level))
     assert [int(env.movement_cap(levels(n))) for n in (1, 2, 10, 12)] == [20, 25, 33, 33]

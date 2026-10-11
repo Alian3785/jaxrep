@@ -3,6 +3,13 @@
   const data=JSON.parse(document.getElementById('run-data').textContent);
   const $=id=>document.getElementById(id), fmt=n=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:3}).format(n);
   const canvas=$('board'), ctx=canvas.getContext('2d');
+  const manaMarkers={
+    infernal:{letter:'П',color:'#c65320'},life:{letter:'Ж',color:'#25833c'},
+    death:{letter:'С',color:'#7940b0'},runes:{letter:'Р',color:'#246bb1'},elves:{letter:'Э',color:'#117c77'}
+  };
+  const manaLegend=document.createElement('div');
+  manaLegend.className='legend mana-legend';manaLegend.setAttribute('aria-label','Источники маны');
+  $('chest-status').before(manaLegend);
   let mode='manual', session=null, manual=null, manualMap=null, busy=false, frame=0, recordIndex=0, timer=null, messages=[];
   let manualConstruction=null, manualTurnRules=null, manualCombat=null, manualCapital=null, manualPotions=null, capitalOpen=false, potionsOpen=false, selectedPotion=0, capitalKey=null;
   let manualEquipment=null, manualBattleItems=null, manualSites=null, manualRecruitment=null, manualTerritory=null, manualRuins=null, manualSpells=null, manualCasting=null, manualSwaps=null, spellsOpen=false;
@@ -166,6 +173,13 @@
   function renderTerritory(snap){
     const info=territoryInfo(),q=snap.territory_quotes,s=snap.state;
     $('city-services').hidden=!info;$('mana-resources').hidden=!info;
+    const manaKinds=(info?.resource_kinds||[]).filter(kind=>manaMarkers[kind]&&info.mines.some(mine=>mine.kind===kind));
+    manaLegend.hidden=!manaKinds.length;
+    manaLegend.replaceChildren(...manaKinds.map(kind=>{
+      const marker=manaMarkers[kind],entry=document.createElement('span'),icon=document.createElement('i');
+      icon.textContent=marker.letter;icon.style.backgroundColor=marker.color;
+      entry.append(icon,document.createTextNode(info.resource_names[info.resource_kinds.indexOf(kind)]));return entry;
+    }));
     $('income-summary').textContent='Текущий доход: +'+fmt(q?.income[0]??turnRules().income)+' золота / ход';
     if(!info||!q)return;
     $('mana-resources').replaceChildren(...info.resource_names.slice(1).map((name,i)=>{
@@ -496,10 +510,14 @@
       ctx.font=Math.round(cell*.5)+'px system-ui';ctx.fillText('врага',(c+w/2)*cell,(r+h/2-.2)*cell);
     }
     for(const [i,mine] of (territoryInfo()?.mines||[]).entries()){
-      const kind=territoryInfo().resource_kinds.indexOf(mine.kind),[r,c]=mine.position;
-      const color=['#d1a737','#cb7159','#61a373','#8d73b5','#6393c0','#69aea4'][kind];
-      ctx.fillStyle=color;ctx.beginPath();ctx.moveTo((c+.5)*cell,(r+.07)*cell);ctx.lineTo((c+.91)*cell,(r+.5)*cell);ctx.lineTo((c+.5)*cell,(r+.93)*cell);ctx.lineTo((c+.09)*cell,(r+.5)*cell);ctx.closePath();ctx.fill();
-      ctx.fillStyle='#fff';ctx.textAlign='center';ctx.textBaseline='middle';ctx.font='700 '+Math.round(cell*.48)+'px system-ui';ctx.fillText(['З','П','Ж','С','Р','Э'][kind],(c+.5)*cell,(r+.52)*cell);
+      const [r,c]=mine.position,marker=manaMarkers[mine.kind];
+      if(marker){
+        roundRect(c*cell+1,r*cell+1,cell-2,cell-2,cell*.12,marker.color);
+        ctx.strokeStyle='#fff';ctx.lineWidth=1;ctx.strokeRect(c*cell+1.5,r*cell+1.5,cell-3,cell-3);
+      }else{
+        ctx.fillStyle='#d1a737';ctx.beginPath();ctx.moveTo((c+.5)*cell,(r+.07)*cell);ctx.lineTo((c+.91)*cell,(r+.5)*cell);ctx.lineTo((c+.5)*cell,(r+.93)*cell);ctx.lineTo((c+.09)*cell,(r+.5)*cell);ctx.closePath();ctx.fill();
+      }
+      ctx.fillStyle='#fff';ctx.textAlign='center';ctx.textBaseline='middle';ctx.font='800 '+Math.round(cell*(marker ? .72 : .48))+'px system-ui';ctx.fillText(marker?.letter||'З',(c+.5)*cell,(r+.52)*cell);
       if(current()?.territory_quotes?.mine_owned[i]){ctx.strokeStyle='#795a37';ctx.lineWidth=1.5;ctx.strokeRect(c*cell+1,r*cell+1,cell-2,cell-2);}
     }
     for(const site of siteInfo()?.sites||[]){

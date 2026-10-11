@@ -45,3 +45,4 @@
 .swap-formation{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:8px 0 10px}.swap-formation span{background:#f1f7ed;border:1px solid #d4e3cf;border-radius:7px;padding:6px 8px;font-size:10px}.swap-formation span.empty{opacity:.45}.swap-actions{display:flex;flex-wrap:wrap;gap:6px}.swap-actions button{font-size:11px;padding:7px 9px}
 .legend i.ally{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:2px solid #fff;border-radius:50%;background:#ff1828;color:#fff;font:900 15px/1 system-ui;box-shadow:0 1px 7px #ff182866}
 .legend i.ally::after{content:'А'}
+.mana-legend{padding-top:0;gap:8px 16px}.mana-legend i{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;color:#fff;border:1px solid #fff;border-radius:3px;font:800 12px/1 system-ui}

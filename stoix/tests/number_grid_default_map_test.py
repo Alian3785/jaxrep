@@ -1,6 +1,7 @@
 """CUDA contracts: the Python reference Default map, its spell shop and capital guard."""
 import jax
 import jax.numpy as jnp
+import pytest
 
 from stoix.envs.number_grid import DEFEND, NumberGrid, REST, WAIT, action_names, load_map
 from stoix.envs.number_grid_battle_items import battle_item_action_names
@@ -8,9 +9,11 @@ from stoix.envs.number_grid_combat import DAMAGE
 from stoix.envs.number_grid_lords import STARTING_PARTIES
 from stoix.envs.number_grid_casting import SPELL_CAST, SPELL_KILL, SUMMON_CAST
 from stoix.envs.number_grid_progression import ProgressionRules
-from stoix.envs.number_grid_sites import SPELL_BOUGHT
+from stoix.envs.number_grid_items import ARTIFACT, BANNER, BOOTS, ITEM_BY_KEY, USABLE
+from stoix.envs.number_grid_sites import BOUGHT, SPELL_BOUGHT, merchant_items
 from stoix.envs.number_grid_territory import CAPITAL_ARMOR
 from stoix.envs.number_grid_unit_swaps import unit_swap_action_names
+from stoix.tests.number_grid_fixtures import compiled_method
 
 DEFAULT = load_map('default')
 SHOP = (4, 46)  # spell shop at [3, 43], approach offset (1, 3)
@@ -23,19 +26,20 @@ def test_default_map_layout_and_actions(default_game):
     env, state, _, _ = default_game
     names = action_names(DEFAULT)
     assert DEFAULT['size'] == 50 and len(DEFAULT['opponent_positions']) == 75
-    assert env.num_actions == len(names) == 278 and env.observation_size == 2471
+    assert env.num_actions == len(names) == 479 and env.observation_size == 2994
     assert [s['kind'] for s in env.site_rules.sites] == [
         'merchant', 'merchant', 'trainer', 'mercenary', 'mercenary', 'spell_shop']
     assert env.territory.count == 5 and len(env.territory.mines) == 12 and env.ruins.count == 5
-    assert len(DEFAULT['chests']) == 18 and env.item_rules.capacity == 15
+    assert len(DEFAULT['chests']) == 18 and env.item_rules.capacity == 15+121  # loot + Alar's items
     shop = env.site_rules
     assert names[shop.spell_start:shop.end] == ('buy_spell_'+ARMAGEDDON, 'buy_spell_'+VERDANT)
     assert names[env.casting.start:env.casting.hire_action][-1] == 'cast_'+VERDANT and env.casting.count == 23
     assert names[env.casting.hire_action:env.casting.end] == ('hire_scroll_mage', 'cast_mind_ward_scroll')
     assert names[env.casting.end:env.unit_swaps.start] == battle_item_action_names(DEFAULT)  # docs/BATTLE_ITEMS.md
     assert names[env.unit_swaps.start:] == unit_swap_action_names(env.map_config)  # docs/UNIT_SWAPS.md
-    # Alar sells the reference merchant stock; Tralar only buys valuables.
-    assert names[shop.buy_start:shop.train_start] == tuple('buy_'+k for k in DEFAULT['merchants'][0]['potions'])
+    # Alar sells the reference potions, then the requested items; Tralar only buys valuables.
+    assert names[shop.buy_start:shop.train_start] == tuple(
+        'buy_'+k for k in [*DEFAULT['merchants'][0]['potions'], *DEFAULT['merchants'][0]['items']])
     assert [int(i) for i in env.recruitment.offer_sites] == [3, 4, 4]
     assert DEFAULT['enemy_rosters'][GUARD] == [None]*4+['g000uu3001', None]
     assert DEFAULT['enemy_capitals'][0]['position'] == DEFAULT['opponent_positions'][GUARD] == [11, 27]
@@ -46,6 +50,61 @@ def test_default_map_layout_and_actions(default_game):
     assert [rows[i]['key'] if i else None for i in state.unit_ids[:6].tolist()] == env.map_config['hero_roster']
     assert state.position.tolist() == [28, 6]
     assert int(state.gold) == 0 and state.spell_stock.tolist() == [1, 1]
+
+
+def test_alar_sells_equipment_orbs_and_talismans(default_game):
+    """User request: every artifact, banner, pair of boots, orb and talisman, one copy each."""
+    env, initial, step, mask = default_game
+    shop, items, names = env.site_rules, env.item_rules, action_names(DEFAULT)
+    offered = DEFAULT['merchants'][0]['items']
+    categories = [ITEM_BY_KEY[k]['category'] for k in offered]
+    assert [categories.count(c) for c in (ARTIFACT, BANNER, BOOTS, USABLE)] == [21, 11, 5, 84]
+    assert set(offered.values()) == {1} and 'orb_of_lycanthropy' not in offered  # no GItem price
+    buy = {k: names.index('buy_'+k) for k in offered}
+    index = {k: action-shop.buy_start for k, action in buy.items()}
+    assert [shop.metadata['buy'][index[k]]['price'] for k in ('bethrezens_claw', 'boots_speed', 'orb_of_fire')] == [
+        5000, 400, 400]  # GItem.VALUE
+    alar, tralar = (jnp.array(site['interaction_tiles'][0], jnp.int32) for site in shop.sites[:2])
+    rich = initial.replace(gold=jnp.int32(10000))
+    assert all(mask(rich.replace(position=alar))[a] for a in buy.values())
+    assert not jnp.any(mask(rich)[shop.buy_start:shop.train_start])  # away from the shop
+    assert not jnp.any(mask(rich.replace(position=tralar))[shop.buy_start:shop.train_start])  # buys only
+    # The warrior wears artifacts at once: the purchase is equipped in the same step.
+    claw, _ = step(rich.replace(position=alar), jnp.int32(buy['bethrezens_claw']))
+    assert claw.last_event == BOUGHT and claw.gold == 5000 and claw.merchant_stock[index['bethrezens_claw']] == 0
+    assert claw.equipped[0] == items.keys.index('bethrezens_claw')
+    assert claw.item_inventory.tolist().count(items.keys.index('bethrezens_claw')) == 1
+    assert not mask(claw)[buy['bethrezens_claw']]
+    again, _ = step(claw, jnp.int32(buy['bethrezens_claw']))  # sold out: the step changes nothing
+    assert again.gold == claw.gold and again.item_inventory.tolist() == claw.item_inventory.tolist()
+    # Lute of Charming takes the second artifact slot and cuts the remaining prices by 10%.
+    lute, _ = step(claw, jnp.int32(buy['lute_of_charming']))
+    assert lute.gold == 3500 and lute.equipped[1] == items.keys.index('lute_of_charming')
+    assert int(shop.buy_prices(lute)[index['banner_war']]) == 4500
+    assert not mask(lute.replace(gold=jnp.int32(4499)))[buy['banner_war']]
+    # Below level 7 the banner waits in the inventory, as a chest find would.
+    banner, _ = step(lute.replace(gold=jnp.int32(4500)), jnp.int32(buy['banner_war']))
+    assert banner.gold == 0 and banner.equipped[2] == -1
+    assert banner.item_inventory.tolist()[:3] == [items.keys.index(k) for k in (
+        'bethrezens_claw', 'lute_of_charming', 'banner_war')]
+    # A bought orb fills a battle slot once the hero may use orbs (level 10).
+    equip = names.index('equip_orb_of_fire')
+    lore = rich.replace(position=alar, unit_levels=rich.unit_levels.at[1].set(10))
+    assert not mask(lore)[equip]
+    orb, _ = step(lore, jnp.int32(buy['orb_of_fire']))
+    assert orb.gold == 9600 and mask(orb)[equip]
+    slotted, _ = step(orb, jnp.int32(equip))
+    assert slotted.battle_items[0] == env.battle_item_rules.keys.index('orb_of_fire')
+    reset, _ = compiled_method(env, 'reset')(jax.random.PRNGKey(1))
+    assert reset.merchant_stock.tolist() == shop.initial_stock.tolist()
+
+
+def test_merchant_items_are_equipment_orbs_and_talismans():
+    assert merchant_items({'items': {'tome_war': 2, 'zombie_talisman': 1}}) == {'tome_war': 2, 'zombie_talisman': 1}
+    for stock in ({'bronze_ring': 1}, {'mind_ward_scroll': 1}, {'orb_of_lycanthropy': 1},
+                  {'runestone': 0}, {'unknown': 1}):
+        with pytest.raises(ValueError):
+            merchant_items({'items': stock})
 
 
 def test_spell_shop_sells_armageddon_and_verdant(default_game):

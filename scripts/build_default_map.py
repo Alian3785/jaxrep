@@ -10,9 +10,13 @@ docs/DEFAULT_MAP.md for every difference from the reference.
 """
 import argparse
 import json
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from stoix.envs.number_grid_items import ARTIFACT, BANNER, BOOTS, ITEMS as CATALOGUE, USABLE  # noqa: E402
+
 UNITS = json.loads((ROOT/'stoix/envs/data/units.json').read_text(encoding='utf-8'))
 CURRENT = json.loads((ROOT/'number_grid_map.json').read_text(encoding='utf-8'))
 
@@ -35,6 +39,11 @@ ITEMS = {
 # table, so Алар sells all of it and Тралар sells nothing (campaign_env_map.py).
 ALAR = {'life': 10, 'healing': 10, 'restoration': 10, 'ointment': 10, 'might': 1,
         'fire_ward': 1, 'earth_ward': 1, 'water_ward': 1, 'air_ward': 1, 'celerity': 1}
+# User request: Алар also sells every artifact, banner, pair of boots, orb and talisman,
+# one copy each at GItem.VALUE, as the reference trade_train map sells its items.
+# Orb of Lycanthropy has no installed GItem row or price, so it is not sold.
+ALAR_ITEMS = {p['key']: 1 for p in CATALOGUE
+              if p['category'] in (ARTIFACT, BANNER, BOOTS, USABLE) and p['price'] > 0}
 # Requested shop: Armageddon and the strongest Ent summon (Verdant), 1000 gold each.
 SPELLS = [{'spell': 'g000ss0019', 'price': 1000, 'stock': 1},
           {'spell': 'g000ss0117', 'price': 1000, 'stock': 1}]
@@ -140,7 +149,7 @@ def build(layout):
         initial_potions={},
         initial_items={},
         chests=chests,
-        merchants=[site('T1', potions=ALAR), site('T2', potions={})],
+        merchants=[site('T1', potions=ALAR, items=ALAR_ITEMS), site('T2', potions={})],
         trainer=site('U1'),
         mercenaries=[site('H1', roster=[{'unit': 'g000uu5040', 'stock': 1}]),
                      site('H2', roster=[{'unit': 'goblin', 'stock': 1},

@@ -62,7 +62,7 @@ class RuinRules:
         self.loot = jnp.array([[r.get('potions',{}).get(k,0) for k in potions.keys] for r in self.ruins],jnp.int32)
         self.gold = jnp.array([r['gold'] for r in self.ruins],jnp.int32)
         self.items = items
-        item_loot = items.ruin_loot if items is not None else jnp.zeros((self.count,0),jnp.int32)
+        item_loot = items.ruin_loot[:,items.loot_kinds] if items is not None else jnp.zeros((self.count,0),jnp.int32)
         self.features = jnp.concatenate((jnp.array([r['position'] for r in self.ruins])/(game_map['size']-1),
             self.loot.astype(jnp.float32),item_loot.astype(jnp.float32),self.gold[:,None]/1000.),axis=1)
         self.observation_size = (self.features.shape[1]+1)*self.count

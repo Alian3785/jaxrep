@@ -47,14 +47,15 @@ def test_catalog_and_default_actions(default_game):
     assert [MAGIC_BY_KEY[k]['price'] for k in ('vampire_orb', 'zombie_talisman', 'orb_of_flame',
                                                'talisman_of_nightmare')] == [800, 400, 1000, 600]
     assert {p['key'] for p in ITEMS if p['category'] == USABLE} == set(MAGIC_BY_KEY)
-    # Reference order: battle potions, then the scenario's orbs and talismans.
-    assert rules.keys == ('healing', 'restoration', 'ointment', 'life',
-                          'vampire_orb', 'lich_orb', 'orb_of_life', 'zombie_talisman')
+    # Reference order: battle potions, then the scenario's orbs and talismans, which
+    # Alar sells all of (docs/MAP_SITES.md#предметы-у-торговца); Lycanthropy has no price.
+    assert rules.keys == ('healing', 'restoration', 'ointment', 'life')+tuple(
+        p['key'] for p in MAGIC_ITEMS if p['key'] != 'orb_of_lycanthropy')
     equip, use = NAMES[rules.equip_start:rules.use_start], NAMES[rules.use_start:rules.end]
     assert equip == tuple('equip_'+k for k in rules.keys) and len(use) == 24
     assert use[:7] == tuple(f'item1_ally_{t}' for t in range(6))+('item2_ally_0',)
     assert use[12] == 'item1_enemy_0' and use[-1] == 'item2_enemy_5'
-    assert rules.observation_size == 20 and state.battle_items.tolist() == [-1, -1]
+    assert rules.observation_size == 2*(88+1)+2 and state.battle_items.tolist() == [-1, -1]
 
 
 def test_equip_needs_access_and_happens_once_per_day(default_game):

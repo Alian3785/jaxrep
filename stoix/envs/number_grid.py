@@ -15,12 +15,12 @@ from stoix.envs.number_grid_combat import (
     HP, DAMAGE, ACCURACY, ARMOR, INITIATIVE, MELEE, AREA, HEALER, build_combat_tables, accuracy_hits,
 )
 from stoix.envs.number_grid_capital import CapitalRules, HEAL_START, REVIVE_START, CAPITAL_ACTIONS
-from stoix.envs.number_grid_potions import PotionRules, POTION_START, scenario_potions
+from stoix.envs.number_grid_potions import PotionRules, POTION_START, merchants, scenario_potions
 from stoix.envs.number_grid_progression import ProgressionRules
 from stoix.envs.number_grid_summoning import Summoning, COPY_ALLY, COPY_ACTIONS, advance_linked_queue
 from stoix.envs.number_grid_chests import ChestRules
 from stoix.envs.number_grid_items import ItemRules
-from stoix.envs.number_grid_sites import SiteRules, sites_present, trade_action_names
+from stoix.envs.number_grid_sites import BOUGHT, SiteRules, sites_present, trade_action_names
 from stoix.envs.number_grid_recruitment import RecruitmentRules, mercenary_camps, recruit_action_names, HIRED, DISMISSED
 from stoix.envs.number_grid_ruins import RuinRules
 from stoix.envs.number_grid_terrain import TerrainRules
@@ -308,7 +308,8 @@ class NumberGrid(Summoning, NumericNumberGrid):
             self.has_potion_buffs = self.potion_rules.has_buffs
         self.chests_enabled = 'chests' in game_map
         self.items_enabled = 'initial_items' in game_map or any(
-            c.get('items') for c in game_map.get('chests',[])+game_map.get('ruins',[]) if isinstance(c,dict))
+            c.get('items') for c in game_map.get('chests',[])+game_map.get('ruins',[])+merchants(game_map)
+            if isinstance(c,dict))
         if self.items_enabled:
             if not self.potions_enabled:
                 raise ValueError('Equipment requires the current map inventory/progression environment')
@@ -650,7 +651,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         if self.chests_enabled:
             self.observation_size += (1+self.chest_rules.features.shape[1])*self.chest_rules.count
         if self.items_enabled:
-            self.observation_size += self.item_rules.capacity+5+self.item_rules.chest_loot.size
+            self.observation_size += self.item_rules.observation_size
         if self.sites_enabled:
             if self.observation_version < 31:
                 raise ValueError('Sites require observation version 31 or later')
@@ -1811,6 +1812,8 @@ class NumberGrid(Summoning, NumericNumberGrid):
                 changed |= (next_state.last_event == HIRED) | (next_state.last_event == DISMISSED)
             if self.unit_swaps_enabled:
                 changed |= next_state.last_event == UNITS_SWAPPED  # the equipment holder may change
+            if self.sites_enabled and self.site_rules.item_offers:
+                changed |= next_state.last_event == BOUGHT  # a purchase may beat the worn item
             next_state=jax.lax.cond(changed,self._refresh_equipment,lambda s:s,next_state)
         if self.battle_items_enabled and self.battle_item_rules.count:
             rules = self.battle_item_rules

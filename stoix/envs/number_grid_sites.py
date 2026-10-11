@@ -5,7 +5,10 @@ from pathlib import Path
 import jax
 import jax.numpy as jnp
 
-from stoix.envs.number_grid_items import VALUABLE
+from stoix.envs.number_grid_battle_items import MAGIC_BY_KEY
+from stoix.envs.number_grid_items import (
+    ARTIFACT, BANNER, BOOK, BOOTS, ITEM_BY_KEY, USABLE, VALUABLE, item_counts,
+)
 from stoix.envs.number_grid_spells import shop_spell_ids, spell_book
 
 BOUGHT, TRAINED, SPELL_BOUGHT = 38, 40, 51
@@ -17,6 +20,8 @@ TRAINING_PRICES = json.loads((Path(__file__).parent/'data/training_prices.json')
 SITE_KINDS = (('merchant', 'merchants', 'Торговец'), ('trainer', 'trainers', 'Тренер'),
               ('mercenary', 'mercenaries', 'Лагерь наёмников'),
               ('spell_shop', 'spell_shops', 'Лавка заклинаний'))
+# Merchants sell equipment and hero battle items; scrolls, staves and valuables stay map loot.
+SHOP_GROUPS = {ARTIFACT: 'Артефакты', BANNER: 'Знамёна', BOOK: 'Книги', BOOTS: 'Сапоги'}
 
 
 def site_entries(game_map):
@@ -69,9 +74,34 @@ def site_layout(game_map):
     return sites
 
 
+def shop_group(product):
+    """Merchant panel heading: potions, then the item categories."""
+    if 'category' not in product:
+        return 'Зелья'
+    if product['category'] == USABLE:
+        return 'Сферы' if MAGIC_BY_KEY[product['key']]['category'] == 'orb' else 'Талисманы'
+    return SHOP_GROUPS[product['category']]
+
+
+def merchant_items(merchant):
+    """A merchant's item stock: known keys of equipment, orbs and talismans, positive counts."""
+    stock = item_counts(merchant.get('items', {}), 'Merchant items')
+    if any(n < 1 for n in stock.values()):
+        raise ValueError('Merchant stock must be a positive integer')
+    if any(ITEM_BY_KEY[k]['category'] not in (*SHOP_GROUPS, USABLE) or ITEM_BY_KEY[k]['price'] <= 0
+           for k in stock):
+        raise ValueError('Merchants sell priced equipment, orbs and talismans only')
+    return stock
+
+
+def _merchant_offers(merchant):
+    # Potions first, as before, then items; one action per offer.
+    return [*merchant.get('potions', {}), *merchant_items(merchant)]
+
+
 def _merchant_prefixes(merchants):
     # One selling merchant keeps the short historical names buy_<potion>.
-    selling = [m for m in merchants if m.get('potions')]
+    selling = [m for m in merchants if _merchant_offers(m)]
     return ['buy_' if len(selling) <= 1 else f'buy_{i}_' for i in range(len(merchants))]
 
 
@@ -83,7 +113,7 @@ def trade_action_names(game_map):
         return ()
     names = []
     for prefix, merchant in zip(_merchant_prefixes(merchants), merchants):
-        names += [prefix+key for key in merchant.get('potions', {})]
+        names += [prefix+key for key in _merchant_offers(merchant)]
     if any(k == 'trainer' for k, _ in entries):
         names += ['train_'+str(slot) for slot in range(6)]
     names += ['buy_spell_'+offer['spell'] for shop in shops for offer in shop.get('spells', [])]
@@ -96,20 +126,34 @@ class SiteRules:
         definitions = [value for _, value in site_entries(game_map)]
         kinds = [s['kind'] for s in self.sites]
         self.items, self.potions, self.progression = items, potions, progression
+        self.names = trade_action_names(game_map)
         self.has_merchant = 'merchant' in kinds
         self.has_trainer = 'trainer' in kinds
         self.has_spell_shop = 'spell_shop' in kinds
-        offers = [(i, key, count) for i, (kind, d) in enumerate(zip(kinds, definitions)) if kind == 'merchant'
+        offers = [(i, key, count, False) for i, (kind, d) in enumerate(zip(kinds, definitions)) if kind == 'merchant'
                   for key, count in d.get('potions', {}).items()]
-        self.buy_keys = tuple(key for _, key, _ in offers)
-        if self.has_merchant and not self.buy_keys:
-            raise ValueError('A merchant must have potion stock')
-        if any(type(n) is not int or n < 1 for _, _, n in offers):
+        if any(type(n) is not int or n < 1 for _, _, n, _ in offers):
             raise ValueError('Merchant stock must be a positive integer')
-        self.buy_sites = jnp.array([i for i, _, _ in offers], jnp.int32)
-        self.buy_ids = jnp.array([potions.keys.index(k) for k in self.buy_keys], jnp.int32)
-        self.initial_stock = jnp.array([n for _, _, n in offers], jnp.int32)
-        self.buy_base = jnp.array([potions.items[potions.keys.index(k)]['price'] for k in self.buy_keys], jnp.int32)
+        # Reference grant "inventory": a bought item joins the hero inventory (_grant_merchant_item).
+        offers += [(i, key, count, True) for i, (kind, d) in enumerate(zip(kinds, definitions)) if kind == 'merchant'
+                   for key, count in merchant_items(d).items()]
+        offers.sort(key=lambda offer: offer[0])  # per merchant: potions, then items
+        self.buy_keys = tuple(key for _, key, _, _ in offers)
+        if self.has_merchant and not self.buy_keys:
+            raise ValueError('A merchant must have stock')
+        if len(set(self.names)) != len(self.names):
+            raise ValueError('Merchant offers need distinct action names')
+        self.item_offers = any(item for *_, item in offers)
+        if self.item_offers and not items:
+            raise ValueError('Merchant items require the equipment inventory')
+        catalogue = [items.items[items.keys.index(k)] if item else potions.items[potions.keys.index(k)]
+                     for _, k, _, item in offers]
+        self.buy_sites = jnp.array([i for i, *_ in offers], jnp.int32)
+        self.buy_items = jnp.array([item for *_, item in offers], bool)
+        self.buy_ids = jnp.array([(items.keys if item else potions.keys).index(k) for _, k, _, item in offers], jnp.int32)
+        self.initial_stock = jnp.array([n for _, _, n, _ in offers], jnp.int32)
+        self.buy_base = jnp.array([p['price'] for p in catalogue], jnp.int32)
+        self.buy_groups = [shop_group(p) for p in catalogue]
         spell_offers = [(i, o) for i, (kind, d) in enumerate(zip(kinds, definitions)) if kind == 'spell_shop'
                         for o in d.get('spells', [])]
         if self.has_spell_shop and not spell_offers:
@@ -132,7 +176,6 @@ class SiteRules:
         self.spell_start = self.train_start+(6 if self.has_trainer else 0)
         self.end = self.spell_start+len(spell_offers)
         self.action_count = self.end-action_start
-        self.names = trade_action_names(game_map)
         self.anchors = jnp.array([s['position'] for s in self.sites], jnp.int32)
         self.footprints = jnp.array([p for s in self.sites for p in s['footprint']], jnp.int32)
         # Each site has at most five approach tiles; (-1,-1) pads blocked ones.
@@ -240,7 +283,14 @@ class SiteRules:
             def buy(s):
                 i = jnp.clip(action-self.buy_start, 0, len(self.buy_keys)-1)
                 cost = self.buy_prices(s)[i]
-                return s.replace(gold=s.gold-cost, potions=s.potions.at[self.buy_ids[i]].add(1),
+                item = self.buy_items[i]
+                if self.item_offers:
+                    # The inventory stays compact; its capacity counts every merchant copy.
+                    free = jnp.sum(s.item_inventory >= 0)
+                    s = s.replace(item_inventory=s.item_inventory.at[jnp.where(item, free, s.item_inventory.size)].set(
+                        self.buy_ids[i], mode='drop'))
+                potion = jnp.where(item, s.potions.size, self.buy_ids[i])
+                return s.replace(gold=s.gold-cost, potions=s.potions.at[potion].add(1, mode='drop'),
                     merchant_stock=s.merchant_stock.at[i].add(-1), last_event=jnp.int32(BOUGHT),
                     last_service_cost=cost, last_trade_item=i)
             state = jax.lax.cond(legal & (action < self.train_start), buy, lambda s: s, state)
@@ -284,9 +334,9 @@ class SiteRules:
 
     @property
     def metadata(self):
-        bought = [dict(self.potions.items[self.potions.keys.index(key)], action=self.buy_start+i,
-                       site=int(self.buy_sites[i]))
-                  for i, key in enumerate(self.buy_keys)]
+        bought = [dict((self.items if item else self.potions).items[int(self.buy_ids[i])], action=self.buy_start+i,
+                       site=int(self.buy_sites[i]), group=self.buy_groups[i])
+                  for i, item in enumerate(self.buy_items.tolist())]
         spells = [dict(offer, action=self.spell_start+i) for i, offer in enumerate(self.spell_offers)]
         return dict(sites=self.sites, buy=bought,
                     train_start=self.train_start if self.has_trainer else None,

@@ -9,11 +9,14 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from stoix.envs.number_grid import DEFEND, REST, WAIT, action_names, load_map
+from stoix.envs.number_grid import CONTINUE, DEFEND, REST, WAIT, action_names, load_map
 from stoix.envs.number_grid_battle_items import (BATTLE_ITEM, ITEM_EQUIPPED, MAGIC_BY_KEY, MAGIC_ITEMS,
                                                  ORBS, TALISMANS, BattleItemRules)
 from stoix.envs.number_grid_items import ITEMS, USABLE, ItemRules
+from stoix.envs.number_grid_potions import POTION_START
 from stoix.tests.number_grid_fixtures import enemy_roster_state
+
+
 
 DEFAULT = load_map('default')
 NAMES = action_names(DEFAULT)
@@ -37,6 +40,7 @@ def allowed(mask, start, end):
     return [NAMES[i] for i in range(start, end) if mask[i]]
 
 
+@pytest.mark.core
 def test_catalog_and_default_actions(default_game):
     env, state, _, _ = default_game
     rules = env.battle_item_rules
@@ -57,6 +61,7 @@ def test_catalog_and_default_actions(default_game):
     assert rules.observation_size == 20 and state.battle_items.tolist() == [-1, -1]
 
 
+@pytest.mark.core
 def test_equip_needs_access_and_happens_once_per_day(default_game):
     env, initial, step, mask = default_game
     rules = env.battle_item_rules
@@ -104,6 +109,7 @@ def item_battle(default_game):
         actor=jnp.int32(1), hp=battle.hp.at[0].set(0))  # the hero acts; Squire 0 has fallen
 
 
+@pytest.mark.core
 def test_hero_revives_and_summons_on_its_turn(default_game, item_battle):
     env, _, step, mask = default_game
     rules, ids = env.battle_item_rules, env.progression.ids
@@ -135,6 +141,7 @@ def test_hero_revives_and_summons_on_its_turn(default_game, item_battle):
     assert won.battle_items.tolist() == battle.battle_items.tolist() and won.battle_item_charges.tolist() == [1, 4]
 
 
+@pytest.mark.core
 def test_battle_potion_heals_and_is_drunk(default_game, item_battle):
     env, _, step, mask = default_game
     healing = env.potion_rules.keys.index('healing')
@@ -144,6 +151,139 @@ def test_battle_potion_heals_and_is_drunk(default_game, item_battle):
         f'item1_ally_{t}' for t in (0, 1, 2, 4)]
     healed, _ = step(battle, jnp.int32(NAMES.index('item1_ally_0')))
     assert healed.hp[0] == 90 and healed.potions[healing] == 1 and healed.battle_items.tolist() == [-1, -1]
+
+
+def finish(step, state, action=DEFEND):
+    state, _ = step(state, jnp.int32(action))
+    for _ in range(6):
+        if not state.in_battle:
+            break
+        assert state.post_victory > 0
+        state, _ = step(state, jnp.int32(WAIT))
+    assert not state.in_battle
+    return state
+
+
+@pytest.mark.core
+@pytest.mark.parametrize('withdrawal', [False, True], ids=['victory', 'retreat'])
+@pytest.mark.parametrize('pair', [('healing', 'orb_of_life'), ('zombie_talisman', 'zombie_talisman')])
+def test_dead_leader_returns_both_slots_without_losing_items_or_charges(default_game, item_battle, withdrawal, pair):
+    """Manual Aftermath; reference test_dead_hero_equipment: no loss or recharge."""
+    env, _, step, mask = default_game
+    rules = env.battle_item_rules
+    battle = slots(env, owned(env, item_battle, *(k for k in pair if k != 'healing')), *pair)
+    healing = env.potion_rules.keys.index('healing')
+    battle = battle.replace(actor=jnp.int32(0), hp=battle.hp.at[1].set(0).at[0].set(100),
+                            potions=battle.potions.at[healing].set(2))
+    if pair[0] == 'zombie_talisman':
+        battle = battle.replace(battle_item_charges=jnp.array([2, 4], jnp.int32),
+                                battle_item_used=jnp.ones(2, bool))
+    if withdrawal:
+        battle = battle.replace(hp=battle.hp.at[:6].set(0).at[0].set(100),
+                                retreating=battle.retreating.at[0].set(True))
+    else:
+        battle = battle.replace(hp=battle.hp.at[6:].set(0))
+    out = finish(step, battle, CONTINUE if withdrawal else DEFEND)
+    assert out.hp[1] == 0 and jnp.any(out.hp[:6] > 0) and not out.lost
+    assert out.battle_items.tolist() == [-1, -1] and out.battle_item_charges.tolist() == [0, 0]
+    assert not jnp.any(out.battle_item_used)
+    np.testing.assert_array_equal(out.item_inventory, battle.item_inventory)
+    np.testing.assert_array_equal(out.potions, battle.potions)
+    assert not jnp.any(mask(out)[rules.equip_start:rules.use_start])  # dead leaders cannot equip
+    repeated, _ = step(out, jnp.int32(REST))
+    np.testing.assert_array_equal(repeated.item_inventory, out.item_inventory)
+    np.testing.assert_array_equal(repeated.item_charges_spent, out.item_charges_spent)
+    if pair[0] == 'zombie_talisman':
+        assert out.item_charges_spent[:2].tolist() == [3, 1]
+        # Map revival does not equip automatically. Both partial copies can be re-equipped.
+        life = env.potion_rules.keys.index('life')
+        revival = repeated.replace(potions=repeated.potions.at[life].set(1),
+                                    unit_levels=repeated.unit_levels.at[1].set(10))
+        revival, _ = step(revival, jnp.int32(POTION_START+6*life+1))
+        assert revival.hp[1] == 1 and revival.battle_items.tolist() == [-1, -1]
+        equip = jnp.int32(rules.equip_start+rules.keys.index('zombie_talisman'))
+        first, _ = step(revival, equip)
+        rested, _ = step(first, jnp.int32(REST))
+        second, _ = step(rested, equip)
+        assert second.battle_item_charges.tolist() == [2, 4]
+        np.testing.assert_array_equal(second.item_inventory, out.item_inventory)
+
+
+@pytest.mark.core
+def test_leader_death_keeps_slots_until_end_and_same_battle_revival_keeps_them(default_game, item_battle):
+    env, _, step, _ = default_game
+    battle = item_battle.replace(actor=jnp.int32(0), hp=item_battle.hp.at[0].set(100).at[1].set(0),
+                                battle_item_charges=jnp.array([1, 3], jnp.int32))
+    ongoing, _ = step(battle, jnp.int32(DEFEND))
+    assert ongoing.in_battle and ongoing.hp[1] == 0
+    np.testing.assert_array_equal(ongoing.battle_items, battle.battle_items)
+    np.testing.assert_array_equal(ongoing.battle_item_charges, battle.battle_item_charges)
+    # A resurrection before the final transition must preserve the original equipment.
+    revived = ongoing.replace(actor=jnp.int32(0), hp=ongoing.hp.at[1].set(1).at[6:].set(0),
+                               unit_levels=ongoing.unit_levels.at[1].set(10))
+    out = finish(step, revived)
+    assert out.hp[1] > 0
+    np.testing.assert_array_equal(out.battle_items, battle.battle_items)
+    np.testing.assert_array_equal(out.battle_item_charges, battle.battle_item_charges)
+    # With a dead leader the post-victory healing phase still belongs to this battle.
+    healing, _ = step(battle.replace(hp=battle.hp.at[6:].set(0)), jnp.int32(DEFEND))
+    assert healing.in_battle and healing.post_victory == 1
+    np.testing.assert_array_equal(healing.battle_items, battle.battle_items)
+    ended = finish(step, healing, WAIT)
+    assert ended.battle_items.tolist() == [-1, -1]
+
+
+@pytest.mark.core
+def test_partial_talisman_charges_follow_inventory_compaction(default_game):
+    env, initial, _, _ = default_game
+    # An orb is consumed before the talisman in acquisition order.
+    base = slots(env, owned(env, initial, 'orb_of_life', 'zombie_talisman', 'zombie_talisman'),
+                 'orb_of_life', 'zombie_talisman')
+    base = base.replace(battle_item_charges=jnp.array([1, 2], jnp.int32),
+                        item_charges_spent=base.item_charges_spent.at[2].set(1))
+    rules = env.battle_item_rules
+
+    @jax.jit
+    def roundtrip(state):
+        orb = rules.keys.index('orb_of_life')
+        talisman = rules.keys.index('zombie_talisman')
+        state = rules.consume(state, jnp.int32(0), jnp.int32(orb), jnp.bool_(True))
+        # Slot 1 still reserves the first talisman; filling slot 0 must take the other copy.
+        state = state.replace(unit_levels=state.unit_levels.at[1].set(10))
+        return rules.equip(env, state, jnp.int32(rules.equip_start+talisman))
+
+    equipped = roundtrip(base)
+    assert equipped.battle_item_charges.tolist() == [4, 2]
+    assert equipped.item_charges_spent[:3].tolist() == [1, 3, 0]
+    # Spending the second identical copy must leave the first copy's history intact.
+    consumed = jax.jit(rules.consume)(equipped.replace(battle_item_charges=jnp.array([4, 1], jnp.int32)),
+        jnp.int32(1), jnp.int32(rules.keys.index('zombie_talisman')), jnp.bool_(True))
+    assert consumed.item_charges_spent[:2].tolist() == [1, 0]
+    assert consumed.battle_item_charges.tolist() == [4, 0]
+    assert int(jnp.sum(consumed.item_inventory >= 0)) == 1
+
+
+@pytest.mark.core
+def test_returned_charges_survive_sales_scrolls_and_new_loot(default_game):
+    env, initial, step, mask = default_game
+    state = owned(env, initial, 'bronze_ring', 'mind_ward_scroll', 'zombie_talisman')
+    state = state.replace(item_charges_spent=state.item_charges_spent.at[2].set(3),
+                          position=jnp.array([36, 25], jnp.int32), scroll_magic=jnp.bool_(True),
+                          unit_levels=state.unit_levels.at[1].set(10))
+    sold, _ = step(state, jnp.int32(REST))  # Alar: sell the valuable preceding both usable items.
+    assert sold.last_sold_count == 1 and sold.item_charges_spent[:3].tolist() == [0, 3, 0]
+    cast = jnp.int32(NAMES.index('cast_mind_ward_scroll'))
+    assert mask(sold)[cast]
+    casted, _ = step(sold, cast)
+    assert casted.item_inventory[0] == env.item_rules.keys.index('zombie_talisman')
+    assert casted.item_charges_spent[:3].tolist() == [3, 0, 0]
+    # Picking up another copy leaves its charges fresh and the returned copy partial.
+    at_chest = casted.replace(position=jnp.array([24, 37], jnp.int32))
+    picked, _ = step(at_chest, jnp.int32(0))
+    assert picked.item_inventory[:2].tolist() == [env.item_rules.keys.index('zombie_talisman')]*2
+    assert picked.item_charges_spent[:3].tolist() == [3, 0, 0]
+    observed = jax.jit(env.item_rules.observation)(picked)
+    np.testing.assert_allclose(observed[-env.item_rules.charge_capacity:], picked.item_charges_spent/5)
 
 
 ENEMIES = ['goblin', 'orc', 'goblin', 'g000uu0090', 'g000uu0087', 'goblin_archer']  # Templar wards, Zombie
@@ -170,7 +310,8 @@ def effects(default_game):
         setattr(env, flag, True)
     begin = jax.jit(env._begin_battle)(initial.replace(enemy=jnp.int32(11)))
     base = enemy_roster_state(env, begin, ENEMIES).replace(
-        actor=jnp.int32(1), item_inventory=jnp.full(env.item_rules.capacity, -1, jnp.int32))
+        actor=jnp.int32(1), item_inventory=jnp.full(env.item_rules.capacity, -1, jnp.int32),
+        item_charges_spent=jnp.zeros(env.item_rules.charge_capacity, jnp.int32))
     count = len(CASES)
     kinds = np.array([[rules.keys.index(key), -1] for key, *_ in CASES], np.int32)
     hp = np.repeat(np.asarray(base.hp)[None], count, 0)

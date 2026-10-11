@@ -48,6 +48,7 @@ def test_initial_experience_and_observation_contract(env):
     chex.assert_trees_all_equal(encoded[4:], jnp.zeros((8,5)))
 
 
+@pytest.mark.core
 def test_xp_is_awarded_once_only_to_surviving_non_escaped_winners(env):
     s = battle(env).replace(actor=jnp.int32(0))
     # 20 XP / 2 survivors gives 10; dead and escaped allies get none.
@@ -66,6 +67,7 @@ def test_xp_is_awarded_once_only_to_surviving_non_escaped_winners(env):
     assert not jnp.any(ongoing.unit_xp) and not ongoing.last_promoted
 
 
+@pytest.mark.core
 def test_kill_bank_counts_new_deaths_only_and_uses_exact_half_up(env):
     s = battle(env, 11).replace(actor=jnp.int32(3))
     # Two cultists for the independent half-up rounding scenario.
@@ -79,6 +81,7 @@ def test_kill_bank_counts_new_deaths_only_and_uses_exact_half_up(env):
     assert won.last_xp.sum() == 126
 
 
+@pytest.mark.core
 def test_cap_building_requirement_full_heal_and_discarded_excess(env):
     s = battle(env).replace(actor=jnp.int32(0))
     s = s.replace(hp=s.hp.at[:5].set(10).at[6].set(1),
@@ -233,6 +236,7 @@ def duke_reference():
     return json.loads((Path(__file__).parent / 'data/duke_levels.json').read_text())['levels']
 
 
+@pytest.mark.core
 def test_duke_first_hundred_levels_match_python_reference(env, duke_reference):
     levels = jnp.arange(1, 101, dtype=jnp.int32)
     ids = jnp.full(100, env.progression.ids['duke'], jnp.int32)

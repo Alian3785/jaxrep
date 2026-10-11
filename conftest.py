@@ -1,7 +1,22 @@
 """Require the production CUDA backend before collecting any project tests."""
 import os
+import json
+from pathlib import Path
+import platform
 
 import pytest
+
+
+def pytest_runtest_logreport(report):
+    """Persist completed phases even if the wall-time guard kills a later test."""
+    output = os.environ.get('NUMBERGRID_TEST_DURATIONS')
+    if output:
+        with Path(output).open('a', encoding='utf-8') as stream:
+            record = dict(nodeid=report.nodeid,phase=report.when,
+                          seconds=report.duration,outcome=report.outcome)
+            if report.failed:
+                record['failure'] = report.longreprtext
+            stream.write(json.dumps(record)+'\n')
 
 
 def pytest_sessionstart(session):
@@ -23,3 +38,8 @@ def pytest_sessionstart(session):
         raise pytest.UsageError(
             'A working CUDA GPU is required for project tests; no CPU fallback. '
             'Use bash scripts/run_gpu.sh -m pytest.') from error
+    output = os.environ.get('NUMBERGRID_TEST_DURATIONS')
+    if output:
+        metadata = dict(python=platform.python_version(),jax=jax.__version__,backend=jax.default_backend(),
+                        devices=[d.device_kind for d in jax.devices('gpu')])
+        Path(output).with_name('runtime.json').write_text(json.dumps(metadata,indent=2)+'\n')

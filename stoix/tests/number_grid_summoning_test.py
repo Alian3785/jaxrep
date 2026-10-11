@@ -17,8 +17,8 @@ from stoix.tests.number_grid_fixtures import compiled_method, hero_roster_state,
 @pytest.fixture(scope='module')
 def summon_game():
     config = deepcopy(MAP)
-    # Keep summoning, copied forms and poison-owner death, without recompiling
-    # unrelated enemy effects already exercised by the production-map suite.
+    # The current map has no unit summoners and prunes that branch. Keep the
+    # full summoner scenarios on a dedicated environment for targeted checks.
     config['enemy_rosters'] = [['squire',None,None,None,None,None] for _ in config['enemy_rosters']]
     config['enemy_units'] = [1]*len(config['enemy_rosters'])
     config['enemy_rosters'][0] = ['elementalist','sage','occultist','occultmaster','lyf','laclaan']
@@ -45,6 +45,7 @@ def act(env,state,action):
     return compiled_method(env,'_battle_step')(state,jnp.int32(action),state.battle_key,jnp.zeros(env.random_size))[0]
 
 
+@pytest.mark.core
 def test_complete_catalog_is_traceable_and_map_does_not_add_new_types():
     manifest = json.loads((Path(__file__).parents[2]/'docs/validation/unit-catalog.json').read_text())
     assert len(UNITS) == manifest['unit_count'] == 356
@@ -92,11 +93,15 @@ def test_zero_round_copy_mask_stats_hp_and_normal_turn(summon_game,current_game)
     assert compiled_method(env,'unit_experience')(result)[0,1] == UNITS['doppelganger']['exp_kill']
     assert not compiled_method(env,'action_mask')(result.replace(actor=jnp.int32(0)))[COPY_ALLY+1]
     limited = act(env,state.replace(step_count=jnp.int32(env.max_steps-1)),COPY_ALLY+1)
-    assert limited.done and not limited.copied[0]
-    assert limited.unit_ids[0] == state.unit_ids[0] and limited.hp[0] == 40
+    # Raw preparation never spends the decision budget or erases a copied form.
+    assert not limited.done and limited.copied[0]
+    assert limited.unit_ids[0] == result.unit_ids[0] and limited.hp[0] == result.hp[0]
 
 
-def test_copy_exclusions_and_persistent_stats(summon_game):
+@pytest.mark.core
+def test_copy_exclusions_and_persistent_stats(current_game):
+    # Copies are enabled on the current map; this case reuses its compiled battle.
+    summon_game = current_game[:2]
     env,_ = summon_game
     state = battle(summon_game,['doppelganger','doppelganger','duke',None,None,None],['titan','squire',None,None,None,None])
     state = state.replace(actor=jnp.int32(0),round=jnp.int32(0),

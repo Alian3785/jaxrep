@@ -29,6 +29,7 @@ def unchanged(before, after):
         chex.assert_trees_all_equal(getattr(before, key), getattr(after, key))
 
 
+@pytest.mark.core
 def test_original_site_geometry_and_reachable_entrances(current_game):
     env, state, _, _ = current_game
     sites = site_layout(MAP)
@@ -71,6 +72,7 @@ def test_footprints_block_mask_and_step(current_game):
             unchanged(before,after)
 
 
+@pytest.mark.core
 def test_exact_three_purchase_actions_and_finite_stock(current_game):
     env, initial, advance, _ = current_game
     rules=env.site_rules
@@ -99,6 +101,7 @@ def test_exact_three_purchase_actions_and_finite_stock(current_game):
     assert reset.merchant_stock.tolist()==[1,10,10]
 
 
+@pytest.mark.core
 def test_trade_and_training_reject_unavailable_actions(current_game):
     env, initial, advance, _ = current_game
     rules=env.site_rules
@@ -156,6 +159,7 @@ def test_autosale_all_valuables_once_and_pickup_after_compaction(current_game):
     assert env.site_rules.autosell(trainer).gold==trainer.gold
 
 
+@pytest.mark.core
 def test_training_partial_full_hero_growth_and_cap(current_game):
     env,initial,advance,_=current_game
     rules=env.site_rules

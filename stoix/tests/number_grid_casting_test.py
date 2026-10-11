@@ -105,6 +105,7 @@ def test_nearest_target_is_one_vector_chebyshev_argmin(current_game):
             assert int(target[k]) == expected
 
 
+@pytest.mark.core
 def test_damage_hits_nearest_field_stack_spends_mana_and_daily_limit(current_game):
     env, initial, step, _ = current_game
     rules = env.casting
@@ -280,6 +281,7 @@ def test_support_spells_heal_moves_buffs_wards_health_and_terrain(current_game):
             assert jax.jit(env.terrain.costs, static_argnums=1)(dead, None, rules.terrain(dead))[FOREST] == 4
 
 
+@pytest.mark.core
 def test_summon_battle_victory_returns_party_and_pays_no_defeat_reward(current_game):
     env, initial, step, _ = current_game
     rules = env.casting
@@ -309,6 +311,7 @@ def test_summon_battle_victory_returns_party_and_pays_no_defeat_reward(current_g
     chex.assert_trees_all_equal(final.spell_mods, jnp.tile(jnp.array(NEUTRAL), (12, 1)))
 
 
+@pytest.mark.core
 def test_summon_defeat_keeps_wounds_hero_bonus_and_never_ends_the_game(current_game):
     env, initial, step, _ = current_game
     rules = env.casting
@@ -340,6 +343,23 @@ def test_summon_defeat_keeps_wounds_hero_bonus_and_never_ends_the_game(current_g
     assert battle.hp[6] == squire-final.enemy_wounds[0, 0] and battle.enemy_initial_hp[0] == battle.hp[6]
 
 
+@pytest.mark.core
+def test_summon_round_limit_keeps_existing_return_without_retreat_penalty(current_game):
+    env, initial, step, _ = current_game
+    state = ready(env, initial, 0)
+    summoned, _ = step(state, jnp.int32(env.casting.start))
+    summoned = summoned.replace(round=jnp.int32(env.max_rounds), actor=jnp.int32(0),
+        turn_phase=jnp.full(12, 2, jnp.int32).at[0].set(0))
+    out, ts = step(summoned, jnp.int32(DEFEND))
+    assert out.last_event == WITHDRAW and not out.in_battle and not out.done
+    assert not out.summon_battle and not env.round_limit_retreat(out)
+    assert out.step_count == summoned.step_count+1
+    for field in ('unit_ids', 'unit_levels', 'unit_xp', 'hp'):
+        chex.assert_trees_all_equal(getattr(out, field)[:6], getattr(state, field)[:6])
+    assert float(ts.reward) == pytest.approx(-env.step_cost-.05*env.recruitment.composition(out)[2])
+
+
+@pytest.mark.core
 def test_batched_casts_match_single_transitions_and_mask_equals_step(current_game):
     env, initial, step, _ = current_game
     rules = env.casting

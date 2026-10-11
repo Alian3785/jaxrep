@@ -1,5 +1,5 @@
 {
-  "name": "NumberGrid-48x48-v85-lord-parties",
+  "name": "NumberGrid-48x48-v86-agent-decisions",
   "size": 48,
   "agent_position": [
     2,
@@ -250,6 +250,7 @@
   "battle_mode": true,
   "hero_hp": 120,
   "battle_max_rounds": 75,
+  "battle_round_limit_penalty": 1.0,
   "enemy_units": [
     1,
     1,

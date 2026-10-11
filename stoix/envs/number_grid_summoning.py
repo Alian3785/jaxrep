@@ -245,12 +245,11 @@ class Summoning:
         remaining = jnp.any(pending & (prepared.hp > 0))
         priority = self._round_priority(random_values,state.enemy,prepared)
         next_actor = jnp.argmax(jnp.where(jnp.where(remaining,pending,prepared.hp > 0),priority,-1e9))
-        timeout = state.step_count+1 >= self.max_steps
-        prepared,hp = self._restore_roster(prepared,prepared.hp,timeout)
-        return prepared.replace(hp=hp,done=prepared.done | timeout,battle_key=key,preparation=pending,round=jnp.where(remaining,0,1),
+        # Copy preparation is a unit activation; only the outer decision spends max_steps.
+        return prepared.replace(battle_key=key,preparation=pending,round=jnp.where(remaining,0,1),
             actor=next_actor.astype(jnp.int32),priority=priority,
             activation_done=jnp.zeros(12,bool).at[next_actor].set(~remaining),
-            last_event=jnp.where(timeout,11,jnp.where(event >= 0,event,4)).astype(jnp.int32),last_actor=actor,
+            last_event=jnp.where(event >= 0,event,4).astype(jnp.int32),last_actor=actor,
             last_target=jnp.int32(-1),last_damage=jnp.int32(0),
             player_turns=state.player_turns+(actor < 6).astype(jnp.int32),
             enemy_turns=state.enemy_turns+(actor >= 6).astype(jnp.int32),

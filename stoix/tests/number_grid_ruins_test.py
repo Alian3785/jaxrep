@@ -67,6 +67,7 @@ def test_ruin_dead_missing_copied_leader_and_cleared_entry_rejected(current_game
     assert mask(base)[0]
 
 
+@pytest.mark.core
 def test_ruin_victory_loot_once_strength_effect_and_reset(current_game):
     env,s,step,fight = current_game
     before = at_ruin(env,s)

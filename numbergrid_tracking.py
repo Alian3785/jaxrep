@@ -188,7 +188,7 @@ class NumberGridTracking:
             return None
         rows = [item[0] for item in self.pending]
         counts = ('episodes', 'episode_wins', 'battle_transition', 'player_battle_transition',
-                  'enemy_battle_transition', 'battle_victory', 'building_constructed', 'turn_ended', 'rest_penalty')
+                  'enemy_battle_transition', 'automatic_battle_transition', 'battle_victory', 'building_constructed', 'turn_ended', 'rest_penalty')
         means = ('mean_episode_length', 'mean_episode_return')
         summary = row.copy()
         for key in counts:
@@ -239,7 +239,8 @@ class NumberGridTracking:
         if 'battle_victory' in row:
             data['battles/wins'] = int(row['battle_victory'])
             data['battles/wins_total'] = self.battle_wins
-            data['battles/transition_fraction'] = row['battle_transition'] / step_size
+            data['battles/unit_activations_per_decision'] = row['battle_transition'] / step_size
+            data['battles/automatic_activations'] = int(row.get('automatic_battle_transition', 0))
         if 'building_constructed' in row:
             data['construction/built'] = int(row['building_constructed'])
             data['construction/built_total'] = self.buildings_built
@@ -252,7 +253,7 @@ class NumberGridTracking:
             data['turns/rest_penalty_total'] = self.rest_penalty_total
         excluded = {'all_finite', 'episodes', 'episode_wins', 'episode_success_rate',
                     'mean_episode_length', 'mean_episode_return', 'training_steps', 'training_seconds',
-                    'battle_transition', 'player_battle_transition', 'enemy_battle_transition',
+                    'battle_transition', 'player_battle_transition', 'enemy_battle_transition', 'automatic_battle_transition',
                     'battle_victory', 'building_constructed', 'turn_ended', 'rest_penalty'}
         data.update({f'ppo/{key}': value for key, value in row.items() if key not in excluded})
         return data

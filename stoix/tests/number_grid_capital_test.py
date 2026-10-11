@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from stoix.envs.number_grid import NumberGrid, REST, SHOOT, CONTINUE, DEFEND, MAP
+from stoix.envs.number_grid import NumberGrid, REST, SHOOT, CONTINUE, DEFEND, MAP, ROUND_LIMIT_RETREAT
 from stoix.envs.number_grid_capital import CapitalRules, HEAL_START, REVIVE_START
 from stoix.envs.number_grid_buildings import BuildingRules, FACTIONS
 
@@ -36,6 +36,7 @@ def test_reference_prices_and_faction_temple_mapping(game):
     assert env.capital.quotes(high_level, compiled_method(env,'max_hp')(high_level))[1, [0,4]].tolist() == [1,200]
 
 
+@pytest.mark.core
 def test_services_require_exact_capital_temple_money_and_correct_target(game):
     env, state, advance, _ = game
     wounded = state.replace(hp=state.hp.at[0].set(100).at[1].set(0))
@@ -60,6 +61,7 @@ def test_services_require_exact_capital_temple_money_and_correct_target(game):
     assert not other.at_capital(state) and other.at_capital(state.replace(position=jnp.array([4,4])))
 
 
+@pytest.mark.core
 def test_integer_partial_healing_change_cap_and_no_turn_cost(game):
     env, state, advance, _ = game
     unit_id = env.progression.ids['berserker']
@@ -77,6 +79,7 @@ def test_integer_partial_healing_change_cap_and_no_turn_cost(game):
     assert not compiled_method(env,'action_mask')(full)[HEAL_START]
 
 
+@pytest.mark.core
 def test_paid_revive_returns_one_hp_and_keeps_level_experience(game):
     env, state, advance, _ = game
     for slot, cost in ((0,50),(1,200)):
@@ -110,6 +113,7 @@ def test_reward_allowances_are_separate_and_keep_reference_debt(game):
     assert reset.recovery_balance.tolist() == [0,0]
 
 
+@pytest.mark.core
 def test_only_victory_funds_recovery_once_and_keeps_casualties(game):
     env, state, advance, fight = game
     state = state.replace(recovery_balance=jnp.array([-7,-1]))
@@ -136,7 +140,11 @@ def test_only_victory_funds_recovery_once_and_keeps_casualties(game):
     assert lost.lost and lost.done
     chex.assert_trees_all_equal(lost.recovery_balance, state.recovery_balance)
     limited = battle.replace(turn_phase=jnp.full(12,2).at[1].set(0), round=jnp.int32(env.max_rounds))
-    timed, _ = fight(limited, jnp.int32(DEFEND), battle.battle_key, jnp.zeros(env.random_size))
+    forced, _ = fight(limited, jnp.int32(DEFEND), battle.battle_key, jnp.zeros(env.random_size))
+    assert not forced.done and forced.in_battle and forced.last_event == ROUND_LIMIT_RETREAT
+    chex.assert_trees_all_equal(forced.recovery_balance, state.recovery_balance)
+    limited = limited.replace(step_count=jnp.int32(env.max_steps-1))
+    timed, _ = advance(limited, jnp.int32(DEFEND))
     assert timed.done and not timed.lost
     chex.assert_trees_all_equal(timed.recovery_balance, state.recovery_balance)
     healed_enemy = compiled_method(env,'_begin_battle')(state.replace(enemy=jnp.int32(5)))

@@ -16,6 +16,8 @@ from stoix.tests.number_grid_fixtures import current_environment
 from stoix.envs.number_grid import SHOOT, WAIT, DEFEND, CONTINUE, REST
 
 
+
+
 def scenarios(env):
     world, _ = compiled_method(env,'reset')(jax.random.PRNGKey(42))
     battle = compiled_method(env,'_begin_battle')(world.replace(enemy=jnp.int32(11)))
@@ -55,6 +57,7 @@ def reference_batch():
 
 
 class CombatTransformsTest(chex.TestCase):
+    @pytest.mark.core
     def test_batched_step_matches_individual_steps(self):
         # Map movement, hero actions, enemy AI, escape, invalid and terminal steps.
         env, states, actions, batched, expected = reference_batch()
@@ -81,6 +84,9 @@ class CombatTransformsTest(chex.TestCase):
             assert_same_result(expected, actual)
 
 
+@pytest.mark.parametrize('training_autoreset', [
+    pytest.param('contract', marks=pytest.mark.core), 'current',
+], indirect=True)
 def test_cached_autoreset_changes_rng_and_preserves_final_observation(training_autoreset):
     env, eval_env, advance = training_autoreset
     assert isinstance(eval_env, AddActionMaskWrapper)
@@ -88,6 +94,7 @@ def test_cached_autoreset_changes_rng_and_preserves_final_observation(training_a
     original = np.asarray(state.battle_key)
     state, ts = advance(state,jnp.array([7,3]))
     assert np.all(ts.truncated()) and np.all(state.step_count == 0)
+    assert np.all(ts.discount == 1)
     assert not np.array_equal(original,state.battle_key)
     assert np.all(ts.extras['next_obs']['observation'][:,3] == 1)
     assert np.all(ts.observation['observation'][:,3] == 0)
@@ -97,6 +104,7 @@ def test_cached_autoreset_changes_rng_and_preserves_final_observation(training_a
     assert not np.array_equal(state.battle_key,again.battle_key)
 
 
+@pytest.mark.core
 def test_masked_warrior_policy_sample_argmax_and_ppo_gradient(current_game):
     env, initial, _, _ = current_game
     state = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(11))).replace(actor=jnp.int32(0))
@@ -122,9 +130,12 @@ def test_masked_warrior_policy_sample_argmax_and_ppo_gradient(current_game):
     assert np.isfinite(value) and all(np.isfinite(x).all() for x in jax.tree.leaves(gradients))
 
 
+@pytest.mark.core
 def test_human_service_uses_identical_mask_and_rejects_unreachable_target(human_service):
     service = human_service
-    session = service.create(42)['session']
+    # This regression starts in combat; building an unused new-game snapshot
+    # would compile metadata that is unrelated to mask/step agreement.
+    session = 'mask-agreement-regression'
     env = service.env
     state, _ = compiled_method(env,'reset')(jax.random.PRNGKey(42))
     state = compiled_method(env,'_begin_battle')(state.replace(enemy=jnp.int32(11)))

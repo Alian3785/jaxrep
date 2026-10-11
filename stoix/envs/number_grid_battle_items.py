@@ -247,9 +247,29 @@ class BattleItemRules:
 
     def equip_available(self, env, state):
         reserved = jnp.sum(state.battle_items[:, None] == jnp.arange(self.count)[None, :], axis=0)
+        hero = env._equipment_hero(state)
         return (~state.in_battle & ~state.done & ~state.battle_item_equipped_today
+                & (hero >= 0) & (state.hp[jnp.maximum(hero, 0)] > 0)
                 & jnp.any(state.battle_items < 0) & self.access(env, state)
                 & (self.stock(state)[:self.count] > reserved))
+
+    def inventory_positions(self, state):
+        """Slots reserve the first copies of each kind, in slot order."""
+        kinds = jnp.maximum(state.battle_items, 0)
+        matches = state.item_inventory[None, :] == self.item_index[kinds, None]
+        ordinal = jnp.array([1, 1+(state.battle_items[0] == state.battle_items[1])], jnp.int32)
+        selected = matches & (jnp.cumsum(matches, axis=1) == ordinal[:, None])
+        valid = (state.battle_items >= 0) & (self.item_index[kinds] >= 0) & jnp.any(selected, axis=1)
+        return jnp.where(valid, jnp.argmax(selected, axis=1), state.item_inventory.size)
+
+    def save_charges(self, state):
+        if not state.item_charges_spent.size:
+            return state
+        positions = self.inventory_positions(state)
+        talismans = (state.battle_items >= 0) & self.talisman[jnp.maximum(state.battle_items, 0)]
+        positions = jnp.where(talismans, positions, state.item_inventory.size)
+        return state.replace(item_charges_spent=state.item_charges_spent.at[positions].set(
+            TALISMAN_USES-state.battle_item_charges, mode='drop'))
 
     def equip(self, env, state, action):
         if not self.count:
@@ -258,18 +278,27 @@ class BattleItemRules:
         using = (action >= self.equip_start) & (action < self.use_start) & self.equip_available(env, state)[kind]
         slot = jnp.argmax(state.battle_items < 0)
         selected = using & (jnp.arange(SLOTS) == slot)
-        return state.replace(battle_items=jnp.where(selected, kind, state.battle_items),
-            battle_item_charges=jnp.where(selected, self.uses[kind], state.battle_item_charges),
+        charges = self.uses[kind]
+        if state.item_charges_spent.size:
+            state = self.save_charges(state)
+            matches = state.item_inventory == self.item_index[kind]
+            reserved = jnp.sum(state.battle_items == kind)
+            copy = jnp.argmax(matches & (jnp.cumsum(matches) == reserved+1))
+            charges -= jnp.where(self.talisman[kind], state.item_charges_spent[copy], 0)
+        state = state.replace(battle_items=jnp.where(selected, kind, state.battle_items),
+            battle_item_charges=jnp.where(selected, charges, state.battle_item_charges),
             battle_item_used=state.battle_item_used & ~selected,
             battle_item_equipped_today=state.battle_item_equipped_today | using,
             last_battle_item=jnp.where(using, kind, -1),
             last_event=jnp.where(using, ITEM_EQUIPPED, state.last_event))
+        # Filling slot 0 while slot 1 is occupied changes the reservation order.
+        return self.save_charges(state)
 
     def sync(self, env, state):
-        """Reference sync: drop a slot without stock or access; earlier slots reserve first.
+        """Return slots to inventory on the map if the hero is dead or access is lost.
 
-        JAX unequips the book of a fallen hero; the reference keeps it, so a dead
-        hero's slots are not dropped for access.
+        Inventory already owns the reserved copies. Preserve partial talismans;
+        death during combat does not unequip them (reference CEffectEndBattle).
         """
         if not self.count:
             return state
@@ -277,13 +306,23 @@ class BattleItemRules:
         kind = jnp.maximum(items, 0)
         hero = env._equipment_hero(state)
         fallen = (hero < 0) | (state.hp[jnp.maximum(hero, 0)] <= 0)
-        held = (items >= 0) & (self.access(env, state)[kind] | fallen)
+        held = (items >= 0) & jnp.where(fallen, state.in_battle, self.access(env, state)[kind])
         first = held[0] & (self.stock(state)[kind[0]] >= 1)
         second = held[1] & (self.stock(state)[kind[1]] >= 1+(first & (items[0] == items[1])).astype(jnp.int32))
         keep = jnp.stack((first, second))
+        state = self.save_charges(state)
         return state.replace(battle_items=jnp.where(keep, items, -1),
             battle_item_charges=jnp.where(keep, state.battle_item_charges, 0),
             battle_item_used=state.battle_item_used & keep)
+
+    def finish_battle(self, env, state):
+        """Dead leader's reserved items return to the surviving party's inventory."""
+        hero = env._equipment_hero(state)
+        fallen = (hero < 0) | (state.hp[jnp.maximum(hero, 0)] <= 0)
+        state = self.save_charges(state)
+        return state.replace(battle_items=jnp.where(fallen, -1, state.battle_items),
+            battle_item_charges=jnp.where(fallen, 0, state.battle_item_charges),
+            battle_item_used=state.battle_item_used & ~fallen)
 
     # ------------------------------ battle: use ------------------------------
     def _valid_targets(self, env, state, kind):
@@ -512,10 +551,18 @@ class BattleItemRules:
 
     def consume(self, state, slot, kind, using):
         """Orbs and potions are spent; a talisman spends one of five charges, once per battle."""
+        from stoix.envs.number_grid_items import remove_items
+
         talisman = self.talisman[kind]
         charges = state.battle_item_charges[slot]-1
         spent = using & (~talisman | (charges <= 0))
         mask = jnp.arange(SLOTS) == slot
+        remove = None
+        if self.equipment is not None and self.equipment.capacity:
+            # Select before clearing the slot, including the second identical copy.
+            remove = spent & (jnp.arange(state.item_inventory.size) == self.inventory_positions(state)[slot])
+        state = state.replace(battle_item_charges=jnp.where(mask & using, charges, state.battle_item_charges))
+        state = self.save_charges(state)
         state = state.replace(
             battle_items=jnp.where(mask & spent, -1, state.battle_items),
             battle_item_charges=jnp.where(mask & using, jnp.where(spent, 0, charges), state.battle_item_charges),
@@ -525,12 +572,7 @@ class BattleItemRules:
             state = state.replace(potions=state.potions.at[jnp.maximum(potion, 0)].add(
                 -(spent & (potion >= 0)).astype(jnp.int32)))
         if self.equipment is not None and self.equipment.capacity:
-            inventory = state.item_inventory
-            match = inventory == self.item_index[kind]
-            remove = spent & (self.item_index[kind] >= 0) & match & (jnp.cumsum(match) == 1)
-            keep = (inventory >= 0) & ~remove
-            destination = jnp.where(keep, jnp.cumsum(keep)-1, inventory.size)
-            state = state.replace(item_inventory=jnp.full_like(inventory, -1).at[destination].set(inventory, mode='drop'))
+            state = remove_items(state, remove)
         return state
 
     def observation(self, state):

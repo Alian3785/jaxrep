@@ -45,6 +45,7 @@ def test_reference_layout_and_the_disabled_flag():
         NumberGrid(map_config={**MAP, 'battle_observation_version': 41})
 
 
+@pytest.mark.core
 def test_every_slot_field_moves_with_its_unit(current_game, default_game):
     for env, state in (current_game[:2], default_game[:2]):
         slots = {f.name for f in dataclasses.fields(state) if getattr(state, f.name).shape[:1] == (12,)}
@@ -52,6 +53,7 @@ def test_every_slot_field_moves_with_its_unit(current_game, default_game):
         assert set(SLOT_FIELDS) <= slots and slots - set(SLOT_FIELDS) <= {'last_item_loot'}
 
 
+@pytest.mark.core
 def test_swaps_through_step_limit_and_rest(current_game):
     env, initial, step, _ = current_game
     rules = env.unit_swaps

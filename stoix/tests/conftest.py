@@ -31,19 +31,37 @@ def human_service(current_game):
     import threading
     from serve_number_grid import GameService
     env, _, step, _ = current_game
+    # Serialize the real accessors through the same cached GPU functions as the
+    # mechanics tests. Eager snapshot assembly otherwise compiles hundreds of
+    # tiny kernels again for host arrays returned by device_get.
+    view = copy.copy(env)
+    for name in ('action_mask', 'map_commands', 'max_hp', 'cast_quotes',
+                 'round_limit_retreat', 'rest_penalty', 'movement_cap',
+                 'travel_costs', 'territory_quotes', 'unit_experience', 'unit_stats'):
+        setattr(view, name, compiled_method(env, name))
+    for name, method in (('construction', 'status'), ('spell_research', 'status'),
+                         ('capital', 'quotes'), ('potion_rules', 'quotes'),
+                         ('recruitment', 'quotes'), ('site_rules', 'quotes')):
+        rules = getattr(env, name)
+        prepared = copy.copy(rules)
+        setattr(prepared, method, compiled_method(rules, method))
+        setattr(view, name, prepared)
     service = GameService.__new__(GameService)
-    service.env = env
-    service.environments = {(env.construction.faction, env.construction.lord['id']):(env,compiled_method(env,'reset'),step)}
+    service.env = view
+    service.environments = {(env.construction.faction, env.construction.lord['id']):(view,compiled_method(env,'reset'),step)}
     service.sessions = OrderedDict()
     service.lock = threading.Lock()
     return service
 
 
 @pytest.fixture(scope='session')
-def training_autoreset():
+def training_autoreset(request):
     from numbergrid_config import make_config
     from stoix.utils.make_env import make
-    config = make_config()
+    # The wrapper contract needs a real combat environment, but not another
+    # compile of every unit effect. The full current-map case stays addressable.
+    from stoix.tests.number_grid_fixtures import MAP as BASIC_MAP
+    config = make_config(map_config=BASIC_MAP if getattr(request, 'param', None) == 'contract' else None)
     config.env.kwargs.max_steps = 1
     env, eval_env = make(config)
     return env, eval_env, compiled_method(env,'step')

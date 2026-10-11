@@ -69,6 +69,7 @@ def test_all_faction_offers_prices_buildings_and_placement(current_game, faction
         assert available(s.replace(hp=s.hp.at[1].set(0)))[i]
 
 
+@pytest.mark.core
 def test_dismiss_rehire_rewards_and_effect_cleanup(current_game):
     env, initial, advance, _ = current_game
     rules = env.recruitment
@@ -98,6 +99,7 @@ def test_dismiss_rehire_rewards_and_effect_cleanup(current_game):
     assert reset.hire_rewarded_capacity == 3
 
 
+@pytest.mark.core
 def test_large_units_dead_slots_and_mask_step_agreement(current_game):
     env,initial,advance,_ = current_game
     rules = env.recruitment

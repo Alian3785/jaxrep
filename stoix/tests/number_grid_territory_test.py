@@ -13,6 +13,7 @@ def cleared_city(env, state, index=0):
     return state.replace(alive=state.alive & ~env.territory.city_enemies[index])
 
 
+@pytest.mark.core
 def test_growth_income_acquisition_and_obstacles(current_game):
     env,s,step,_ = current_game
     rules = env.territory
@@ -59,6 +60,7 @@ def test_faction_native_mana_and_lord_data(current_game,faction,mana):
     assert jax.jit(rules.regeneration_percent)(s)[0] == 40
 
 
+@pytest.mark.core
 def test_two_city_armies_capture_live_hero_and_no_remote_capture(current_game):
     env,s,step,fight = current_game
     city = env.territory.positions[0]
@@ -126,6 +128,7 @@ def test_city_upgrade_remote_costs_growth_history_and_masks(current_game):
     assert jnp.all(rules.ranks[jnp.arange(3),jnp.array([2*48+2,14*48+16,32*48+36])] == 0)
 
 
+@pytest.mark.core
 def test_regeneration_uses_original_fort_instead_of_land_and_does_not_revive(current_game):
     env,s,step,_ = current_game
     rules = env.territory

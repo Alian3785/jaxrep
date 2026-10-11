@@ -6,7 +6,7 @@ campaign_env_data.py / campaign_env_inventory.py. See docs/HERO_ITEMS.md.
 import jax
 import jax.numpy as jnp
 
-from stoix.envs.number_grid_battle_items import MAGIC_ITEMS
+from stoix.envs.number_grid_battle_items import MAGIC_ITEMS, TALISMAN_USES
 from stoix.envs.number_grid_hero_skills import lore_levels
 from stoix.envs.number_grid_spell_items import SPELL_ITEMS
 
@@ -91,6 +91,18 @@ def item_counts(value, label):
     return value
 
 
+def remove_items(state, remove):
+    """Compact inventory copies and their charge histories together."""
+    inventory = state.item_inventory
+    keep = (inventory >= 0) & ~remove
+    destination = jnp.where(keep, jnp.cumsum(keep)-1, inventory.size)
+    changes = dict(item_inventory=jnp.full_like(inventory, -1).at[destination].set(inventory, mode='drop'))
+    if state.item_charges_spent.size:
+        changes['item_charges_spent'] = jnp.zeros_like(state.item_charges_spent).at[destination].set(
+            state.item_charges_spent, mode='drop')
+    return state.replace(**changes)
+
+
 class ItemRules:
     def __init__(self, game_map):
         inventories = [item_counts(game_map.get('initial_items',{}),'initial_items')]
@@ -105,6 +117,8 @@ class ItemRules:
         self.keys = tuple(p['key'] for p in self.items)
         self.count = len(self.items)
         self.capacity = sum(sum(c.values()) for c in inventories+stock)
+        talismans = {p['key'] for p in MAGIC_ITEMS if p['category'] == 'talisman'}
+        self.charge_capacity = self.capacity if game_map.get('battle_items', False) and used & talismans else 0
         if self.capacity > 1000:
             raise ValueError('A scenario may contain at most 1000 equipment/valuable items')
         self.policy = game_map.get('equipment_auto_equip','price')
@@ -134,7 +148,7 @@ class ItemRules:
         # Chest and ruin loot features skip merchant-only kinds: their columns are always zero.
         looted = {key for contents in inventories for key,count in contents.items() if count}
         self.loot_kinds = [i for i,key in enumerate(self.keys) if key in looted]
-        self.observation_size = self.capacity+5+chest_count*len(self.loot_kinds)
+        self.observation_size = self.capacity+5+chest_count*len(self.loot_kinds)+self.charge_capacity
         ruins = inventories[chest_count+1:]
         self.ruin_loot = jnp.array([[c.get(key,0) for key in self.keys] for c in ruins],jnp.int32).reshape(len(ruins),self.count)
         ruin_tokens = [(r,self.keys.index(key)) for r,c in enumerate(ruins) for key,count in c.items() for _ in range(count)]
@@ -228,7 +242,8 @@ class ItemRules:
 
     def observation(self,state):
         return jnp.concatenate(((state.item_inventory+1)/max(1,self.count),
-                                (state.equipped+1)/max(1,self.count),self.chest_loot[:,self.loot_kinds].reshape(-1)))
+                                (state.equipped+1)/max(1,self.count),self.chest_loot[:,self.loot_kinds].reshape(-1),
+                                state.item_charges_spent/float(TALISMAN_USES)))
 
     @property
     def metadata(self):

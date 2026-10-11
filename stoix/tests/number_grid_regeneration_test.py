@@ -7,7 +7,7 @@ import pytest
 
 from stoix.tests.number_grid_fixtures import MAP
 from stoix.envs.number_grid import (
-    NumberGrid, SHOOT, DEFEND, CONTINUE, REST, VICTORY, WITHDRAW, DEFEAT, LIMIT,
+    NumberGrid, SHOOT, DEFEND, CONTINUE, REST, VICTORY, WITHDRAW, DEFEAT, ROUND_LIMIT_RETREAT,
 )
 
 
@@ -25,8 +25,8 @@ def test_victory_and_withdrawal_preserve_dead_and_wounded_units(env):
                             escaped=state.escaped.at[2:6].set(True),
                             retreating=state.retreating.at[0].set(True))
     batch = jax.tree.map(lambda *xs: jnp.stack(xs), victory, fleeing)
-    result, _ = jax.jit(jax.vmap(env._battle_step, in_axes=(0, 0, 0, None)))(
-        batch, jnp.array([SHOOT, CONTINUE], jnp.int32), batch.battle_key, jnp.zeros(36))
+    result, _ = compiled_method(env, '_battle_step', batched=True)(
+        batch, jnp.array([SHOOT, CONTINUE], jnp.int32), batch.battle_key, jnp.zeros((2, 36)))
     expected = jnp.array([12, 0, 44, 0, 1, 20, 0, 0, 0, 0, 0, 0], jnp.int32)
     chex.assert_trees_all_equal(result.hp, jnp.stack((expected, expected)))
     chex.assert_trees_all_equal(result.last_event, jnp.array([VICTORY, WITHDRAW], jnp.int32))
@@ -85,17 +85,18 @@ def test_movement_building_invalid_and_battle_rest_do_not_heal(env):
     chex.assert_trees_all_equal(following.day, states.day)
 
 
-def test_total_defeat_and_round_timeout_do_not_resurrect(env):
+def test_total_defeat_and_forced_retreat_do_not_resurrect(env):
     state, _ = compiled_method(env,'reset')(jax.random.PRNGKey(42))
     state = compiled_method(env,'_begin_battle')(state.replace(enemy=jnp.int32(0)))
     lost = state.replace(hp=state.hp.at[:6].set(0).at[0].set(1), actor=jnp.int32(6))
     limited = state.replace(hp=state.hp.at[:6].set(0).at[0].set(12), actor=jnp.int32(0),
                             turn_phase=jnp.full(12, 2).at[0].set(0), round=jnp.int32(env.max_rounds))
     states = jax.tree.map(lambda *xs: jnp.stack(xs), lost, limited)
-    following, _ = jax.jit(jax.vmap(env._battle_step, in_axes=(0, 0, 0, None)))(
-        states, jnp.array([CONTINUE, DEFEND], jnp.int32), states.battle_key, jnp.zeros(36))
-    chex.assert_trees_all_equal(following.last_event, jnp.array([DEFEAT, LIMIT], jnp.int32))
-    assert jnp.all(following.done) and following.lost[0] and not following.lost[1]
+    following, _ = compiled_method(env, '_battle_step', batched=True)(
+        states, jnp.array([CONTINUE, DEFEND], jnp.int32), states.battle_key, jnp.zeros((2, 36)))
+    chex.assert_trees_all_equal(following.last_event, jnp.array([DEFEAT, ROUND_LIMIT_RETREAT], jnp.int32))
+    assert following.done[0] and following.lost[0]
+    assert not following.done[1] and not following.lost[1] and following.in_battle[1]
     chex.assert_trees_all_equal(following.hp[0, :6], jnp.zeros(6, jnp.int32))
     chex.assert_trees_all_equal(following.hp[1, :6], limited.hp[:6])
     final, _ = compiled_method(env,'step',batched=True)(following, jnp.full(2, REST, jnp.int32))

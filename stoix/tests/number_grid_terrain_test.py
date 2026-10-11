@@ -51,6 +51,7 @@ def test_living_flying_heroes_and_dead_leader_prices(current_game):
     assert compiled_method(env,'travel_costs')(no_hero).tolist() == [2,1,4,6]
 
 
+@pytest.mark.core
 def test_actual_step_mask_quotes_and_last_partial_move(current_game):
     env, initial, _, _ = current_game
     cases, actions, expected, destinations = [], [], [], []
@@ -105,6 +106,7 @@ def test_death_revival_and_rest_restore_correct_movement(current_game):
     assert compiled_method(env,'travel_costs')(revived).tolist() == [2,1,4,6]
 
 
+@pytest.mark.core
 def test_water_excludes_land_but_not_travel_and_flight_cannot_cross_obstacles(current_game):
     env, initial, _, _ = current_game
     flooded = initial.replace(territory_claims=jnp.full_like(initial.territory_claims,env.size**2))

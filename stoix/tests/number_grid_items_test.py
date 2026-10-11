@@ -175,6 +175,7 @@ def test_banner_health_regeneration_and_instant_retreat(all_items):
     assert escaped and not retreating and event==ESCAPE
 
 
+@pytest.mark.core
 def test_chests_equip_boots_restore_movement_and_keep_loot_once(current_game):
     env,state,advance,_=current_game
     picked,_=advance(state.replace(position=jnp.array([5,2])),jnp.int32(2))
@@ -191,6 +192,7 @@ def test_chests_equip_boots_restore_movement_and_keep_loot_once(current_game):
     assert attacked.in_battle and attacked.movement_points==12
 
 
+@pytest.mark.core
 def test_permanent_potion_keeps_equipment_and_revival_restores_it(current_game):
     env,state,advance,_=current_game
     picked,_=advance(state.replace(position=jnp.array([5,2])),jnp.int32(2))

@@ -14,6 +14,7 @@ from stoix.envs.number_grid_territory import TerritoryRules
 from stoix.tests.number_grid_fixtures import compiled_method, replace_base_state
 
 
+@pytest.mark.core
 def test_catalog_is_exact_supported_reference_subset_and_preserves_original_text():
     assert {f:len(rows) for f,rows in CATALOG['factions'].items()} == {
         'empire':22,'mountain_clans':22,'legions':17,'undead_hordes':20,'elves':20}
@@ -86,6 +87,7 @@ def test_every_spell_exact_mana_all_gates_and_compact_faction_actions(current_ga
     np.testing.assert_array_equal(reward,expected)
 
 
+@pytest.mark.core
 def test_research_full_step_daily_reset_independent_build_limit_and_observation(current_game):
     env,initial,step,_ = current_game
     rules = env.spell_research

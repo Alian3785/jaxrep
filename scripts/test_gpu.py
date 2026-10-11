@@ -1,4 +1,4 @@
-"""Run the complete configured suite in one CUDA process within fifteen minutes.
+"""Run the mandatory regression suite in one CUDA process within seven minutes.
 
 Usage: bash scripts/run_gpu.sh scripts/test_gpu.py --output results/gpu-tests/RUN
 Reuse the local JAX compilation cache by default; --cold-cache measures a fresh
@@ -16,12 +16,15 @@ import sys
 import time
 import tomllib
 
+WALL_LIMIT = 420
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--cold-cache',action='store_true',help='Use an empty, isolated compilation cache for this run')
-    parser.add_argument('--wall-started-at',type=float,help='Parent launch epoch seconds, including WSL startup')
+    parser.add_argument('--wall-started-at',type=float,default=os.environ.get('NUMBERGRID_TEST_STARTED_AT'),
+                        help='Parent launch epoch seconds, including WSL startup')
     args = parser.parse_args()
     if args.wall_started_at is not None and (not math.isfinite(args.wall_started_at) or args.wall_started_at > time.time()+1):
         parser.error('--wall-started-at must be a finite timestamp no later than this launch')
@@ -43,22 +46,24 @@ def main():
     cache_populated = any(cache.glob('*-cache'))
     worker_env = {**os.environ,'NUMBERGRID_TEST_RUN':'1','JAX_ENABLE_COMPILATION_CACHE':'true',
                   'JAX_COMPILATION_CACHE_DIR':str(cache),
-                  'JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS':'1'}
+                  'JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS':'1',
+                  'NUMBERGRID_TEST_DURATIONS':str(output/'durations.jsonl')}
     workers = {}
     streams = []
     results = {}
     # A parent timestamp measures the actual end-to-end command. Keep six
     # seconds for termination/reporting. Native WSL invocations use the same
     # budget; Windows launchers can include their startup with the timestamp.
-    execution_limit = (894. if args.wall_started_at is None else
-                       max(0.,894.-(time.time()-args.wall_started_at)))
+    execution_limit = (WALL_LIMIT-6. if args.wall_started_at is None else
+                       max(0.,WALL_LIMIT-6.-(time.time()-args.wall_started_at)))
     deadline = started+execution_limit
     wall_deadline = time.time()+execution_limit
     try:
         for name,files in groups.items():
             stream = (output/(name+'.log')).open('w')
             streams.append(stream)
-            command = [sys.executable,'-m','pytest','-v','--durations=20',f'--junitxml={output / "junit.xml"}',*files]
+            command = [sys.executable,'-m','pytest','-v','-m','core','--maxfail=1',
+                       '--durations=20',f'--junitxml={output / "junit.xml"}',*files]
             worker = subprocess.Popen(command,cwd=root,stdout=stream,stderr=subprocess.STDOUT,start_new_session=True,env=worker_env)
             workers[name] = worker
             print(json.dumps(dict(phase='started',group=name,pid=worker.pid,testpaths=files)),flush=True)
@@ -90,11 +95,12 @@ def main():
         for stream in streams:
             stream.close()
         total_seconds = time.monotonic()-started if args.wall_started_at is None else time.time()-args.wall_started_at
-        summary = dict(seconds=time.monotonic()-started,wall_seconds=total_seconds,execution_limit=execution_limit,wall_limit=900,
+        summary = dict(seconds=time.monotonic()-started,wall_seconds=total_seconds,execution_limit=execution_limit,wall_limit=WALL_LIMIT,
                        parent_started_at=args.wall_started_at,backend='cuda',groups=results,
                        compilation_cache=str(cache),cold_cache=not cache_populated,
                        isolated_cache=args.cold_cache,
-                       passed=total_seconds <= 900 and len(results)==len(groups) and all(r['exit_code']==0 for r in results.values()))
+                       selection='core',durations=str(output/'durations.jsonl'),
+                       passed=total_seconds <= WALL_LIMIT and len(results)==len(groups) and all(r['exit_code']==0 for r in results.values()))
         (output/'results.json').write_text(json.dumps(summary,indent=2)+'\n')
         print(json.dumps(summary),flush=True)
     raise SystemExit(0 if summary['passed'] else 1)

@@ -94,6 +94,7 @@ def test_cached_autoreset_changes_rng_and_preserves_final_observation(training_a
     original = np.asarray(state.battle_key)
     state, ts = advance(state,jnp.array([7,3]))
     assert np.all(ts.truncated()) and np.all(state.step_count == 0)
+    assert np.all(ts.discount == 1)
     assert not np.array_equal(original,state.battle_key)
     assert np.all(ts.extras['next_obs']['observation'][:,3] == 1)
     assert np.all(ts.observation['observation'][:,3] == 0)

@@ -535,10 +535,30 @@
       ctx.fillStyle='#f5dfa1';ctx.fillRect(x+cell*.44,y+cell*.35,cell*.12,cell*.24);
     });
     (territoryInfo()?.cities||[]).forEach((city,i)=>{
-      const [r,c]=city.position;
-      roundRect(c*cell+1,r*cell+1,cell-2,cell-2,cell*.1,s.city_owned[i]?'#b89958':'#9b82b0');
-      ctx.fillStyle='#fff';ctx.font='700 '+Math.round(cell*.6)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('♜',(c+.5)*cell,(r+.48)*cell);
-      ctx.fillStyle='#44364f';ctx.font='700 '+Math.round(cell*.32)+'px system-ui';ctx.fillText(s.city_levels[i],(c+.8)*cell,(r+.8)*cell);
+      const [r,c]=city.position,x=(c+.5)*cell,y=(r+.5)*cell;
+      const owned=s.city_owned[i],size=Math.max(24,cell*1.25),color=owned?'#986316':'#70409a';
+      const title=(owned?'ВАШ ГОРОД':'ГОРОД')+' · ур. '+s.city_levels[i];
+      ctx.save();
+      ctx.font='800 12px system-ui';const titleWidth=ctx.measureText(title).width;
+      ctx.font='600 12px system-ui';
+      const labelWidth=Math.max(titleWidth,ctx.measureText(city.name).width)+18,labelHeight=38;
+      const labelX=Math.max(4,Math.min(width-labelWidth-4,x-labelWidth/2));
+      const above=y-size/2-labelHeight-7;
+      const labelY=above>=4?above:Math.min(width-labelHeight-4,y+size/2+7);
+      ctx.strokeStyle=color;ctx.lineWidth=2;
+      ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(labelX+labelWidth/2,labelY+labelHeight/2);ctx.stroke();
+      roundRect(x-size/2-2,y-size/2-2,size+4,size+4,6,'#fff');
+      roundRect(x-size/2,y-size/2,size,size,5,color);
+      ctx.fillStyle='#fff';ctx.font='800 '+Math.round(size*.8)+'px system-ui';
+      ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('♜',x,y);
+      ctx.shadowColor='#172a2433';ctx.shadowBlur=5;
+      roundRect(labelX,labelY,labelWidth,labelHeight,6,'#fff');
+      ctx.shadowBlur=0;
+      roundRect(labelX+2,labelY+2,labelWidth-4,labelHeight-4,4,color);
+      ctx.fillStyle='#fff';ctx.font='800 12px system-ui';
+      ctx.fillText(title,labelX+labelWidth/2,labelY+12);
+      ctx.font='600 12px system-ui';ctx.fillText(city.name,labelX+labelWidth/2,labelY+27);
+      ctx.restore();
     });
     const capital=capitalInfo()?.position;
     if(capital){

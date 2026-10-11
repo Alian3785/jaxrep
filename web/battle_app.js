@@ -525,8 +525,8 @@
       ctx.font=Math.round(cell*.46)+'px system-ui';ctx.fillText(cleared?'Разграблены':'Стража: '+map.enemy_units[ruin.enemy],x+cell*1.5,y+cell*1.92);
       if(!cleared)ctx.fillRect(x+cell*2.25,y+cell*2.25,cell*.55,cell*.55);
     }
-    const token=(p,n,hero)=>{roundRect(p[1]*cell+cell*.09,p[0]*cell+cell*.09,cell*.82,cell*.82,cell*.2,hero?'#a5d6ad':'#d5c0e8');ctx.fillStyle=hero?'#244c30':'#654777';ctx.font='650 '+Math.round(cell*.55)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n,(p[1]+.5)*cell,(p[0]+.52)*cell);};
-    map.opponent_positions.forEach((p,i)=>{if(s.alive[i]&&!(ruinInfo()?.ruins||[]).some(r=>r.enemy===i)&&!(territoryInfo()?.cities||[]).some(c=>c.position.every((v,j)=>v===p[j])))token(p,map.enemy_units[i],false);});
+    const token=(p,n)=>{roundRect(p[1]*cell+cell*.09,p[0]*cell+cell*.09,cell*.82,cell*.82,cell*.2,'#d5c0e8');ctx.fillStyle='#654777';ctx.font='650 '+Math.round(cell*.55)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n,(p[1]+.5)*cell,(p[0]+.52)*cell);};
+    map.opponent_positions.forEach((p,i)=>{if(s.alive[i]&&!(ruinInfo()?.ruins||[]).some(r=>r.enemy===i)&&!(territoryInfo()?.cities||[]).some(c=>c.position.every((v,j)=>v===p[j])))token(p,map.enemy_units[i]);});
     (map.chests||[]).forEach((chest,i)=>{
       if(!s.chest_alive?.[i])return;
       const [r,c]=chest.position,x=c*cell,y=r*cell;
@@ -545,8 +545,16 @@
       roundRect(capital[1]*cell+1,capital[0]*cell+1,cell-2,cell-2,cell*.15,'#dfb963');
       ctx.fillStyle='#604515';ctx.font='650 '+Math.round(cell*.62)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('♜',(capital[1]+.5)*cell,(capital[0]+.52)*cell);
     }
-    token(s.position,s.hp.slice(0,6).filter(h=>h>0).length,true);
     if(capital){ctx.strokeStyle='#aa7623';ctx.lineWidth=2;ctx.strokeRect(capital[1]*cell+1,capital[0]*cell+1,cell-2,cell-2);}
+    const x=(s.position[1]+.5)*cell,y=(s.position[0]+.5)*cell,radius=Math.max(16,cell*.85);
+    ctx.save();
+    ctx.shadowColor='#ff182899';ctx.shadowBlur=12;
+    ctx.fillStyle='#ff1828';ctx.strokeStyle='#fff';ctx.lineWidth=3;
+    ctx.beginPath();ctx.arc(x,y,radius,0,Math.PI*2);ctx.fill();ctx.stroke();
+    ctx.shadowBlur=0;ctx.fillStyle='#fff';
+    ctx.font='900 '+Math.round(radius*1.4)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText('А',x,y+1);
+    ctx.restore();
   }
   const slots=[3,0,4,1,5,2,6,9,7,10,8,11];
   for(const i of slots){

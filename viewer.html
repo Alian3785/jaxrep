@@ -45,6 +45,8 @@
 .agent-controls{border-top:1px solid var(--line);margin-top:16px;padding-top:16px}.agent-controls p{margin:4px 0}.agent-actions{display:flex;gap:8px;flex-wrap:wrap}.agent-pick{outline:3px solid #d08a1f!important;outline-offset:2px}
 .battle-items{margin-top:16px}.battle-items h3{font-size:13px;margin:0 0 6px}#battle-item-equip{margin-top:10px}.battle-item-actions{display:grid;gap:8px;margin-top:12px}.battle-item-actions>div{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.battle-item-actions b{font-size:12px;margin-right:4px}.battle-item-actions button{font-size:12px;padding:7px 10px}
 .swap-formation{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:8px 0 10px}.swap-formation span{background:#f1f7ed;border:1px solid #d4e3cf;border-radius:7px;padding:6px 8px;font-size:10px}.swap-formation span.empty{opacity:.45}.swap-actions{display:flex;flex-wrap:wrap;gap:6px}.swap-actions button{font-size:11px;padding:7px 9px}
+.legend i.ally{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:2px solid #fff;border-radius:50%;background:#ff1828;color:#fff;font:900 15px/1 system-ui;box-shadow:0 1px 7px #ff182866}
+.legend i.ally::after{content:'А'}
 </style></head>
 <body><header><a href="#" class="brand"><span>NG</span> NUMBERGRID</a><span id="connection">Подключение к игре…</span></header>
 <main><section class="intro"><div class="eyebrow">КАРТА И ПОШАГОВЫЙ БОЙ</div><h1><span id="party-title">Герцог и его отряд.</span><br><em>Один отряд.</em></h1><p>Шаг на клетку врага начинает бой. Рядом можно пройти свободно.<br>Ранения сохраняются. На отдыхе живые бойцы восстанавливаются быстрее<br>на родной земле, в столице и захваченных городах.</p></section>
@@ -598,8 +600,8 @@
       ctx.font=Math.round(cell*.46)+'px system-ui';ctx.fillText(cleared?'Разграблены':'Стража: '+map.enemy_units[ruin.enemy],x+cell*1.5,y+cell*1.92);
       if(!cleared)ctx.fillRect(x+cell*2.25,y+cell*2.25,cell*.55,cell*.55);
     }
-    const token=(p,n,hero)=>{roundRect(p[1]*cell+cell*.09,p[0]*cell+cell*.09,cell*.82,cell*.82,cell*.2,hero?'#a5d6ad':'#d5c0e8');ctx.fillStyle=hero?'#244c30':'#654777';ctx.font='650 '+Math.round(cell*.55)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n,(p[1]+.5)*cell,(p[0]+.52)*cell);};
-    map.opponent_positions.forEach((p,i)=>{if(s.alive[i]&&!(ruinInfo()?.ruins||[]).some(r=>r.enemy===i)&&!(territoryInfo()?.cities||[]).some(c=>c.position.every((v,j)=>v===p[j])))token(p,map.enemy_units[i],false);});
+    const token=(p,n)=>{roundRect(p[1]*cell+cell*.09,p[0]*cell+cell*.09,cell*.82,cell*.82,cell*.2,'#d5c0e8');ctx.fillStyle='#654777';ctx.font='650 '+Math.round(cell*.55)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n,(p[1]+.5)*cell,(p[0]+.52)*cell);};
+    map.opponent_positions.forEach((p,i)=>{if(s.alive[i]&&!(ruinInfo()?.ruins||[]).some(r=>r.enemy===i)&&!(territoryInfo()?.cities||[]).some(c=>c.position.every((v,j)=>v===p[j])))token(p,map.enemy_units[i]);});
     (map.chests||[]).forEach((chest,i)=>{
       if(!s.chest_alive?.[i])return;
       const [r,c]=chest.position,x=c*cell,y=r*cell;
@@ -618,8 +620,16 @@
       roundRect(capital[1]*cell+1,capital[0]*cell+1,cell-2,cell-2,cell*.15,'#dfb963');
       ctx.fillStyle='#604515';ctx.font='650 '+Math.round(cell*.62)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('♜',(capital[1]+.5)*cell,(capital[0]+.52)*cell);
     }
-    token(s.position,s.hp.slice(0,6).filter(h=>h>0).length,true);
     if(capital){ctx.strokeStyle='#aa7623';ctx.lineWidth=2;ctx.strokeRect(capital[1]*cell+1,capital[0]*cell+1,cell-2,cell-2);}
+    const x=(s.position[1]+.5)*cell,y=(s.position[0]+.5)*cell,radius=Math.max(16,cell*.85);
+    ctx.save();
+    ctx.shadowColor='#ff182899';ctx.shadowBlur=12;
+    ctx.fillStyle='#ff1828';ctx.strokeStyle='#fff';ctx.lineWidth=3;
+    ctx.beginPath();ctx.arc(x,y,radius,0,Math.PI*2);ctx.fill();ctx.stroke();
+    ctx.shadowBlur=0;ctx.fillStyle='#fff';
+    ctx.font='900 '+Math.round(radius*1.4)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText('А',x,y+1);
+    ctx.restore();
   }
   const slots=[3,0,4,1,5,2,6,9,7,10,8,11];
   for(const i of slots){

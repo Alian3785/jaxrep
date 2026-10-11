@@ -12,23 +12,28 @@ import jax.numpy as jnp
 import pytest
 
 from stoix.envs.number_grid import MAP, REST, NumberGrid, action_names, load_map
+from stoix.envs.number_grid_lords import with_starting_party
 from stoix.envs.number_grid_unit_swaps import (
     MAX_PER_TURN, PENALTY, SLOT_FIELDS, UNITS_SWAPPED, swap_pairs, unit_swap_action_names,
 )
 from stoix.tests.number_grid_fixtures import compiled_method, hero_roster_state
 
 DEFAULT = load_map('default')
+# Both maps start with the reference party of a warrior ruler (docs/STARTING_PARTIES.md).
+CURRENT_PARTY = with_starting_party(MAP)['hero_roster']
+DEFAULT_PARTY = with_starting_party(DEFAULT)['hero_roster']
 
 
 def test_reference_layout_and_the_disabled_flag():
     # Occupied starting positions 7, 8, 9, 11 first, then 10 and 12 with every included position.
-    assert swap_pairs(DEFAULT['hero_roster']) == (
+    assert swap_pairs(DEFAULT_PARTY) == swap_pairs(CURRENT_PARTY) == (
         (0, 1), (0, 2), (0, 4), (1, 2), (1, 4), (2, 4), (0, 3), (1, 3), (2, 3), (3, 4),
         (0, 5), (1, 5), (2, 5), (3, 5), (4, 5))
-    for roster in (MAP['hero_roster'], DEFAULT['hero_roster'], ['titan', None, None, None, None, None], [None]*6):
+    for roster in (CURRENT_PARTY, DEFAULT_PARTY, ['titan', None, None, None, None, None], [None]*6):
         assert sorted(swap_pairs(roster)) == list(combinations(range(6), 2))
     names = action_names(MAP)
-    assert names[-15:] == unit_swap_action_names(MAP) == tuple(f'swap_{a}_{b}' for a, b in swap_pairs(MAP['hero_roster']))
+    assert names[-15:] == unit_swap_action_names(with_starting_party(MAP)) == tuple(
+        f'swap_{a}_{b}' for a, b in swap_pairs(CURRENT_PARTY))
     # Without the flag the map has no swap actions or features at all, not even masked ones.
     off = {**MAP, 'unit_swaps': False}
     assert action_names(off) == names[:-15] and not any(n.startswith('swap_') for n in action_names(off))
@@ -125,7 +130,7 @@ def test_a_big_unit_moves_its_whole_column(current_game):
 def test_default_map_and_manual_game(default_game, human_service):
     env, initial, step, mask = default_game
     rules = env.unit_swaps
-    assert rules.start == 263 and rules.pairs == swap_pairs(DEFAULT['hero_roster'])
+    assert rules.start == 263 and rules.pairs == swap_pairs(DEFAULT_PARTY)
     hero, acolyte = int(initial.unit_ids[1]), int(initial.unit_ids[4])  # the hero has its own skill row
     assert env.equipment_heroes[hero] and env._equipment_hero(initial) == 1
     swapped, ts = step(initial, jnp.int32(rules.start+rules.pairs.index((1, 4))))

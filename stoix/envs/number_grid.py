@@ -33,6 +33,7 @@ from stoix.envs import number_grid_hero_skills as hero_skills
 from stoix.envs.number_grid_battle_items import (BattleItemRules, battle_item_action_names, battle_items_enabled,
     BATTLE_ITEM)
 from stoix.envs.number_grid_unit_swaps import UnitSwapRules, unit_swap_action_names, UNITS_SWAPPED
+from stoix.envs.number_grid_lords import with_starting_party
 from stoix.envs import number_grid_unit_swaps as unit_swaps
 from stoix.envs.number_grid_wards import ward_tags, grant_wards, expire_wards
 from stoix.envs.number_grid_effects import armor_after_shreds, source_protection, advance_poison_queue, advance_periodic_queue, vampiric_heal
@@ -60,6 +61,7 @@ SHOOT, DEFEND, WAIT, RETREAT, CONTINUE = 8, 14, 15, 16, 17
 REST = BUILD_START + BUILD_SLOTS
 BASE_ACTIONS, FENRIR = REST + 1, CAPITAL_ACTIONS
 def action_names(game_map):
+    game_map = with_starting_party(game_map)
     return ('N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW') + tuple(
         f'shoot_{i}' for i in range(6)) + ('defend', 'wait', 'retreat', 'continue') + tuple(
         f'build_{i}' for i in range(BUILD_SLOTS)) + ('rest',) + tuple(
@@ -73,9 +75,8 @@ def action_names(game_map):
 
 ACTION_NAMES = action_names(MAP)
 ACTIONS = len(ACTION_NAMES)
+# Reference MOVES_PER_TURN: the allowance without a living hero; heroes have their own.
 MAX_MOVEMENT_POINTS, MOVE_COST = 20, 2
-PATHFINDING_POINTS = round(MAX_MOVEMENT_POINTS*hero_skills.PATHFINDING_PERCENT/100)
-BATTLE_ENTRY_COST = (MAX_MOVEMENT_POINTS + 1) // 2
 MOVE, ENGAGE, HIT, MISS, GUARD, DELAY, FLEE, ESCAPE, VICTORY, DEFEAT, WITHDRAW, LIMIT = range(12)
 BUILD, RESTED, IMMUNE, WARD, HEAL = 12, 13, 14, 15, 16
 TRANSFORMED = 22
@@ -251,7 +252,8 @@ class BattleState(NumberGridState):
 
 class NumberGrid(Summoning, NumericNumberGrid):
     def __init__(self, max_steps=None, map_config=None):
-        game_map = MAP if map_config is None else map_config
+        # Without an explicit hero_roster the ruler chooses the starting hero and party.
+        game_map = with_starting_party(MAP if map_config is None else map_config)
         super().__init__(max_steps=max_steps, map_config=game_map)
         self.battle_mode = bool(game_map.get('battle_mode', False))
         if not self.battle_mode:
@@ -492,6 +494,16 @@ class NumberGrid(Summoning, NumericNumberGrid):
             self.priority_scale = 110.
         if self.progression_enabled:
             self.equipment_heroes = jnp.array([bool(p and p['hero']) for p in self.progression.metadata])
+            # Reference _hero_base_moves: a hero's own allowance (MOVE in Gunits.dbf), and
+            # Pathfinding adds round(20%) of it.
+            moves = [int(r.get('movement', 0)) if r.get('hero') else 0 for r in self.progression.rows]
+            self.hero_moves = jnp.array(moves, jnp.int32)
+            self.pathfinding_points = jnp.array(
+                [round(m*hero_skills.PATHFINDING_PERCENT/100) for m in moves], jnp.int32)
+            starting = [moves[i] for i in self.progression.initial_ids[:6].tolist() if moves[i]]
+            self.base_movement = max(starting, default=MAX_MOVEMENT_POINTS)  # as movement_cap
+        else:
+            self.base_movement = MAX_MOVEMENT_POINTS
         if self.items_enabled:
             statuses = {p['status'] for _,p in self.item_rules.status_items}
             self.has_witches |= 'imp' in statuses
@@ -849,9 +861,14 @@ class NumberGrid(Summoning, NumericNumberGrid):
         # User rule: +1 for levels 2..10, then no further growth.
         bonus = jnp.clip(levels[:6]-1, 0, 9)
         if self.hero_skills:
-            # Pathfinding: round(20% of the base allowance) from level 2.
-            bonus += jnp.where(levels[:6] >= hero_skills.PATHFINDING_LEVEL, PATHFINDING_POINTS, 0)
+            # Pathfinding: round(20% of the hero's own allowance) from level 2.
+            bonus += jnp.where(levels[:6] >= hero_skills.PATHFINDING_LEVEL, self.pathfinding_points[ids[:6]], 0)
         return jnp.max(jnp.where(self.equipment_heroes[ids[:6]], bonus, 0))
+
+    def _hero_base_movement(self, ids, hp):
+        """Reference _hero_base_moves: the living hero's allowance, else MOVES_PER_TURN."""
+        moves = jnp.max(jnp.where(hp[:6] > 0, self.hero_moves[ids[:6]], 0))
+        return jnp.where(moves > 0, moves, MAX_MOVEMENT_POINTS).astype(jnp.int32)
 
     def _party_experience_bonus(self, state):
         """Tome of War or Weapon Master: +25% battle XP; they do not stack."""
@@ -863,13 +880,15 @@ class NumberGrid(Summoning, NumericNumberGrid):
         return bonus
 
     def movement_cap(self,state):
-        cap = (self.item_rules.movement_cap(state,MAX_MOVEMENT_POINTS)
-               if self.items_enabled else jnp.int32(MAX_MOVEMENT_POINTS))
+        base = jnp.int32(MAX_MOVEMENT_POINTS)
         if self.progression_enabled:
             ids, levels = state.unit_ids, state.unit_levels
             if self.has_copies or self.has_summons or self.has_item_summons:
                 ids = jnp.where(state.in_battle, state.native_ids, ids)
                 levels = jnp.where(state.in_battle, state.native_levels, levels)
+            base = self._hero_base_movement(ids, state.hp)
+        cap = self.item_rules.movement_cap(state,base) if self.items_enabled else base
+        if self.progression_enabled:
             cap += self._hero_level_movement_bonus(ids, levels)
         return cap
 
@@ -888,9 +907,10 @@ class NumberGrid(Summoning, NumericNumberGrid):
         return self.territory.quotes(state, banner)
 
     def turn_metadata(self):
-        return {"movement_points": MAX_MOVEMENT_POINTS, "move_cost": MOVE_COST,
+        return {"movement_points": self.base_movement, "dead_hero_movement_points": MAX_MOVEMENT_POINTS,
+                "move_cost": MOVE_COST,
                 "hero_level_movement_per_level": 1, "hero_level_movement_last_level": 10,
-                "battle_entry_cost": BATTLE_ENTRY_COST, "attack_requires_points": 1,
+                "battle_entry_cost": (self.base_movement + 1) // 2, "attack_requires_points": 1,
                  "terrain_costs": dict(plain=2, road=1, forest=4, water=6),
                  "flying_cost": 2, "dead_hero_cost_multiplier": 2, "last_partial_move": True,
                 "income": DAILY_GOLD, "rest_action": REST,

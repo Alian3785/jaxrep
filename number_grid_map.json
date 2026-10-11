@@ -1,5 +1,5 @@
 {
-  "name": "NumberGrid-48x48-v84-unit-swaps",
+  "name": "NumberGrid-48x48-v85-lord-parties",
   "size": 48,
   "agent_position": [
     2,
@@ -248,7 +248,6 @@
   "number_generation": "Historical labels retained and copied with added squads. Numbers do not affect battles.",
   "reconstruction_note": "48x48: 41 field armies plus two cities, each with a guard and garrison on its entrance tile. Static obstacles leave accessible approaches. Five mana types and one gold mine use territorial ownership. One 3x3 ruin at [7,23] holds Troll and Goblin Archer and grants one Potion of Strength; cleared ruins remain blocked. Terrain: 26 road cells, 32 forest cells, and one connected empty 50-cell lake at rows 13-18 / columns 2-11. Living flight costs 2 everywhere; dead leaders double terrain costs.",
   "battle_mode": true,
-  "hero_units": 4,
   "hero_hp": 120,
   "battle_max_rounds": 75,
   "enemy_units": [
@@ -355,14 +354,6 @@
   "blocked_buildings": [],
   "max_building_level": 5,
   "rest_penalty_per_point": 0.001,
-  "hero_roster": [
-    "possessed",
-    "duke",
-    "possessed",
-    "cultist",
-    null,
-    null
-  ],
   "enemy_rosters": [
     [
       "squire",

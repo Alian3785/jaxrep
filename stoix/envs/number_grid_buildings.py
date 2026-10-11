@@ -10,13 +10,12 @@ from pathlib import Path
 import jax.numpy as jnp
 
 from stoix.envs.number_grid_combat import UNITS
-from stoix.envs.number_grid_lords import LORDS, lord_settings
+from stoix.envs.number_grid_lords import DEFAULT_FACTION, LORDS, lord_settings
 
 BUILD_START, BUILD_SLOTS = 18, 25
 DAILY_GOLD = 100
 CATALOG = json.loads((Path(__file__).parent / 'data/buildings.json').read_text(encoding='utf-8'))
 FACTIONS = tuple(CATALOG['factions'])
-DEFAULT_FACTION = 'legions'
 
 
 class BuildingRules:

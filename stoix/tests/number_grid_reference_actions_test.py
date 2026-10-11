@@ -27,7 +27,7 @@ def scalar_battle(env):
 def test_archer_lowest_hp_nonimmune_wards_and_random_ties():
     config = copy.deepcopy(MAP)
     config['hero_units'] = 5
-    config['hero_roster'][4] = 'cultist'
+    config['hero_roster'] = ['possessed', 'duke', 'possessed', 'cultist', 'cultist', None]
     config['hero_combat_stats'] = [dict(armor=90), {}, dict(immunities=['weapon']),
                                    dict(protections=['weapon']), {}]
     env = NumberGrid(map_config={**config,'initial_potions':{},'chests':[]})
@@ -296,9 +296,8 @@ def test_centaur_critical_integer_rounding_ignores_secondary_power_armor_and_def
     assert MAP['enemy_rosters'][9][2] == 'centaur_savage'
     assert tuple(profile[k] for k in ('max_hp','damage','accuracy','armor','initiative')) == (210,100,80,0,35)
     config = copy.deepcopy(MAP)
-    config['hero_roster'][1] = 'centaur_savage'
+    config['hero_roster'] = ['possessed', 'centaur_savage', 'possessed', 'cultist', 'cultist', None]
     config['hero_units'] = 5
-    config['hero_roster'][4] = 'cultist'
     config['hero_combat_stats'] = [{}, dict(secondary_attack_type='mind', secondary_accuracy=0, secondary_damage=999), {}, {}, {}]
     overrides = [[{} for _ in range(n)] for n in config['enemy_units']]
     overrides[11][0] = dict(max_hp=200, armor=90, immunities=['mind'], protections=['mind'])
@@ -368,7 +367,7 @@ def test_niddog_secondary_poison_accuracy_source_cache_ticks_and_xp():
     config = copy.deepcopy(MAP)
     config['enemy_rosters'][9][1] = 'niddog'  # replaces a Titan, paired rear remains empty
     config['hero_units'] = 5
-    config['hero_roster'][4] = 'cultist'
+    config['hero_roster'] = ['possessed', 'duke', 'possessed', 'cultist', 'cultist', None]
     config['hero_combat_stats'] = [dict(max_hp=1000, armor=90),
         dict(max_hp=1000, immunities=['death']), dict(max_hp=1000, protections=['death']),
         dict(max_hp=1000), dict(max_hp=1000)]
@@ -491,10 +490,8 @@ def test_wight_secondary_roll_devolution_recovery_and_battle_cleanup():
     profile = UNITS['wight']
     assert tuple(profile[k] for k in ('max_hp','damage','accuracy','secondary_accuracy','initiative')) == (105,75,80,80,50)
     config = copy.deepcopy(MAP)
-    config['hero_roster'][0] = 'witch'
-    config['hero_roster'][3] = 'wight'
+    config['hero_roster'] = ['witch', 'duke', 'possessed', 'wight', 'cultist', None]
     config['hero_units'] = 5
-    config['hero_roster'][4] = 'cultist'
     config['hero_combat_stats'] = [{},{},{},dict(attack_type='fire'),{}]
     config['enemy_rosters'][11] = ['imperial_knight','imperial_knight','orc','imperial_knight','squire','imperial_knight']
     overrides = [[{} for _ in range(n)] for n in config['enemy_units']]

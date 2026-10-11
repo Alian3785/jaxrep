@@ -157,7 +157,7 @@ def test_invalid_profiles_fail_before_training(change):
 def test_rosters_validate_count_slots_and_unknown_units():
     for roster in (['possessed']*6, ['possessed']*4, ['unknown']*5+[None], [True]*5+[None]):
         with pytest.raises(ValueError, match='Roster'):
-            current(hero_roster=roster)
+            current(hero_units=4, hero_roster=roster)
     with pytest.raises(ValueError, match='enemy_rosters'):
         current(enemy_rosters=[])
 

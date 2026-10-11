@@ -44,6 +44,7 @@
 .spell-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}.spell-card{border:1px solid #d8dfd1;border-radius:12px;padding:18px;background:#fffdf8}.spell-card h3{margin:0 0 10px}.spell-card p{line-height:1.5}.spell-card details{font-size:12px;color:#64705d}.spell-card .spell-cost{font-size:13px;color:#645640}.spell-card .spell-state{font-weight:600;font-size:13px}.spell-card .spell-effect{font-size:13px;border-top:1px solid #e3e7dc;padding-top:10px;margin-top:14px}.spell-card.is-learned{background:#edf4e8}.spell-card button{width:100%}.new-game{flex-wrap:wrap}.view-tabs{flex-wrap:wrap}
 .agent-controls{border-top:1px solid var(--line);margin-top:16px;padding-top:16px}.agent-controls p{margin:4px 0}.agent-actions{display:flex;gap:8px;flex-wrap:wrap}.agent-pick{outline:3px solid #d08a1f!important;outline-offset:2px}
 .battle-items{margin-top:16px}.battle-items h3{font-size:13px;margin:0 0 6px}#battle-item-equip{margin-top:10px}.battle-item-actions{display:grid;gap:8px;margin-top:12px}.battle-item-actions>div{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.battle-item-actions b{font-size:12px;margin-right:4px}.battle-item-actions button{font-size:12px;padding:7px 10px}
+.swap-formation{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:8px 0 10px}.swap-formation span{background:#f1f7ed;border:1px solid #d4e3cf;border-radius:7px;padding:6px 8px;font-size:10px}.swap-formation span.empty{opacity:.45}.swap-actions{display:flex;flex-wrap:wrap;gap:6px}.swap-actions button{font-size:11px;padding:7px 9px}
 </style></head>
 <body><header><a href="#" class="brand"><span>NG</span> NUMBERGRID</a><span id="connection">Подключение к игре…</span></header>
 <main><section class="intro"><div class="eyebrow">КАРТА И ПОШАГОВЫЙ БОЙ</div><h1><span id="party-title">Герцог и его отряд.</span><br><em>Один отряд.</em></h1><p>Шаг на клетку врага начинает бой. Рядом можно пройти свободно.<br>Ранения сохраняются. На отдыхе живые бойцы восстанавливаются быстрее<br>на родной земле, в столице и захваченных городах.</p></section>
@@ -65,6 +66,7 @@
 <section id="site-services" class="site-services" hidden><h2>Лагеря и торговля</h2><p class="site-note">Постройки занимают 3 × 3 клетки. Пять клеток у каждого входа слабо подсвечены. Покупки, найм и обучение не расходуют очки перемещения. Драгоценности продаются автоматически у входа к торговцу.</p><details id="mercenary-camp" open><summary>Лагерь наёмников</summary><p id="mercenary-status" role="status"></p><div id="mercenary-offers"></div></details><details id="merchant-site" open><summary>Торговец</summary><p id="merchant-status" role="status"></p><div id="merchant-stock"></div></details><details id="spell-shop" open><summary>Лавка заклинаний</summary><p id="spell-shop-status" role="status"></p><div id="spell-shop-offers"></div></details><details id="trainer-site" open><summary>Тренер</summary><p id="trainer-status" role="status"></p><div id="trainer-units"></div></details></section>
 <section id="equipment-panel" class="equipment-panel"><h2>Снаряжение героя</h2><p id="equipment-rule"></p><div id="equipment-slots"></div><div id="battle-items" class="battle-items" hidden><h3>Боевые слоты героя</h3><p id="battle-item-rule"></p><div id="battle-item-slots"></div><div id="battle-item-equip" class="battle-actions"></div></div><details><summary id="equipment-count">Все предметы · 0</summary><ul id="equipment-stock"></ul></details></section>
 <section class="experience"><h2>Бойцы и опыт</h2><p>Опыт делится между выжившими победителями, которые не отступили. У обычного юнита без нужного здания — максимум порог минус 1. Герцог повышается без здания. Повышение после боя полностью лечит бойца и сбрасывает опыт.</p><div id="hero-experience"></div></section>
+<section id="unit-swaps" class="experience" hidden><h2>Перестановка отряда</h2><p id="swap-status" role="status"></p><div id="swap-formation" class="swap-formation" aria-label="Тыл и передний ряд по линиям"></div><div id="swap-actions" class="swap-actions"></div></section>
 <section class="rules"><h2>Правила боя</h2><p><b>Выстрел.</b> Выбирайте любого живого противника. Промах тоже расходует ход.</p><p id="warrior-rule"><b>Воин.</b> Меч достаёт до ближайших позиций переднего ряда; тыл открывается после ухода всего переднего ряда. Из своего тыла воин не атакует, пока впереди есть союзники. Недоступные цели затемнены. Промах расходует ход.</p><p id="enemy-warrior-rule" hidden><b>Вражеские воины.</b> Сквайры, титаны, орки и гоблины соблюдают те же ограничения меча. ИИ выбирает цель только среди доступных для удара.</p><p id="mage-rule"><b>Массовая атака.</b> Каждый сектант наносит 15 базового урона всем живым противникам. Попадание, прибавка, иммунитет и защита проверяются отдельно для каждой цели.</p><p id="basic-combat-rule" hidden><b>Урон и броня.</b> К урону прибавляется 0–5; броня снижает результат на указанный процент, максимум на 90%. Инициатива получает новую случайную прибавку 0–9 каждый раунд.</p><p><b>Титан.</b> Занимает обе клетки одной линии: один боец, один ход и одна шкала HP. Массовая атака поражает его один раз.</p><p><b>Служка.</b> Лечит одного раненого союзника, включая себя, на 20 HP до максимума. Если раненых нет, защищается. Погибших не воскрешает.</p><p><b>Защита.</b> Вдвое уменьшает урон после брони до следующего хода бойца.</p><p><b>Ожидание.</b> Переносит действие в конец раунда. Ожидающие действуют в обратном порядке. Один раз за раунд.</p><p><b>Отступление.</b> Боец покидает поле в начале своего следующего хода, если выживет.</p><p><b>Источники атак.</b> Оружие, земля, огонь, вода, яд, смерть, разум, жизнь и воздух. Иммунитет постоянно блокирует свой источник. Защита поглощает первое успешное попадание своего источника за бой; промах её не расходует. Перед следующим боем защита восстанавливается.</p><p><b>Зелья.</b> На старте: по 5 лечебных на 50, 100 и 200 HP, 10 воскрешающих с 1 HP. Применяются к любому бойцу на карте; лечение не превышает максимум HP. Во время боя недоступны.</p><p><b>Восстановление.</b> После победы или успешного отступления ранения и погибшие сохраняются. Построенный храм лечит и воскрешает за золото в столице и захваченных городах; воскрешение возвращает 1 HP. Регенерация зависит от бойца, типа лорда и места: родная земля даёт +10%, город +10–30%, столица +35%. Бонус земли внутри города или столицы не складывается с их бонусом. Восстановление округляется вверх. Полная гибель отряда завершает игру.</p></section>
 <section class="journal"><h2>Последние события</h2><ol id="events" aria-live="polite"></ol></section>
 <section class="run-card" id="run-card" hidden><div class="eyebrow">ОБУЧЕНИЕ АГЕНТА</div><p id="run-info"></p><p id="run-evaluation"></p></section></aside></div>
@@ -76,7 +78,7 @@
   const canvas=$('board'), ctx=canvas.getContext('2d');
   let mode='manual', session=null, manual=null, manualMap=null, busy=false, frame=0, recordIndex=0, timer=null, messages=[];
   let manualConstruction=null, manualTurnRules=null, manualCombat=null, manualCapital=null, manualPotions=null, capitalOpen=false, potionsOpen=false, selectedPotion=0, capitalKey=null;
-  let manualEquipment=null, manualBattleItems=null, manualSites=null, manualRecruitment=null, manualTerritory=null, manualRuins=null, manualSpells=null, manualCasting=null, spellsOpen=false;
+  let manualEquipment=null, manualBattleItems=null, manualSites=null, manualRecruitment=null, manualTerritory=null, manualRuins=null, manualSpells=null, manualCasting=null, manualSwaps=null, spellsOpen=false;
   const records=data.records||[];
   const combatInfo=()=>mode==='manual'?(manualCombat||data.combat):data.combat;
   const heroLevel=snap=>Math.max(0,...[0,1,2,3,4,5].filter(i=>combatInfo()?.catalogue?.[snap.state.unit_ids?.[i]]?.hero).map(i=>snap.unit_experience?.[i]?.[0]||0));
@@ -121,6 +123,7 @@
   const territoryInfo=()=>mode==='manual'?(manualTerritory||data.territory):data.territory;
   const spellInfo=()=>mode==='manual'?(manualSpells||data.spell_research):data.spell_research;
   const castInfo=()=>mode==='manual'?(manualCasting||data.spell_casting):data.spell_casting;
+  const swapInfo=()=>mode==='manual'?(manualSwaps||data.unit_swaps):data.unit_swaps;
   const manaNames=['Преисподняя','Жизнь','Смерть','Руны','Природа'];
   const elementNames={weapon:'оружия',earth:'Земли',fire:'Огня',water:'Воды',poison:'яда',death:'Смерти',mind:'Разума',life:'Жизни',air:'Воздуха'};
   const statNames={armor:'броня',damage:'урон',accuracy:'точность',initiative:'инициатива'};
@@ -655,6 +658,27 @@
     }
     $('hero-experience').replaceChildren(...cards);
   }
+  // Slots 0-2: front row, 3-5: back row; slot s and s+3 form a column.
+  const swapCell=i=>(i<3?'Перед ':'Тыл ')+(i%3+1);
+  const swapUnit=i=>current()?.state.unit_ids?.[i]?role(i):i>=3&&profile(i-3)?.size===2?'('+role(i-3)+')':'пусто';
+  function renderSwaps(snap){
+    const info=swapInfo(),s=snap.state;$('unit-swaps').hidden=!info;if(!info)return;
+    $('swap-status').textContent=s.done?'Эпизод завершён.':s.in_battle?'Перестановка доступна после боя.':'Сегодня осталось '+(info.limit-s.unit_swaps_today)+' из '+info.limit+'. Каждая пара — один раз за ход. Очки перемещения не тратятся; штраф −'+fmt(info.penalty)+' за перестановку. Большой боец переносит всю свою линию.';
+    $('swap-formation').replaceChildren(...[0,1,2].flatMap(c=>[c+3,c]).map(i=>{
+      const cell=document.createElement('span');cell.className=s.unit_ids?.[i]?'':'empty';
+      cell.textContent=swapCell(i)+': '+swapUnit(i)+(s.unit_ids?.[i]?' · '+s.hp[i]+' HP':'');return cell;
+    }));
+    $('swap-actions').replaceChildren(...info.pairs.map(([a,b],k)=>{
+      const button=document.createElement('button');button.dataset.action=info.start+k;
+      button.textContent=swapCell(a)+' ⇄ '+swapCell(b);button.title=swapUnit(a)+' ⇄ '+swapUnit(b);
+      button.onclick=()=>sendAction(info.start+k);return button;
+    }));
+  }
+  function swapText(s){
+    const info=swapInfo(),[a,b]=info?.pairs?.[s.last_swap]||[];if(a==null)return null;
+    const big=[a,b].some(i=>profile(i%3)?.size===2);
+    return 'Перестановка: '+swapCell(a)+' ⇄ '+swapCell(b)+(big?', большой боец перенёс всю линию':'')+'. Осталось сегодня: '+(info.limit-s.unit_swaps_today)+'. Штраф −'+fmt(info.penalty)+'.';
+  }
   function xpSummary(snap){
     const parts=[];
     for(let i=0;i<12;i++){
@@ -689,6 +713,7 @@
     switch(s.last_event){
       case 47:return 'Изучено заклинание: '+spellInfo()?.spells[s.last_researched_spell]?.name+'. Следующее исследование доступно завтра.';
       case 48:case 49:case 50:return castText(s);
+      case 55:return swapText(s);
       case 54:return 'Нанят маг для чтения свитков · −'+fmt(castInfo()?.hire_cost??500)+' золота. Свитки и посохи доступны до конца игры.';
       case 43:return 'Город захвачен: '+(territoryInfo()?.cities||[]).filter((c,i)=>s.last_captured_cities[i]).map(c=>c.name).join(', ')+'. Доступны найм, храм и рост земли.';
       case 44:return 'Город улучшен: '+territoryInfo()?.cities[s.last_upgraded_city]?.name+' · −'+fmt(s.last_service_cost)+' золота.';
@@ -778,6 +803,7 @@
     if(!s.in_battle)$('rest-hint').textContent+=' Живым бойцам: +'+(snap.territory_quotes?[...new Set(snap.territory_quotes.regeneration.filter((v,i)=>snap.max_hp[i]&&s.hp[i]>0))].join('–'):(turns.regeneration_percent+10*(equipmentInfo()?.items?.[s.equipped?.[2]]?.regeneration||0)))+'% максимального HP с округлением вверх (до максимума).';
     const heroes=Array.from({length:6},(_,i)=>profile(i));
     renderExperience(snap);
+    renderSwaps(snap);
     $('party-health').textContent=partyText(heroes.filter((u,i)=>u&&s.hp[i]>0))+' · '+s.hp.slice(0,6).reduce((a,b)=>a+b,0)+' здоровья';
     $('party-title').textContent=partyText(heroes)+'.';
     $('mage-rule').hidden=!heroes.some(u=>u?.role==='area');
@@ -844,7 +870,7 @@
   function showError(error){$('connection').textContent='Игра недоступна';$('message').textContent=error.message+' Для игры запустите open-numbergrid.cmd.';}
   async function resetGame(){
     if(busy)return;busy=true;render();
-    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||undefined,lord_type:$('lord-type').value||data.map.lord_type||'warrior'});session=result.session;manualMap=result.map;$('version').textContent=manualMap.name;manualConstruction=result.construction;manualTurnRules=result.turn_rules;manualCombat=result.combat;manualCapital=result.capital;manualPotions=result.potions;manualEquipment=result.equipment;manualBattleItems=result.battle_items;manualSites=result.sites;manualRecruitment=result.recruitment;manualTerritory=result.territory;manualRuins=result.ruins;manualSpells=result.spell_research;manualCasting=result.spell_casting;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
+    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||undefined,lord_type:$('lord-type').value||data.map.lord_type||'warrior'});session=result.session;manualMap=result.map;$('version').textContent=manualMap.name;manualConstruction=result.construction;manualTurnRules=result.turn_rules;manualCombat=result.combat;manualCapital=result.capital;manualPotions=result.potions;manualEquipment=result.equipment;manualBattleItems=result.battle_items;manualSites=result.sites;manualRecruitment=result.recruitment;manualTerritory=result.territory;manualRuins=result.ruins;manualSpells=result.spell_research;manualCasting=result.spell_casting;manualSwaps=result.unit_swaps;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
     catch(error){busy=false;render();showError(error);return;}
     busy=false;render();
   }

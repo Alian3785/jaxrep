@@ -5,7 +5,7 @@
   const canvas=$('board'), ctx=canvas.getContext('2d');
   let mode='manual', session=null, manual=null, manualMap=null, busy=false, frame=0, recordIndex=0, timer=null, messages=[];
   let manualConstruction=null, manualTurnRules=null, manualCombat=null, manualCapital=null, manualPotions=null, capitalOpen=false, potionsOpen=false, selectedPotion=0, capitalKey=null;
-  let manualEquipment=null, manualBattleItems=null, manualSites=null, manualRecruitment=null, manualTerritory=null, manualRuins=null, manualSpells=null, manualCasting=null, spellsOpen=false;
+  let manualEquipment=null, manualBattleItems=null, manualSites=null, manualRecruitment=null, manualTerritory=null, manualRuins=null, manualSpells=null, manualCasting=null, manualSwaps=null, spellsOpen=false;
   const records=data.records||[];
   const combatInfo=()=>mode==='manual'?(manualCombat||data.combat):data.combat;
   const heroLevel=snap=>Math.max(0,...[0,1,2,3,4,5].filter(i=>combatInfo()?.catalogue?.[snap.state.unit_ids?.[i]]?.hero).map(i=>snap.unit_experience?.[i]?.[0]||0));
@@ -50,6 +50,7 @@
   const territoryInfo=()=>mode==='manual'?(manualTerritory||data.territory):data.territory;
   const spellInfo=()=>mode==='manual'?(manualSpells||data.spell_research):data.spell_research;
   const castInfo=()=>mode==='manual'?(manualCasting||data.spell_casting):data.spell_casting;
+  const swapInfo=()=>mode==='manual'?(manualSwaps||data.unit_swaps):data.unit_swaps;
   const manaNames=['Преисподняя','Жизнь','Смерть','Руны','Природа'];
   const elementNames={weapon:'оружия',earth:'Земли',fire:'Огня',water:'Воды',poison:'яда',death:'Смерти',mind:'Разума',life:'Жизни',air:'Воздуха'};
   const statNames={armor:'броня',damage:'урон',accuracy:'точность',initiative:'инициатива'};
@@ -584,6 +585,27 @@
     }
     $('hero-experience').replaceChildren(...cards);
   }
+  // Slots 0-2: front row, 3-5: back row; slot s and s+3 form a column.
+  const swapCell=i=>(i<3?'Перед ':'Тыл ')+(i%3+1);
+  const swapUnit=i=>current()?.state.unit_ids?.[i]?role(i):i>=3&&profile(i-3)?.size===2?'('+role(i-3)+')':'пусто';
+  function renderSwaps(snap){
+    const info=swapInfo(),s=snap.state;$('unit-swaps').hidden=!info;if(!info)return;
+    $('swap-status').textContent=s.done?'Эпизод завершён.':s.in_battle?'Перестановка доступна после боя.':'Сегодня осталось '+(info.limit-s.unit_swaps_today)+' из '+info.limit+'. Каждая пара — один раз за ход. Очки перемещения не тратятся; штраф −'+fmt(info.penalty)+' за перестановку. Большой боец переносит всю свою линию.';
+    $('swap-formation').replaceChildren(...[0,1,2].flatMap(c=>[c+3,c]).map(i=>{
+      const cell=document.createElement('span');cell.className=s.unit_ids?.[i]?'':'empty';
+      cell.textContent=swapCell(i)+': '+swapUnit(i)+(s.unit_ids?.[i]?' · '+s.hp[i]+' HP':'');return cell;
+    }));
+    $('swap-actions').replaceChildren(...info.pairs.map(([a,b],k)=>{
+      const button=document.createElement('button');button.dataset.action=info.start+k;
+      button.textContent=swapCell(a)+' ⇄ '+swapCell(b);button.title=swapUnit(a)+' ⇄ '+swapUnit(b);
+      button.onclick=()=>sendAction(info.start+k);return button;
+    }));
+  }
+  function swapText(s){
+    const info=swapInfo(),[a,b]=info?.pairs?.[s.last_swap]||[];if(a==null)return null;
+    const big=[a,b].some(i=>profile(i%3)?.size===2);
+    return 'Перестановка: '+swapCell(a)+' ⇄ '+swapCell(b)+(big?', большой боец перенёс всю линию':'')+'. Осталось сегодня: '+(info.limit-s.unit_swaps_today)+'. Штраф −'+fmt(info.penalty)+'.';
+  }
   function xpSummary(snap){
     const parts=[];
     for(let i=0;i<12;i++){
@@ -618,6 +640,7 @@
     switch(s.last_event){
       case 47:return 'Изучено заклинание: '+spellInfo()?.spells[s.last_researched_spell]?.name+'. Следующее исследование доступно завтра.';
       case 48:case 49:case 50:return castText(s);
+      case 55:return swapText(s);
       case 54:return 'Нанят маг для чтения свитков · −'+fmt(castInfo()?.hire_cost??500)+' золота. Свитки и посохи доступны до конца игры.';
       case 43:return 'Город захвачен: '+(territoryInfo()?.cities||[]).filter((c,i)=>s.last_captured_cities[i]).map(c=>c.name).join(', ')+'. Доступны найм, храм и рост земли.';
       case 44:return 'Город улучшен: '+territoryInfo()?.cities[s.last_upgraded_city]?.name+' · −'+fmt(s.last_service_cost)+' золота.';
@@ -707,6 +730,7 @@
     if(!s.in_battle)$('rest-hint').textContent+=' Живым бойцам: +'+(snap.territory_quotes?[...new Set(snap.territory_quotes.regeneration.filter((v,i)=>snap.max_hp[i]&&s.hp[i]>0))].join('–'):(turns.regeneration_percent+10*(equipmentInfo()?.items?.[s.equipped?.[2]]?.regeneration||0)))+'% максимального HP с округлением вверх (до максимума).';
     const heroes=Array.from({length:6},(_,i)=>profile(i));
     renderExperience(snap);
+    renderSwaps(snap);
     $('party-health').textContent=partyText(heroes.filter((u,i)=>u&&s.hp[i]>0))+' · '+s.hp.slice(0,6).reduce((a,b)=>a+b,0)+' здоровья';
     $('party-title').textContent=partyText(heroes)+'.';
     $('mage-rule').hidden=!heroes.some(u=>u?.role==='area');
@@ -773,7 +797,7 @@
   function showError(error){$('connection').textContent='Игра недоступна';$('message').textContent=error.message+' Для игры запустите open-numbergrid.cmd.';}
   async function resetGame(){
     if(busy)return;busy=true;render();
-    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||undefined,lord_type:$('lord-type').value||data.map.lord_type||'warrior'});session=result.session;manualMap=result.map;$('version').textContent=manualMap.name;manualConstruction=result.construction;manualTurnRules=result.turn_rules;manualCombat=result.combat;manualCapital=result.capital;manualPotions=result.potions;manualEquipment=result.equipment;manualBattleItems=result.battle_items;manualSites=result.sites;manualRecruitment=result.recruitment;manualTerritory=result.territory;manualRuins=result.ruins;manualSpells=result.spell_research;manualCasting=result.spell_casting;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
+    try{const result=await request('/api/reset',{seed:42,faction:$('faction').value||undefined,lord_type:$('lord-type').value||data.map.lord_type||'warrior'});session=result.session;manualMap=result.map;$('version').textContent=manualMap.name;manualConstruction=result.construction;manualTurnRules=result.turn_rules;manualCombat=result.combat;manualCapital=result.capital;manualPotions=result.potions;manualEquipment=result.equipment;manualBattleItems=result.battle_items;manualSites=result.sites;manualRecruitment=result.recruitment;manualTerritory=result.territory;manualRuins=result.ruins;manualSpells=result.spell_research;manualCasting=result.spell_casting;manualSwaps=result.unit_swaps;manual=result.snapshot;messages=[];$('connection').textContent='Игра готова · локально';}
     catch(error){busy=false;render();showError(error);return;}
     busy=false;render();
   }

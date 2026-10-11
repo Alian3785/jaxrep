@@ -48,7 +48,7 @@ RULES = ('max_steps', 'step_cost', 'exploration_bonus', 'mask_walls', 'map_seed'
          'combat_rules_version', 'building_reward', 'blocked_buildings', 'max_building_level',
          'rest_penalty_per_point', 'unit_progression', 'capital_services', 'battle_engagement',
          'equipment_auto_equip', 'equipment_requires_skills', 'faction_recruitment',
-         'territory', 'lord_type', 'spell_research', 'spell_casting')
+         'territory', 'lord_type', 'spell_research', 'spell_casting', 'unit_swaps')
 
 
 def cell(point):
@@ -161,7 +161,7 @@ def build(layout):
         ruins=ruins,
         terrain=terrain,
     )
-    game_map['battle_observation_version'] = max(41, game_map['battle_observation_version'])
+    game_map['battle_observation_version'] = max(42, game_map['battle_observation_version'])
     # Reference equipment lore: banner 7, boots 8, artifacts 9, book 11, the lord's own lore at once.
     game_map['equipment_requires_skills'] = True
     if game_map['opponent_positions'][index[CAPITAL_GUARD]] != game_map['enemy_capitals'][0]['position']:

@@ -184,6 +184,7 @@ class GameService:
                     'spell_research': env.spell_research.metadata if env.spell_research_enabled else None,
                     'spell_casting': env.casting.metadata if env.spell_casting_enabled else None,
                     'battle_items': env.battle_item_rules.metadata if env.battle_items_enabled else None,
+                    'unit_swaps': env.unit_swaps.metadata if env.unit_swaps_enabled else None,
                     'sites': env.site_rules.metadata if env.sites_enabled else None,
                     'snapshot': self.snapshot(env, state, 0.), 'events': []}
 

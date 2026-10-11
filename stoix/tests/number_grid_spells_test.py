@@ -32,8 +32,8 @@ def test_catalog_is_exact_supported_reference_subset_and_preserves_original_text
     # DBF GspellR: Great Chronos uses infernal/death/runes; reference wrongly uses life.
     chronos = next(r for r in rows if r['id'] == 'g000ss0091')
     assert chronos['research_mana'] == [1200,0,600,600,0]
-    assert len(ACTION_NAMES) == 229 and ACTION_NAMES[195:212] == research_action_names(MAP)
-    assert ACTION_NAMES[212:] == cast_action_names(MAP) == tuple('cast_'+n[6:] for n in research_action_names(MAP))
+    assert len(ACTION_NAMES) == 244 and ACTION_NAMES[195:212] == research_action_names(MAP)
+    assert ACTION_NAMES[212:229] == cast_action_names(MAP) == tuple('cast_'+n[6:] for n in research_action_names(MAP))
 
 
 @pytest.mark.parametrize('faction', FACTIONS)
@@ -106,7 +106,7 @@ def test_research_full_step_daily_reset_independent_build_limit_and_observation(
     denied,_ = step(learned,jnp.int32(rules.start+1))
     assert denied.learned_spells == learned.learned_spells
     chex.assert_trees_all_equal(denied.mana,learned.mana)
-    assert observe(learned).shape == (1678,) and env.num_actions == 229
+    assert observe(learned).shape == (1694,) and env.num_actions == 244
     research = observe(learned)[:-env.casting.observation_size]  # map casts follow research
     np.testing.assert_array_equal(research[-rules.count-4:-rules.count-1],[1,0,0])
     np.testing.assert_array_equal(research[-rules.count-1:], [1]+[0]*(rules.count-1)+[1])
@@ -151,7 +151,7 @@ def test_lords_free_buildings_regeneration_city_prices_and_reset(current_game):
         state,ts = compiled_method(other,'reset')(jax.random.PRNGKey(42))
         assert state.buildings == other.construction.initial_built and state.gold == 0
         assert not state.built_today and not state.spell_researched_today and state.learned_spells == 0
-        assert state.day == 1 and ts.observation.shape == (1678,)
+        assert state.day == 1 and ts.observation.shape == (1694,)
         chex.assert_trees_all_equal(state.unit_ids,initial.unit_ids)
         np.testing.assert_array_equal(ts.observation[:-other.casting.observation_size][-21:-18],other.construction.lord_observation)
         rules = other.spell_research

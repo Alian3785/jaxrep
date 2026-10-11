@@ -61,7 +61,7 @@ def test_catalog_cast_data_actions_and_summons(current_game):
     storm = next(row for row in rows if row['id'] == 'g000ss0033')
     assert storm['cast'] == dict(kind='damage', cast_mana=[0, 150, 0, 150, 0], amount=50, element='earth')
     names = cast_action_names(MAP)
-    assert ACTION_NAMES[212:] == names and len(names) == 17 and env.num_actions == 229
+    assert ACTION_NAMES[212:229] == names and len(names) == 17 and env.num_actions == 244
     assert env.casting.start == 212 and env.casting.limit == 1
     meta = env.casting.metadata['spells']
     assert [m['unit_name'] for m in meta if m['kind'] == 'summon_battle'] == ['Адская гончая', 'Белиарх', 'Мститель']

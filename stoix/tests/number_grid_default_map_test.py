@@ -9,6 +9,7 @@ from stoix.envs.number_grid_casting import SPELL_CAST, SPELL_KILL, SUMMON_CAST
 from stoix.envs.number_grid_progression import ProgressionRules
 from stoix.envs.number_grid_sites import SPELL_BOUGHT
 from stoix.envs.number_grid_territory import CAPITAL_ARMOR
+from stoix.envs.number_grid_unit_swaps import unit_swap_action_names
 
 DEFAULT = load_map('default')
 SHOP = (4, 46)  # spell shop at [3, 43], approach offset (1, 3)
@@ -21,7 +22,7 @@ def test_default_map_layout_and_actions(default_game):
     env, state, _, _ = default_game
     names = action_names(DEFAULT)
     assert DEFAULT['size'] == 50 and len(DEFAULT['opponent_positions']) == 75
-    assert env.num_actions == len(names) == 263 and env.observation_size == 2455
+    assert env.num_actions == len(names) == 278 and env.observation_size == 2471
     assert [s['kind'] for s in env.site_rules.sites] == [
         'merchant', 'merchant', 'trainer', 'mercenary', 'mercenary', 'spell_shop']
     assert env.territory.count == 5 and len(env.territory.mines) == 12 and env.ruins.count == 5
@@ -30,7 +31,8 @@ def test_default_map_layout_and_actions(default_game):
     assert names[shop.spell_start:shop.end] == ('buy_spell_'+ARMAGEDDON, 'buy_spell_'+VERDANT)
     assert names[env.casting.start:env.casting.hire_action][-1] == 'cast_'+VERDANT and env.casting.count == 23
     assert names[env.casting.hire_action:env.casting.end] == ('hire_scroll_mage', 'cast_mind_ward_scroll')
-    assert names[env.casting.end:] == battle_item_action_names(DEFAULT)  # docs/BATTLE_ITEMS.md
+    assert names[env.casting.end:env.unit_swaps.start] == battle_item_action_names(DEFAULT)  # docs/BATTLE_ITEMS.md
+    assert names[env.unit_swaps.start:] == unit_swap_action_names(DEFAULT)  # docs/UNIT_SWAPS.md
     # Alar sells the reference merchant stock; Tralar only buys valuables.
     assert names[shop.buy_start:shop.train_start] == tuple('buy_'+k for k in DEFAULT['merchants'][0]['potions'])
     assert [int(i) for i in env.recruitment.offer_sites] == [3, 4, 4]

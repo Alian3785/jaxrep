@@ -90,6 +90,7 @@ EXTRA_TURN = 31
 SLOWED = 32
 PARALYZED = 25
 PARALYSIS_SKIP = 26
+ROUND_LIMIT_RETREAT = 56
 
 
 @struct.dataclass
@@ -354,6 +355,10 @@ class NumberGrid(Summoning, NumericNumberGrid):
                 or not 0 <= self.warrior_accuracy <= 1):
             raise ValueError('Invalid warrior battle configuration')
         self.max_rounds = int(game_map.get('battle_max_rounds', 75))
+        self.round_limit_penalty = game_map.get('battle_round_limit_penalty', 1.)
+        if (type(self.round_limit_penalty) not in (int, float)
+                or not math.isfinite(self.round_limit_penalty) or self.round_limit_penalty < 0):
+            raise ValueError('battle_round_limit_penalty must be finite and nonnegative')
         counts, health = game_map['enemy_units'], game_map['enemy_hp']
         if not (1 <= self.hero_count <= 6 and self.hero_hp > 0 and self.damage > 0
                 and 0 <= self.accuracy <= 1 and self.max_rounds > 0):
@@ -1617,7 +1622,18 @@ class NumberGrid(Summoning, NumericNumberGrid):
                 post = post.at[SHOOT:DEFEND].set(jnp.where(self._actor_is_patriarch(state),self._patriarch_targets(state)[:6] & (state.actor < 6),post[SHOOT:DEFEND]))
             post = post.at[WAIT].set(state.actor < 6).at[CONTINUE].set(state.actor >= 6)
             mask = jnp.where(state.post_victory > 0,post,mask)
+        forced_action = jnp.where(controlled, RETREAT, CONTINUE)
+        mask = jnp.where(self.round_limit_retreat(state), jnp.arange(self.num_actions) == forced_action, mask)
         return jnp.where(state.done, jnp.arange(self.num_actions) == CONTINUE, mask)
+
+    def round_limit_retreat(self, state):
+        """After the round limit, every remaining player activation must retreat.
+
+        Spell summons keep their existing timeout/return path. Post-battle
+        healing is not an active fight and must finish normally.
+        """
+        return (state.in_battle & (state.round > self.max_rounds)
+                & ~state.summon_battle & (state.post_victory == 0))
 
     def _goals_left(self, alive):
         return jnp.any(alive if self.goal_enemies is None else alive & self.goal_enemies)
@@ -2337,6 +2353,8 @@ class NumberGrid(Summoning, NumericNumberGrid):
                               last_burn_damage=jnp.zeros(12,jnp.int32))
         before_queue_activated = state.activation_done
         queue_round = round_number
+        # Retreating units remain exposed to normal DOTs after the round limit.
+        queue_limit = jnp.where(state.summon_battle, self.max_rounds, jnp.iinfo(jnp.int32).max)
         visited = jnp.zeros(12,bool).at[next_actor].set(~another_strike & jnp.any(active[:6]) & jnp.any(active[6:]))
         if self.has_summons or self.has_water or self.has_fire:
             # Effects tick in reference order: poison, fire, then water; a lethal
@@ -2349,7 +2367,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             (hp,phases,priority,round_number,activated,turns,damage,source,next_actor,losses,visited) = queue(
                 hp,escaped,phases,priority,round_number,state.activation_done,turns,damage,source,
                 self._combat_traits(state)[:,2],self._combat_stats(state)[:,INITIATIVE]+random_values[55:67]*10,
-                next_actor,another_strike,self.max_rounds,jnp.array([16,4,8],jnp.uint32),jnp.array([0,10,10],jnp.int32),**linked)
+                next_actor,another_strike,queue_limit,jnp.array([16,4,8],jnp.uint32),jnp.array([0,10,10],jnp.int32),**linked)
             state = state.replace(activation_done=activated,poison_turns=turns[:,0],poison_damage=damage[:,0],
                 poison_source=source[:,0],last_poison_damage=losses[:,0],
                 burn_turns=turns[:,1],burn_damage=damage[:,1],burn_source=source[:,1],last_burn_damage=losses[:,1],
@@ -2362,7 +2380,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
                 hp, escaped, phases, priority, round_number, state.activation_done,
                 state.poison_turns, state.poison_damage, state.poison_source,
                 self._combat_traits(state)[:, 2], self._combat_stats(state)[:, INITIATIVE]+random_values[55:67]*10,
-                next_actor, another_strike, self.max_rounds)
+                next_actor, another_strike, queue_limit)
             state = state.replace(activation_done=activated, poison_turns=poison_turns,
                                   poison_damage=poison_damage, poison_source=poison_source, last_poison_damage=poison_losses)
             defended = defended.at[next_actor].set(False)
@@ -2381,8 +2399,10 @@ class NumberGrid(Summoning, NumericNumberGrid):
         withdrawal = ~jnp.any(active[:6]) & ~lost
         # Reference: a summon battle without a winner ends; the stack keeps its wounds.
         withdrawal |= summon_battle & (round_number > self.max_rounds) & ~victory
-        timeout = ((round_number > self.max_rounds) | (state.step_count+1 >= self.max_steps)) & ~victory & ~lost & ~withdrawal
+        timeout = (state.step_count+1 >= self.max_steps) & ~victory & ~lost & ~withdrawal
         raw_ended = victory | withdrawal | lost | timeout
+        round_limit_reached = ((state.round <= self.max_rounds) & (round_number > self.max_rounds)
+                               & ~raw_ended & ~post_turn)
         pending = jnp.zeros(12,jnp.bool_)
         post_team = jnp.int32(0)
         if self.progression_enabled and self.has_healers:
@@ -2430,6 +2450,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             jnp.where(item_using, BATTLE_ITEM, event)))
         event = jnp.where(victory, VICTORY, jnp.where(lost, DEFEAT,
                             jnp.where(withdrawal, WITHDRAW, jnp.where(timeout, LIMIT, event))))
+        event = jnp.where(round_limit_reached, ROUND_LIMIT_RETREAT, event)
         progress = {}
         ended_status = victory | withdrawal | lost | timeout
         state = self._restore_initiative_form(state,raw_ended & (state.imp | (state.decay_form > 0)))
@@ -2582,6 +2603,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             won = final_win
         # reward_magic_enemy_defeat_multiplier=0: a summon victory pays no defeat/ruin reward.
         reward = (victory & ~summon_battle).astype(jnp.float32) + 3 * won - lost.astype(jnp.float32)
+        reward -= jnp.where(round_limit_reached, self.round_limit_penalty, 0.)
         if self.ruins_enabled:
             next_state, ruin_reward = self.ruins.grant(next_state,victory)
             reward += jnp.where(summon_battle, 0., ruin_reward)
@@ -2689,6 +2711,8 @@ class NumberGrid(Summoning, NumericNumberGrid):
             if self.has_patriarchs:
                 post_valid = jnp.where((state.actor < 6) & self._actor_is_patriarch(state),attack_valid | (action == WAIT),post_valid)
             battle_valid = jnp.where(state.post_victory > 0,post_valid,battle_valid)
+        battle_valid = jnp.where(self.round_limit_retreat(state),
+                                 action == jnp.where(controlled, RETREAT, CONTINUE), battle_valid)
         valid = jnp.where(state.in_battle, battle_valid, world_valid) & ~state.done
         # Share one random draw between the vmapped map/battle branches.
         key, random_key = jax.random.split(state.battle_key)

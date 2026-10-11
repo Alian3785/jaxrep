@@ -340,6 +340,20 @@ def test_summon_defeat_keeps_wounds_hero_bonus_and_never_ends_the_game(current_g
     assert battle.hp[6] == squire-final.enemy_wounds[0, 0] and battle.enemy_initial_hp[0] == battle.hp[6]
 
 
+def test_summon_round_limit_keeps_existing_return_without_retreat_penalty(current_game):
+    env, initial, step, _ = current_game
+    state = ready(env, initial, 0)
+    summoned, _ = step(state, jnp.int32(env.casting.start))
+    summoned = summoned.replace(round=jnp.int32(env.max_rounds), actor=jnp.int32(6),
+        turn_phase=jnp.full(12, 2, jnp.int32).at[6].set(0))
+    out, ts = step(summoned, jnp.int32(CONTINUE))
+    assert out.last_event == WITHDRAW and not out.in_battle and not out.done
+    assert not out.summon_battle and not env.round_limit_retreat(out)
+    for field in ('unit_ids', 'unit_levels', 'unit_xp', 'hp'):
+        chex.assert_trees_all_equal(getattr(out, field)[:6], getattr(state, field)[:6])
+    assert float(ts.reward) == pytest.approx(-env.step_cost-.05*env.recruitment.composition(out)[2])
+
+
 def test_batched_casts_match_single_transitions_and_mask_equals_step(current_game):
     env, initial, step, _ = current_game
     rules = env.casting

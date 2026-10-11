@@ -6,7 +6,116 @@ import jax.numpy as jnp
 import pytest
 
 from stoix.tests.number_grid_fixtures import MAP, replace_base_state
-from stoix.envs.number_grid import NumberGrid, SHOOT, DEFEND, CONTINUE, REST, RESTED
+from stoix.envs.number_grid import (
+    NumberGrid, SHOOT, DEFEND, WAIT, RETREAT, CONTINUE, REST, RESTED,
+    FLEE, WITHDRAW, ROUND_LIMIT_RETREAT,
+)
+
+
+def last_round_state(env, initial):
+    state = compiled_method(env, '_begin_battle')(initial.replace(enemy=jnp.int32(0)))
+    # The Squire takes the last activation of round 75; both parties survive.
+    return state.replace(round=jnp.int32(env.max_rounds), actor=jnp.int32(6),
+                         turn_phase=jnp.full(12, 2, jnp.int32).at[6].set(0))
+
+
+def test_round_limit_forces_every_survivor_to_retreat_and_penalizes_once(current_game):
+    env, initial, advance, _ = current_game
+    mask = compiled_method(env, 'action_mask')
+    state = last_round_state(env, initial)
+    assert mask(state.replace(actor=jnp.int32(0)))[DEFEND]  # Round 75 is still playable.
+    state, ts = advance(state, jnp.int32(CONTINUE))
+    assert state.round == 76 and state.in_battle and not state.done
+    assert state.last_event == ROUND_LIMIT_RETREAT
+    expected_cost = env.step_cost + .05*env.recruitment.composition(state)[2]
+    assert jnp.isclose(ts.reward, -env.round_limit_penalty-expected_cost)
+    starting_hp = state.hp[:6]
+    retreated = set()
+    for _ in range(32):
+        if not state.in_battle:
+            break
+        legal = mask(state)
+        assert jnp.sum(legal) == 1
+        action = int(jnp.argmax(legal))
+        assert action in (RETREAT, CONTINUE)
+        actor = int(state.actor)
+        following, ts = advance(state, jnp.int32(action))
+        if action == RETREAT:
+            retreated.add(actor)
+            assert following.retreating[actor] and following.last_event == FLEE
+            assert not following.escaped[actor]  # Selection is not instant teleportation.
+        expected_cost = env.step_cost + .05*env.recruitment.composition(following)[2]
+        assert jnp.isclose(ts.reward, -expected_cost)  # The limit penalty never repeats.
+        assert not following.done
+        state = following
+    assert not state.in_battle and state.last_event == WITHDRAW and state.alive[0]
+    assert retreated == set(range(4))
+    assert jnp.all(state.hp[:6] <= starting_hp)  # Retreat does not heal the party.
+    chex.assert_trees_all_equal(state.position, initial.position)
+    assert mask(state)[REST] and not env.round_limit_retreat(state)
+    second = compiled_method(env, '_begin_battle')(state.replace(enemy=jnp.int32(0)))
+    assert second.round == 1 and not env.round_limit_retreat(second)
+    assert mask(second.replace(actor=jnp.int32(0)))[DEFEND]
+
+
+def test_forced_retreat_mask_and_step_preserve_paralysis_enemy_attacks_and_dots(current_game):
+    env, initial, advance, battle_step = current_game
+    mask = compiled_method(env, 'action_mask')
+    state = last_round_state(env, initial).replace(round=jnp.int32(76), actor=jnp.int32(0))
+    assert jnp.array_equal(jnp.flatnonzero(mask(state)), jnp.array([RETREAT]))
+    for action in (SHOOT, DEFEND, WAIT, CONTINUE):
+        rejected, _ = advance(state, jnp.int32(action))
+        chex.assert_trees_all_equal(rejected.hp, state.hp)
+        chex.assert_trees_all_equal(rejected.retreating, state.retreating)
+        chex.assert_trees_all_equal(rejected.battle_key, state.battle_key)
+    for field in ('paralyzed', 'long_paralyzed', 'retreating'):
+        waiting = state.replace(**{field: getattr(state, field).at[0].set(True)})
+        assert jnp.array_equal(jnp.flatnonzero(mask(waiting)), jnp.array([CONTINUE]))
+        out, _ = advance(waiting, jnp.int32(CONTINUE))
+        assert not out.done
+        if field == 'paralyzed':
+            assert not out.paralyzed[0] and not out.retreating[0] and not out.escaped[0]
+    rolls = jnp.zeros(env.random_size)
+    enemy = state.replace(actor=jnp.int32(6))
+    out, _ = battle_step(enemy, jnp.int32(CONTINUE), enemy.battle_key, rolls)
+    assert jnp.sum(out.hp[:6]) < jnp.sum(enemy.hp[:6]) and not out.done
+    poisoned = state.replace(actor=jnp.int32(1),
+        turn_phase=jnp.full(12, 2, jnp.int32).at[0].set(0).at[1].set(0),
+        activation_done=jnp.zeros(12, bool),
+        poison_turns=state.poison_turns.at[0].set(1),
+        poison_damage=state.poison_damage.at[0].set(7),
+        poison_source=state.poison_source.at[0].set(6))
+    out, _ = battle_step(poisoned, jnp.int32(RETREAT), poisoned.battle_key, rolls)
+    assert out.last_poison_damage[0] == 7 and out.hp[0] == poisoned.hp[0]-7
+    assert out.retreating[1] and not out.done
+
+
+def test_round_limit_does_not_override_victory_post_healing_or_episode_budget(current_game):
+    env, initial, advance, battle_step = current_game
+    state = last_round_state(env, initial).replace(actor=jnp.int32(1),
+        turn_phase=jnp.full(12, 2, jnp.int32).at[1].set(0))
+    state = state.replace(hp=state.hp.at[6:].set(0).at[6].set(1))
+    out, reward = battle_step(state, jnp.int32(SHOOT), state.battle_key, jnp.zeros(env.random_size))
+    assert not out.in_battle and not out.done and not out.alive[0] and reward == 1
+    forced = last_round_state(env, initial).replace(round=jnp.int32(76), actor=jnp.int32(0))
+    assert not env.round_limit_retreat(forced.replace(post_victory=jnp.int32(1)))
+    out, ts = advance(forced.replace(step_count=jnp.int32(env.max_steps-1)), jnp.int32(RETREAT))
+    assert out.done and ts.truncated() and not out.won and not out.lost
+
+
+def test_human_game_automatically_selects_retreat_after_round_limit(human_service, current_game):
+    env, initial, _, _ = current_game
+    state = last_round_state(env, initial)
+    state = state.replace(hp=state.hp.at[:6].set(0).at[1].set(initial.hp[1]))
+    key = (env.construction.faction, env.construction.lord['id'])
+    token = 'round-limit-retreat-regression'
+    human_service.sessions[token] = (key, state, 0.)
+    result = human_service.act(token, CONTINUE)
+    final = result['snapshot']
+    assert not final['state']['done'] and not final['state']['in_battle']
+    assert not final['forced_retreat']
+    events = [s['state']['last_event'] for s in result['events']]
+    assert events.count(ROUND_LIMIT_RETREAT) == 1 and FLEE in events and events[-1] == WITHDRAW
 
 
 @pytest.fixture(scope='module')

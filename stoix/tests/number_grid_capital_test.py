@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from stoix.envs.number_grid import NumberGrid, REST, SHOOT, CONTINUE, DEFEND, MAP
+from stoix.envs.number_grid import NumberGrid, REST, SHOOT, CONTINUE, DEFEND, MAP, ROUND_LIMIT_RETREAT
 from stoix.envs.number_grid_capital import CapitalRules, HEAL_START, REVIVE_START
 from stoix.envs.number_grid_buildings import BuildingRules, FACTIONS
 
@@ -136,6 +136,10 @@ def test_only_victory_funds_recovery_once_and_keeps_casualties(game):
     assert lost.lost and lost.done
     chex.assert_trees_all_equal(lost.recovery_balance, state.recovery_balance)
     limited = battle.replace(turn_phase=jnp.full(12,2).at[1].set(0), round=jnp.int32(env.max_rounds))
+    forced, _ = fight(limited, jnp.int32(DEFEND), battle.battle_key, jnp.zeros(env.random_size))
+    assert not forced.done and forced.in_battle and forced.last_event == ROUND_LIMIT_RETREAT
+    chex.assert_trees_all_equal(forced.recovery_balance, state.recovery_balance)
+    limited = limited.replace(step_count=jnp.int32(env.max_steps-1))
     timed, _ = fight(limited, jnp.int32(DEFEND), battle.battle_key, jnp.zeros(env.random_size))
     assert timed.done and not timed.lost
     chex.assert_trees_all_equal(timed.recovery_balance, state.recovery_balance)

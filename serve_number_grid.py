@@ -28,7 +28,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from stoix.envs.number_grid import ACTION_NAMES, MAP, NumberGrid, CONTINUE
+from stoix.envs.number_grid import ACTION_NAMES, MAP, NumberGrid, CONTINUE, RETREAT
 from stoix.envs.number_grid_buildings import DEFAULT_FACTION, FACTIONS
 from stoix.envs.number_grid_lords import LORDS
 
@@ -142,6 +142,8 @@ class GameService:
                   for f in dataclasses.fields(state) if f.name != 'battle_key'}
         return {'state': values, 'total_reward': total_reward,
                 'battle_max_rounds': env.max_rounds,
+                'forced_retreat': bool(env.round_limit_retreat(state)) and not bool(state.done),
+                'battle_round_limit_penalty': env.round_limit_penalty,
                 'max_steps': env.max_steps,
                 'action_mask': np.asarray(env.action_mask(state)).tolist(),
                 'map_commands': np.asarray(env.map_commands(state)).tolist(),
@@ -205,9 +207,16 @@ class GameService:
             # Only the human UI advances scripted turns automatically. The PPO
             # environment counts and observes every unit transition separately.
             for _ in range(32):
-                if bool(state.done) or not bool(state.in_battle) or not bool(env.action_mask(state)[CONTINUE]):
+                if bool(state.done) or not bool(state.in_battle):
                     break
-                state, ts = advance(state, jnp.int32(CONTINUE))
+                mask = env.action_mask(state)
+                if bool(mask[CONTINUE]):
+                    automatic_action = CONTINUE
+                elif bool(env.round_limit_retreat(state)) and bool(mask[RETREAT]):
+                    automatic_action = RETREAT
+                else:
+                    break
+                state, ts = advance(state, jnp.int32(automatic_action))
                 total += float(ts.reward)
                 events.append({**self.snapshot(env, state, total), 'reward': float(ts.reward)})
             self.sessions[token] = (key, state, total)

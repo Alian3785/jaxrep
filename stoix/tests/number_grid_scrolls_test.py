@@ -16,6 +16,10 @@ from stoix.envs.number_grid_casting import CAST_REWARD, SPELL_CAST, SpellCastRul
 from stoix.envs.number_grid_items import ITEM_BY_KEY, SCROLL, STAFF, ItemRules
 from stoix.envs.number_grid_spell_items import SCROLL_MAGE_COST, SCROLL_MAGE_HIRED, SPELL_ITEMS
 from stoix.envs.number_grid_spells import SPELL_BY_ID, SpellResearchRules
+from stoix.tests.number_grid_fixtures import compiled_method
+
+
+pytestmark = pytest.mark.core
 
 ROOT = Path(__file__).resolve().parents[2]
 MANA = jnp.full(5, 5000, jnp.int32)
@@ -57,6 +61,8 @@ def test_hire_scroll_consumption_and_staff_access(current_game):
     ids = [row['id'] for row in rules.rows]
     action = {k: rules.item_start+i for i, k in enumerate(keys)}
     available, valid, apply = jax.jit(rules.available), jax.jit(rules.valid), jax.jit(rules.apply)
+    max_hp = compiled_method(env, 'max_hp')
+    movement_cap = compiled_method(env, 'movement_cap')
     quotes = jax.jit(lambda s: rules.quotes(s, env.max_hp(s), env.movement_cap(s)))
 
     def status(state):
@@ -64,13 +70,14 @@ def test_hire_scroll_consumption_and_staff_access(current_game):
 
     def check(state):
         """The mask and the step's single-action check agree on every cast action."""
-        mask = available(state, env.max_hp(state), env.movement_cap(state))
+        maximum, cap = max_hp(state), movement_cap(state)
+        mask = available(state, maximum, cap)
         for a in range(rules.start, rules.end):
-            assert bool(valid(state, jnp.int32(a), env.max_hp(state), env.movement_cap(state))) == bool(mask[a-rules.start])
+            assert bool(valid(state, jnp.int32(a), maximum, cap)) == bool(mask[a-rules.start])
         return {k: bool(mask[action[k]-rules.start]) for k in keys}, bool(mask[rules.hire_action-rules.start])
 
     def cast(state, a):
-        return apply(state, jnp.int32(a), env.max_hp(state), env.movement_cap(state))
+        return apply(state, jnp.int32(a), max_hp(state), movement_cap(state))
 
     state = initial.replace(item_inventory=items.initial_inventory, mana=MANA, gold=jnp.int32(SCROLL_MAGE_COST),
                             spell_casts=jnp.zeros(rules.book_count, jnp.int32))

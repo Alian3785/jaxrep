@@ -36,6 +36,7 @@ def test_reference_prices_and_faction_temple_mapping(game):
     assert env.capital.quotes(high_level, compiled_method(env,'max_hp')(high_level))[1, [0,4]].tolist() == [1,200]
 
 
+@pytest.mark.core
 def test_services_require_exact_capital_temple_money_and_correct_target(game):
     env, state, advance, _ = game
     wounded = state.replace(hp=state.hp.at[0].set(100).at[1].set(0))
@@ -60,6 +61,7 @@ def test_services_require_exact_capital_temple_money_and_correct_target(game):
     assert not other.at_capital(state) and other.at_capital(state.replace(position=jnp.array([4,4])))
 
 
+@pytest.mark.core
 def test_integer_partial_healing_change_cap_and_no_turn_cost(game):
     env, state, advance, _ = game
     unit_id = env.progression.ids['berserker']
@@ -77,6 +79,7 @@ def test_integer_partial_healing_change_cap_and_no_turn_cost(game):
     assert not compiled_method(env,'action_mask')(full)[HEAL_START]
 
 
+@pytest.mark.core
 def test_paid_revive_returns_one_hp_and_keeps_level_experience(game):
     env, state, advance, _ = game
     for slot, cost in ((0,50),(1,200)):
@@ -110,6 +113,7 @@ def test_reward_allowances_are_separate_and_keep_reference_debt(game):
     assert reset.recovery_balance.tolist() == [0,0]
 
 
+@pytest.mark.core
 def test_only_victory_funds_recovery_once_and_keeps_casualties(game):
     env, state, advance, fight = game
     state = state.replace(recovery_balance=jnp.array([-7,-1]))

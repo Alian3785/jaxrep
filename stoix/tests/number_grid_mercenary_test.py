@@ -17,6 +17,7 @@ def camp_state(env, state):
         hire_rewarded_capacity=jnp.int32(0), movement_points=jnp.int32(0))
 
 
+@pytest.mark.core
 def test_mercenary_hiring_stock_rewards_and_reset(current_game):
     env, initial, step, _ = current_game
     rules = env.recruitment
@@ -44,6 +45,7 @@ def test_mercenary_hiring_stock_rewards_and_reset(current_game):
     assert reset.mercenary_stock.tolist() == [1,1]
 
 
+@pytest.mark.core
 def test_mercenary_mask_and_step_reject_all_unavailable_conditions(current_game):
     env, initial, step, _ = current_game
     rules = env.recruitment

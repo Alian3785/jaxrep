@@ -10,6 +10,9 @@ import pytest
 from numbergrid_tracking import NumberGridTracking, add_tracking_arguments
 
 
+pytestmark = pytest.mark.core
+
+
 def tracker():
     return NumberGridTracking(tracking_args('--tracking', 'disabled'))
 

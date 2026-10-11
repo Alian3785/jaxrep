@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from stoix.tests.number_grid_fixtures import MAP
+from stoix.tests.number_grid_fixtures import MAP, hero_roster_state
 from stoix.envs.number_grid import (
     NumberGrid, SHOOT, DEFEND, WAIT, RETREAT, CONTINUE, HIT, MISS,
 )
@@ -69,6 +69,7 @@ def test_non_progression_recognizes_russian_unit_names():
     assert env.has_cures and env.has_poisoners and env.has_secondary_paralysis and env.has_paralysis
 
 
+@pytest.mark.core
 @pytest.mark.parametrize('chance,count', [(0, 0), (50, 5050), (80, 9220), (100, 10000)])
 def test_two_roll_accuracy_matches_exhaustive_discrete_distribution(chance, count):
     values = (jnp.arange(100) + .25) / 100
@@ -78,6 +79,7 @@ def test_two_roll_accuracy_matches_exhaustive_discrete_distribution(chance, coun
     np.testing.assert_array_equal(hits, expected)
 
 
+@pytest.mark.core
 @pytest.mark.parametrize('damage,armor,bonus,defended,expected', [
     (25, 0, 0, False, 25), (25, 0, 5, False, 30),
     (25, 0, 0, True, 12), (25, 0, 2, True, 14),
@@ -86,11 +88,17 @@ def test_two_roll_accuracy_matches_exhaustive_discrete_distribution(chance, coun
     (300, 90, 5, True, 15), (400, 100, 5, False, 30),
     (0, 0, 5, False, 0),
 ])
-def test_damage_bonus_cap_armor_defend_and_python_rounding(damage, armor, bonus, defended, expected):
-    env, state = battle(hero=[dict(damage=damage)] + [{}]*5,
-                        enemy=[dict(max_hp=1000, armor=armor)] + [{}]*5)
-    state = state.replace(defended=state.defended.at[6].set(defended))
-    result = attack(env, state, rolls(bonus=(bonus+.25)/6))
+def test_damage_bonus_cap_armor_defend_and_python_rounding(current_game, damage, armor, bonus, defended, expected):
+    env, initial, _, fight = current_game
+    state = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(0)))
+    # Dynamic combat modifiers cover the same arithmetic without constructing
+    # ten legacy maps with different baked-in stats. The base Squire has armor 0.
+    state = state.replace(actor=jnp.int32(0),hp=state.hp.at[6].set(1000),
+        primary_override=state.primary_override.at[0].set(damage),
+        potion_bonus=state.potion_bonus.at[6,ARMOR].set(armor),
+        defended=state.defended.at[6].set(defended))
+    values = jnp.pad(rolls(bonus=(bonus+.25)/6), (0,env.random_size-36))
+    result,_ = fight(state,jnp.int32(SHOOT),state.battle_key,values)
     assert result.last_damage == expected and result.hp[6] == 1000 - expected
     assert result.last_event == HIT
 
@@ -134,8 +142,14 @@ def test_initiative_is_additive_rerolled_and_resolves_equal_values_without_side_
     np.testing.assert_array_equal(result.priority, env._round_priority(jnp.full(36, .5), 11))
 
 
-def test_wait_is_once_per_round_and_reverses_the_rolled_queue():
-    env, state = battle()
+@pytest.mark.core
+def test_wait_is_once_per_round_and_reverses_the_rolled_queue(current_game):
+    env, initial, _, fight = current_game
+    state = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(0))).replace(actor=jnp.int32(0))
+    def attack(env, state, values, action):
+        values = jnp.pad(values, (0, env.random_size-values.size))
+        return fight(state, jnp.int32(action), state.battle_key, values)[0]
+    mask = compiled_method(env,'action_mask')
     state = state.replace(hp=jnp.array([45, 100, 45, 0, 0, 0, 25, 0, 0, 0, 0, 0]),
                           priority=jnp.array([160., 150., 140., 0, 0, 0, 130., 0, 0, 0, 0, 0]))
     for actor in (0, 1, 2):
@@ -144,16 +158,22 @@ def test_wait_is_once_per_round_and_reverses_the_rolled_queue():
     assert state.actor == 6
     state = attack(env, state, rolls(.99, .99), CONTINUE)
     for actor in (2, 1, 0):
-        assert state.actor == actor and not env.action_mask(state)[WAIT]
+        assert state.actor == actor and not mask(state)[WAIT]
         rejected, _ = compiled_method(env,'step')(state, jnp.int32(WAIT))
         assert rejected.actor == actor
         np.testing.assert_array_equal(rejected.battle_key, state.battle_key)
         state = attack(env, state, rolls(), DEFEND)
-    assert state.round == 2 and env.action_mask(state)[WAIT]
+    assert state.round == 2 and mask(state)[WAIT]
 
 
-def test_defend_survives_round_boundary_and_expires_at_next_activation():
-    env, state = battle()
+@pytest.mark.core
+def test_defend_survives_round_boundary_and_expires_at_next_activation(current_game):
+    env, initial, _, fight = current_game
+    initial = hero_roster_state(env,initial,['archer','squire',None,None,None,None])
+    state = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(0))).replace(actor=jnp.int32(0))
+    def attack(env, state, values, action):
+        values = jnp.pad(values, (0, env.random_size-values.size))
+        return fight(state, jnp.int32(action), state.battle_key, values)[0]
     state = state.replace(hp=jnp.array([45, 100, 0, 0, 0, 0, 25, 0, 0, 0, 0, 0]),
                           priority=jnp.array([60., 50., 0, 0, 0, 0, 61., 0, 0, 0, 0, 0]))
     state = attack(env, state, rolls(), DEFEND)
@@ -207,6 +227,7 @@ def test_versions_and_override_shapes_are_validated():
     assert not env.basic_combat and env.reset(jax.random.PRNGKey(0))[1].observation.shape == (178,)
 
 
+@pytest.mark.core
 def test_every_current_squad_is_reachable_for_an_attack(current_game):
     from collections import deque
     from stoix.envs.number_grid import DIRECTIONS

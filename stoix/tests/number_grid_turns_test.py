@@ -19,6 +19,7 @@ def last_round_state(env, initial):
                          turn_phase=jnp.full(12, 2, jnp.int32).at[6].set(0))
 
 
+@pytest.mark.core
 def test_round_limit_forces_every_survivor_to_retreat_and_penalizes_once(current_game):
     env, initial, advance, _ = current_game
     mask = compiled_method(env, 'action_mask')
@@ -58,6 +59,7 @@ def test_round_limit_forces_every_survivor_to_retreat_and_penalizes_once(current
     assert mask(second.replace(actor=jnp.int32(0)))[DEFEND]
 
 
+@pytest.mark.core
 def test_forced_retreat_mask_and_step_preserve_paralysis_enemy_attacks_and_dots(current_game):
     env, initial, advance, battle_step = current_game
     mask = compiled_method(env, 'action_mask')
@@ -90,6 +92,7 @@ def test_forced_retreat_mask_and_step_preserve_paralysis_enemy_attacks_and_dots(
     assert out.retreating[1] and not out.done
 
 
+@pytest.mark.core
 def test_round_limit_does_not_override_victory_post_healing_or_episode_budget(current_game):
     env, initial, advance, battle_step = current_game
     state = last_round_state(env, initial).replace(actor=jnp.int32(1),
@@ -103,6 +106,7 @@ def test_round_limit_does_not_override_victory_post_healing_or_episode_budget(cu
     assert out.done and ts.truncated() and not out.won and not out.lost
 
 
+@pytest.mark.core
 def test_human_game_automatically_selects_retreat_after_round_limit(human_service, current_game):
     env, initial, _, _ = current_game
     state = last_round_state(env, initial)
@@ -234,7 +238,7 @@ def test_repeated_rest_and_exhaustion_cycles_pay_once_per_rest(env):
 
 def test_training_autoreset_rest_keeps_terminal_income_and_new_turn_observation(current_game, training_autoreset):
     training, _, advance = training_autoreset
-    state, _ = training.reset(jax.random.split(jax.random.PRNGKey(7), 2))
+    state, _ = compiled_method(training,'reset')(jax.random.split(jax.random.PRNGKey(7), 2))
     state = replace_base_state(state, movement_points=jnp.zeros(2,jnp.int32))
     state, ts = advance(state, jnp.full(2, REST, jnp.int32))
     assert jnp.all(ts.truncated())
@@ -256,6 +260,7 @@ def test_bad_rest_penalty_settings_are_rejected():
             NumberGrid(map_config={**MAP, 'rest_penalty_per_point': penalty})
 
 
+@pytest.mark.core
 def test_hero_level_movement_cap_rest_boots_and_attack_cost(current_game):
     env, initial, advance, _ = current_game
     hero = int(env._equipment_hero(initial))

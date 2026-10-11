@@ -17,6 +17,7 @@ SOURCES = json.loads((ROOT/'docs/validation/starting-party-sources.json').read_t
 RANGER = 'g000uu0020'  # Рейнджер людей, 35 movement points
 
 
+@pytest.mark.core
 def test_parties_match_reference_table_and_hero_allowances():
     assert set(STARTING_PARTIES) == set(SOURCES['parties'])
     for faction, parties in STARTING_PARTIES.items():
@@ -66,6 +67,7 @@ def test_new_ruler_starts_with_its_own_hero_and_allowance():
     assert two.turn_metadata()['movement_points'] == 35 and two.turn_metadata()['battle_entry_cost'] == 18
 
 
+@pytest.mark.core
 def test_hero_allowance_sets_rest_refill_battle_entry_and_dead_fallback(current_game):
     env, initial, advance, _ = current_game
     cap = compiled_method(env, 'movement_cap')
@@ -81,6 +83,7 @@ def test_hero_allowance_sets_rest_refill_battle_entry_and_dead_fallback(current_
     assert attacked.in_battle and attacked.movement_points == 35-18
 
 
+@pytest.mark.core
 def test_pathfinding_is_a_fifth_of_the_heros_allowance(default_game):
     env, initial, _, _ = default_game
     cap = compiled_method(env, 'movement_cap')

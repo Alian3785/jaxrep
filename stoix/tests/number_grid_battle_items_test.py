@@ -15,6 +15,8 @@ from stoix.envs.number_grid_battle_items import (BATTLE_ITEM, ITEM_EQUIPPED, MAG
 from stoix.envs.number_grid_items import ITEMS, USABLE, ItemRules
 from stoix.tests.number_grid_fixtures import enemy_roster_state
 
+
+
 DEFAULT = load_map('default')
 NAMES = action_names(DEFAULT)
 NE = 1  # [28, 7] -> enemy 11 at [27, 8]
@@ -37,6 +39,7 @@ def allowed(mask, start, end):
     return [NAMES[i] for i in range(start, end) if mask[i]]
 
 
+@pytest.mark.core
 def test_catalog_and_default_actions(default_game):
     env, state, _, _ = default_game
     rules = env.battle_item_rules
@@ -57,6 +60,7 @@ def test_catalog_and_default_actions(default_game):
     assert rules.observation_size == 20 and state.battle_items.tolist() == [-1, -1]
 
 
+@pytest.mark.core
 def test_equip_needs_access_and_happens_once_per_day(default_game):
     env, initial, step, mask = default_game
     rules = env.battle_item_rules
@@ -104,6 +108,7 @@ def item_battle(default_game):
         actor=jnp.int32(1), hp=battle.hp.at[0].set(0))  # the hero acts; Squire 0 has fallen
 
 
+@pytest.mark.core
 def test_hero_revives_and_summons_on_its_turn(default_game, item_battle):
     env, _, step, mask = default_game
     rules, ids = env.battle_item_rules, env.progression.ids
@@ -135,6 +140,7 @@ def test_hero_revives_and_summons_on_its_turn(default_game, item_battle):
     assert won.battle_items.tolist() == battle.battle_items.tolist() and won.battle_item_charges.tolist() == [1, 4]
 
 
+@pytest.mark.core
 def test_battle_potion_heals_and_is_drunk(default_game, item_battle):
     env, _, step, mask = default_game
     healing = env.potion_rules.keys.index('healing')

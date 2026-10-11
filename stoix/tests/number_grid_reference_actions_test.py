@@ -78,6 +78,7 @@ def test_mage_hero_falloff_counts_living_immune_targets_but_not_dead_or_escaped(
     chex.assert_trees_all_equal(result.last_target, jnp.array([-1,-1]))
 
 
+@pytest.mark.core
 def test_mage_catalogue_native_stats_and_single_enemy_cast(current_game):
     from stoix.envs.number_grid import CONTINUE
     from stoix.envs.number_grid_combat import UNITS
@@ -323,6 +324,7 @@ def test_centaur_critical_integer_rounding_ignores_secondary_power_armor_and_def
     assert result.last_immune[3] == 1 << 8
 
 
+@pytest.mark.core
 def test_demon_two_strikes_retarget_and_consume_one_activation(current_game):
     from stoix.envs.number_grid import CONTINUE, WAIT, RETREAT
     from stoix.envs.number_grid_combat import UNITS
@@ -555,6 +557,7 @@ def test_wight_secondary_roll_devolution_recovery_and_battle_cleanup():
     assert compiled_method(env,'action_mask')(enemy)[CONTINUE]
 
 
+@pytest.mark.core
 def test_current_melee_geometry_exhaustive_occupancy_on_both_sides(current_game):
     import numpy as np
     env, initial, _, _ = current_game
@@ -676,6 +679,7 @@ def test_water_tick_immunity_and_expiry_are_independent_of_poison():
     assert not jnp.any(results[6][:,0,1])
 
 
+@pytest.mark.core
 def test_poison_fire_water_order_stops_later_effects_after_death(current_game):
     env,initial,_,attack = current_game
     start = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(11))).replace(actor=jnp.int32(3))
@@ -1121,6 +1125,7 @@ def test_tiamat_modifier_precedes_damage_cap_and_survives_temporary_form(current
     assert not jnp.any(terminal.weakened) and not jnp.any(terminal.saved_weakened)
 
 
+@pytest.mark.core
 def test_baroness_enemy_escape_victory_awards_only_actual_damage_no_kill_xp(current_game):
     from stoix.envs.number_grid import CONTINUE, VICTORY
     env,initial,_,_ = current_game
@@ -1297,6 +1302,7 @@ def test_cliric_minimum_unit_point_heal_and_enemy_script(current_game):
     assert result.hp[7] == 45
 
 
+@pytest.mark.core
 def test_cliric_post_victory_restores_forms_and_heals_before_xp(current_game):
     from stoix.envs.number_grid import WAIT, VICTORY, POST_HEAL
     env,initial,_,attack = current_game
@@ -1655,6 +1661,7 @@ def test_deva_roshi_mass_heals_and_grants_four_elements_without_self_or_cure(cur
     assert not jnp.any(out.healer_wards[2:4]) and not jnp.any(out.healer_wards[5])
 
 
+@pytest.mark.core
 def test_patriach_revives_once_half_hp_cleanses_and_cannot_act_this_round(current_game):
     env,initial,advance,attack = current_game
     assert MAP['enemy_rosters'][39][4] == 'patriarch'
@@ -1761,6 +1768,7 @@ def test_novice_half_extra_primary_damage_without_stacking(current_game):
     assert compiled_method(env,'unit_stats')(recast)[0,DAMAGE] == 75
 
 
+@pytest.mark.core
 def test_alchemist_extra_turn_preserves_wait_and_round_effects(current_game):
     from stoix.envs.number_grid import WAIT
     env,initial,advance,attack = current_game
@@ -1918,6 +1926,7 @@ def test_hermit_live_slow_survives_form_change_but_snapshot_keeps_original_base(
     assert compiled_method(env,'unit_stats')(restored)[0,INITIATIVE] == 25  # Exact saved Python form base.
 
 
+@pytest.mark.core
 def test_vampire_nosferatu_area_actual_damage_leech_self_only_and_hero_growth(current_game):
     from stoix.envs.number_grid_combat import UNITS
     from stoix.tests.number_grid_fixtures import enemy_roster_state

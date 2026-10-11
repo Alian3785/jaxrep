@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export NUMBERGRID_TEST_STARTED_AT="$(date +%s.%N)"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV="${NUMBERGRID_VENV:-$HOME/.venvs/numbergrid-cuda13}"
 if [[ ! -f "$VENV/.numbergrid-ready" ]]; then

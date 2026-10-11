@@ -14,6 +14,9 @@ from stoix.envs.number_grid_territory import CAPITAL_ARMOR
 from stoix.envs.number_grid_unit_swaps import unit_swap_action_names
 from stoix.tests.number_grid_fixtures import compiled_method
 
+
+pytestmark = pytest.mark.core
+
 DEFAULT = load_map('default')
 SHOP = (4, 46)  # spell shop at [3, 43], approach offset (1, 3)
 ARMAGEDDON, VERDANT = 'g000ss0019', 'g000ss0117'

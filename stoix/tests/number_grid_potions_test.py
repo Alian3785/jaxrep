@@ -45,6 +45,7 @@ def test_chest_potions_without_initial_inventory_start_at_zero():
     assert rules.initial_counts.tolist()==[0,0]
 
 
+@pytest.mark.core
 def test_catalogue_matches_installed_original_records():
     source=json.loads((Path(__file__).resolve().parents[2]/'docs/validation/potion-sources.json').read_text())
     rows={r['item_id']:r for r in source['items']}
@@ -99,6 +100,7 @@ def test_every_original_effect_on_all_six_targets_under_jit_vmap(current_game):
     chex.assert_tree_all_finite(result)
 
 
+@pytest.mark.core
 def test_map_only_validation_no_resource_cost_and_recovery(current_game):
     env,state,advance,_=current_game
     wounded=stocked(env,state).replace(hp=state.hp.at[0].set(119).at[1].set(0),movement_points=jnp.int32(0))
@@ -146,6 +148,7 @@ def test_temporary_lifetime_stack_rules_and_secondary_stats(current_game):
     assert compiled_method(env,'unit_stats')(full)[0,1]==round(25*1.15*1.3*1.5)
 
 
+@pytest.mark.core
 def test_permanent_doses_replay_on_promotion_and_hero_growth(current_game):
     env,state,_,_=current_game
     state=stocked(env,state)

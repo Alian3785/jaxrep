@@ -16,6 +16,7 @@ def batch(state, count):
     return jax.tree.map(lambda x: jnp.broadcast_to(x, (count,)+x.shape), state)
 
 
+@pytest.mark.core
 def test_passing_beside_enemy_and_map_services_do_not_start_combat(current_game):
     env, initial, advance, _ = current_game
     state = initial.replace(position=jnp.array([2,6]), hp=initial.hp.at[0].set(60))
@@ -96,6 +97,7 @@ def test_command_selects_exact_stack_when_two_targets_are_adjacent():
     chex.assert_trees_all_equal(next_states.unit_ids[:,6:],env.progression.enemy_ids[:2])
 
 
+@pytest.mark.core
 def test_victory_and_retreat_stay_at_origin_and_cleared_tile_needs_separate_move(current_game):
     env,initial,advance,battle_step=current_game
     ready=initial.replace(position=jnp.array([3,7]))

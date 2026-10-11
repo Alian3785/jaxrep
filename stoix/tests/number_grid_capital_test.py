@@ -144,7 +144,7 @@ def test_only_victory_funds_recovery_once_and_keeps_casualties(game):
     assert not forced.done and forced.in_battle and forced.last_event == ROUND_LIMIT_RETREAT
     chex.assert_trees_all_equal(forced.recovery_balance, state.recovery_balance)
     limited = limited.replace(step_count=jnp.int32(env.max_steps-1))
-    timed, _ = fight(limited, jnp.int32(DEFEND), battle.battle_key, jnp.zeros(env.random_size))
+    timed, _ = advance(limited, jnp.int32(DEFEND))
     assert timed.done and not timed.lost
     chex.assert_trees_all_equal(timed.recovery_balance, state.recovery_balance)
     healed_enemy = compiled_method(env,'_begin_battle')(state.replace(enemy=jnp.int32(5)))

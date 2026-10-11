@@ -28,7 +28,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from stoix.envs.number_grid import ACTION_NAMES, MAP, NumberGrid, CONTINUE, RETREAT
+from stoix.envs.number_grid import ACTION_NAMES, MAP, NumberGrid
 from stoix.envs.number_grid_buildings import DEFAULT_FACTION, FACTIONS
 from stoix.envs.number_grid_lords import LORDS
 
@@ -204,21 +204,7 @@ class GameService:
             state, ts = advance(state, jnp.int32(action))
             total += float(ts.reward)
             events.append({**self.snapshot(env, state, total), 'reward': float(ts.reward)})
-            # Only the human UI advances scripted turns automatically. The PPO
-            # environment counts and observes every unit transition separately.
-            for _ in range(32):
-                if bool(state.done) or not bool(state.in_battle):
-                    break
-                mask = env.action_mask(state)
-                if bool(mask[CONTINUE]):
-                    automatic_action = CONTINUE
-                elif bool(env.round_limit_retreat(state)) and bool(mask[RETREAT]):
-                    automatic_action = RETREAT
-                else:
-                    break
-                state, ts = advance(state, jnp.int32(automatic_action))
-                total += float(ts.reward)
-                events.append({**self.snapshot(env, state, total), 'reward': float(ts.reward)})
+            # The same JAX step used by PPO already advanced all scripted turns.
             self.sessions[token] = (key, state, total)
             self.sessions.move_to_end(token)
             return {'session': token, 'snapshot': self.snapshot(env, state, total), 'events': events}

@@ -348,11 +348,12 @@ def test_summon_round_limit_keeps_existing_return_without_retreat_penalty(curren
     env, initial, step, _ = current_game
     state = ready(env, initial, 0)
     summoned, _ = step(state, jnp.int32(env.casting.start))
-    summoned = summoned.replace(round=jnp.int32(env.max_rounds), actor=jnp.int32(6),
-        turn_phase=jnp.full(12, 2, jnp.int32).at[6].set(0))
-    out, ts = step(summoned, jnp.int32(CONTINUE))
+    summoned = summoned.replace(round=jnp.int32(env.max_rounds), actor=jnp.int32(0),
+        turn_phase=jnp.full(12, 2, jnp.int32).at[0].set(0))
+    out, ts = step(summoned, jnp.int32(DEFEND))
     assert out.last_event == WITHDRAW and not out.in_battle and not out.done
     assert not out.summon_battle and not env.round_limit_retreat(out)
+    assert out.step_count == summoned.step_count+1
     for field in ('unit_ids', 'unit_levels', 'unit_xp', 'hp'):
         chex.assert_trees_all_equal(getattr(out, field)[:6], getattr(state, field)[:6])
     assert float(ts.reward) == pytest.approx(-env.step_cost-.05*env.recruitment.composition(out)[2])

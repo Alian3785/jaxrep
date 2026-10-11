@@ -155,9 +155,10 @@ def test_wolf_lord_fenrir_form_damage_mask_and_reversion_before_xp(current_game)
     corpse = winning.replace(hp=winning.hp.at[0].set(0))
     dead, _ = attack(corpse, jnp.int32(SHOOT), corpse.battle_key, jnp.zeros(env.random_size))
     assert not jnp.any(dead.fenrir) and dead.hp[0] == 0 and dead.unit_levels[0] == 4
-    limited = nested.replace(actor=jnp.int32(0), step_count=jnp.int32(env.max_steps-1))
-    stopped, _ = attack(limited, jnp.int32(DEFEND), limited.battle_key, jnp.zeros(env.random_size))
-    assert stopped.done and not jnp.any(stopped.imp) and not jnp.any(stopped.fenrir)
+    limited = nested.replace(actor=jnp.int32(0), retreating=nested.retreating.at[0].set(True),
+                             escaped=nested.escaped.at[1:6].set(True))
+    stopped, _ = attack(limited, jnp.int32(CONTINUE), limited.battle_key, jnp.zeros(env.random_size))
+    assert not stopped.in_battle and not jnp.any(stopped.imp) and not jnp.any(stopped.fenrir)
     assert stopped.hp[0] == 112 and stopped.unit_levels[0] == 4
 
 
@@ -362,6 +363,16 @@ def test_demon_two_strikes_retarget_and_consume_one_activation(current_game):
     red_second, _ = attack(red_first, jnp.int32(CONTINUE), red_first.battle_key, rolls)
     assert red_first.last_target == 1 and red_second.last_target == 0
     assert red_first.actor == 6 and red_first.second_strike and not red_second.second_strike
+    # Public steps stop for the player's second target, but execute both RED hits internally.
+    blue, ts = step(state, jnp.int32(SHOOT))
+    assert blue.actor == 0 and blue.second_strike and blue.step_count == state.step_count+1
+    assert ts.extras['player_battle_transition'] == 1 and ts.extras['automatic_battle_transition'] == 0
+    red = red.replace(turn_phase=jnp.full(12, 2, jnp.int32).at[6].set(0).at[3].set(0),
+                      priority=jnp.zeros(12).at[6].set(100).at[3].set(90),
+                      hp=red.hp.at[:6].set(jnp.where(red.hp[:6] > 0, 1000, 0)))
+    after, ts = step(red, jnp.int32(CONTINUE))
+    assert after.actor == 3 and not after.second_strike and after.step_count == red.step_count
+    assert ts.extras['enemy_battle_transition'] == 2 and ts.extras['automatic_battle_transition'] == 2
 
 
 def test_niddog_secondary_poison_accuracy_source_cache_ticks_and_xp():
@@ -541,14 +552,15 @@ def test_wight_secondary_roll_devolution_recovery_and_battle_cleanup():
     assert recover(nested,jnp.float32(.1)).imp[9]
     final = recover(nested,jnp.float32(0))
     assert not final.imp[9] and final.decay_form[9] == 0 and final.hp[9] == 224
-    # End-of-episode cleanup restores both forms even for a dead unit, without
+    # Battle-end cleanup restores both forms even for a dead unit, without
     # resurrecting it or awarding a spent activation again.
-    limited = imp.replace(actor=jnp.int32(1),step_count=jnp.int32(env.max_steps-1))
-    ended,_ = attack(limited,jnp.int32(DEFEND),limited.battle_key,rolls[3])
-    assert ended.done and not jnp.any(ended.decay_form) and not jnp.any(ended.imp)
+    limited = imp.replace(actor=jnp.int32(1), retreating=imp.retreating.at[1].set(True),
+                          escaped=imp.escaped.at[:6].set(True).at[1].set(False))
+    ended,_ = attack(limited,jnp.int32(CONTINUE),limited.battle_key,rolls[3])
+    assert not ended.in_battle and not jnp.any(ended.decay_form) and not jnp.any(ended.imp)
     assert ended.hp[9] == 224 and ended.unit_levels[9] == start.unit_levels[9]
     corpse = limited.replace(hp=limited.hp.at[9].set(0))
-    dead,_ = attack(corpse,jnp.int32(DEFEND),corpse.battle_key,rolls[3])
+    dead,_ = attack(corpse,jnp.int32(CONTINUE),corpse.battle_key,rolls[3])
     assert dead.hp[9] == 0 and not jnp.any(dead.decay_form)
     # A scripted Wight follows ordinary ranged minimum-HP targeting.
     enemy = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(13))).replace(actor=jnp.int32(6))
@@ -952,8 +964,10 @@ def test_paralysis_periodic_tick_precedes_skip_and_terminal_cleanup(current_game
     states = jax.tree.map(lambda *xs:jnp.stack(xs),victory,withdrawal,loss,timeout)
     out,_ = scalar_battle(env)(states,jnp.array([SHOOT,CONTINUE,CONTINUE,DEFEND]),
         states.battle_key,jnp.broadcast_to(rolls,(4,env.random_size)))
-    assert not jnp.any(out.paralyzed) and not jnp.any(out.long_paralyzed)
-    assert not out.in_battle[0] and not out.in_battle[1] and out.lost[2] and out.done[3]
+    assert not jnp.any(out.paralyzed[:3]) and not jnp.any(out.long_paralyzed[:3])
+    assert not out.in_battle[0] and not out.in_battle[1] and out.lost[2]
+    # A raw activation does not end a battle at the decision budget; effects remain for bootstrap.
+    assert not out.done[3] and out.in_battle[3] and jnp.any(out.long_paralyzed[3])
 
 
 def test_shadow_independent_area_paralysis_preserves_wards_on_existing_effect(elemental_attack_game):
@@ -1104,7 +1118,7 @@ def test_tiamat_area_weaken_has_independent_source_accuracy_and_no_stack(element
 
 
 def test_tiamat_modifier_precedes_damage_cap_and_survives_temporary_form(current_game):
-    from stoix.envs.number_grid import DEFEND
+    from stoix.envs.number_grid import CONTINUE
     env,initial,_,_ = current_game
     start = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(11)))
     grown = start.replace(unit_levels=start.unit_levels.at[1].set(80),weakened=start.weakened.at[1].set(True))
@@ -1120,8 +1134,9 @@ def test_tiamat_modifier_precedes_damage_cap_and_survives_temporary_form(current
     recovered = compiled_method(env,'_start_activation')(transformed.replace(actor=jnp.int32(6),
         activation_done=transformed.activation_done.at[6].set(False)),jnp.float32(0))
     assert not recovered.imp[6] and recovered.weakened[6]
-    terminal,_ = compiled_method(env,'_battle_step')(grown.replace(actor=jnp.int32(3),step_count=jnp.int32(env.max_steps-1)),
-        jnp.int32(DEFEND),grown.battle_key,rolls)
+    fleeing = grown.replace(actor=jnp.int32(3),retreating=grown.retreating.at[3].set(True),
+                            escaped=grown.escaped.at[:6].set(True).at[3].set(False))
+    terminal,_ = compiled_method(env,'_battle_step')(fleeing,jnp.int32(CONTINUE),grown.battle_key,rolls)
     assert not jnp.any(terminal.weakened) and not jnp.any(terminal.saved_weakened)
 
 
@@ -1332,7 +1347,7 @@ def test_cliric_post_victory_restores_forms_and_heals_before_xp(current_game):
 
 
 def test_cliric_red_post_victory_after_withdrawal_and_episode_deadline(current_game):
-    from stoix.envs.number_grid import CONTINUE, WITHDRAW, VICTORY
+    from stoix.envs.number_grid import CONTINUE, WITHDRAW
     from stoix.tests.number_grid_fixtures import enemy_roster_state
     env,initial,_,attack = current_game
     start = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(33))).replace(actor=jnp.int32(0))
@@ -1348,8 +1363,10 @@ def test_cliric_red_post_victory_after_withdrawal_and_episode_deadline(current_g
     last = hero_roster_state(env,start,['archer','duke','possessed','medium','cultist',None])
     last = last.replace(actor=jnp.int32(0),retreating=jnp.zeros(12,bool),escaped=jnp.zeros(12,bool),
         hp=last.hp.at[6:].set(0).at[6].set(1),step_count=jnp.int32(env.max_steps-1))
-    out,_ = attack(last,jnp.int32(SHOOT),last.battle_key,rolls)
-    assert out.last_event == VICTORY and not out.in_battle and out.post_victory == 0
+    last = last.replace(potion_bonus=last.potion_bonus.at[0,2].set(100))
+    out,ts = compiled_method(env,'step')(last,jnp.int32(SHOOT))
+    assert out.done and ts.truncated() and out.in_battle and out.post_victory == 1
+    assert out.actor == 3 and out.pending_healers[3]  # another player decision, never an automatic heal
 
 
 def test_profit_mass_heal_excludes_self_and_only_named_forms_cure(elemental_attack_game):

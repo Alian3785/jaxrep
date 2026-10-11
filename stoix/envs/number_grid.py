@@ -1,7 +1,7 @@
 """Incremental archer/warrior/mage battles, simulated entirely in JAX.
 
-A step is a map move or ONE unit action. Enemy turns and completing a retreat
-use the sole legal CONTINUE action. Saved maps can still use numeric rules.
+A step is one player decision. A JAX loop advances enemy turns, forced skips
+and completed retreats until the next decision. Saved maps can use numeric rules.
 """
 import dataclasses
 import json
@@ -1564,7 +1564,9 @@ class NumberGrid(Summoning, NumericNumberGrid):
             movement = (movement | self.ruins.attackable(state,destination)) & ~state.in_battle
         if self.basic_combat:
             movement &= state.movement_points > 0
-        controlled = state.in_battle & (state.actor < 6) & ~state.retreating[state.actor] & ~state.paralyzed[state.actor] & ~state.long_paralyzed[state.actor]
+        controlled = (state.in_battle & (state.actor < 6) & (state.hp[state.actor] > 0)
+                      & ~state.escaped[state.actor] & ~state.retreating[state.actor]
+                      & ~state.paralyzed[state.actor] & ~state.long_paralyzed[state.actor])
         targets = (state.hp[6:] > 0) & ~state.escaped[6:] & controlled
         if self.basic_combat:
             if self.has_healers:
@@ -1639,15 +1641,30 @@ class NumberGrid(Summoning, NumericNumberGrid):
         return (state.in_battle & (state.round > self.max_rounds)
                 & ~state.summon_battle & (state.post_victory == 0))
 
+    def automatic_battle_turn(self, state):
+        """Reference _advance_until_blue_turn: no player choice on this activation."""
+        forced = (state.retreating[state.actor] | state.paralyzed[state.actor]
+                  | state.long_paralyzed[state.actor] | (state.hp[state.actor] <= 0)
+                  | state.escaped[state.actor]) & (state.post_victory == 0)
+        return (state.in_battle & ~state.done
+                & ((state.actor >= 6) | forced | self.round_limit_retreat(state)))
+
+    def _automatic_battle_action(self, state):
+        controlled = ((state.actor < 6) & ~state.retreating[state.actor]
+                      & (state.hp[state.actor] > 0) & ~state.escaped[state.actor]
+                      & ~state.paralyzed[state.actor] & ~state.long_paralyzed[state.actor])
+        return jnp.where(self.round_limit_retreat(state) & controlled, RETREAT, CONTINUE).astype(jnp.int32)
+
     def _goals_left(self, alive):
         return jnp.any(alive if self.goal_enemies is None else alive & self.goal_enemies)
 
     def _timestep(self, state, reward, first=False):
         ts = super()._timestep(state, reward, first)
         if self.battle_mode:
-            ts = ts.replace(extras={**ts.extras, 'battle_transition': jnp.bool_(False),
-                                    'player_battle_transition': jnp.bool_(False),
-                                    'enemy_battle_transition': jnp.bool_(False),
+            ts = ts.replace(extras={**ts.extras, 'battle_transition': jnp.int32(0),
+                                    'player_battle_transition': jnp.int32(0),
+                                    'enemy_battle_transition': jnp.int32(0),
+                                    'automatic_battle_transition': jnp.int32(0),
                                     'battle_victory': jnp.bool_(False),
                                     'building_constructed': jnp.bool_(False),
                                     'turn_ended': jnp.bool_(False),
@@ -2403,8 +2420,9 @@ class NumberGrid(Summoning, NumericNumberGrid):
         withdrawal = ~jnp.any(active[:6]) & ~lost
         # Reference: a summon battle without a winner ends; the stack keeps its wounds.
         withdrawal |= summon_battle & (round_number > self.max_rounds) & ~victory
-        timeout = (state.step_count+1 >= self.max_steps) & ~victory & ~lost & ~withdrawal
-        raw_ended = victory | withdrawal | lost | timeout
+        # The decision boundary enforces max_steps after all automatic responses.
+        # Internal unit activations never consume that budget.
+        raw_ended = victory | withdrawal | lost
         round_limit_reached = ((state.round <= self.max_rounds) & (round_number > self.max_rounds)
                                & ~raw_ended & ~post_turn)
         pending = jnp.zeros(12,jnp.bool_)
@@ -2415,8 +2433,6 @@ class NumberGrid(Summoning, NumericNumberGrid):
                 eligible &= ~state.copied & (state.summon_owner < 0)
             eligible &= jnp.where(victory,self.slots < 6,self.slots >= 6) & (victory | withdrawal | lost)
             pending = jnp.where(post_turn,state.pending_healers.at[actor].set(False),eligible)
-            # The episode budget remains a hard bound even during this final phase.
-            pending &= state.step_count+1 < self.max_steps
             healing = jnp.any(pending)
             post_team = jnp.where(healing,jnp.where(victory,1,2),0).astype(jnp.int32)
             victory &= ~healing
@@ -2453,10 +2469,10 @@ class NumberGrid(Summoning, NumericNumberGrid):
             jnp.where(item_using & (item_applied == 0) & (ward_slots != 0), WARD,
             jnp.where(item_using, BATTLE_ITEM, event)))
         event = jnp.where(victory, VICTORY, jnp.where(lost, DEFEAT,
-                            jnp.where(withdrawal, WITHDRAW, jnp.where(timeout, LIMIT, event))))
+                            jnp.where(withdrawal, WITHDRAW, event)))
         event = jnp.where(round_limit_reached, ROUND_LIMIT_RETREAT, event)
         progress = {}
-        ended_status = victory | withdrawal | lost | timeout
+        ended_status = victory | withdrawal | lost
         state = self._restore_initiative_form(state,raw_ended & (state.imp | (state.decay_form > 0)))
         if self.has_hermits:
             state = state.replace(initiative_override=jnp.where(ended_status,-1,state.initiative_override),
@@ -2510,22 +2526,22 @@ class NumberGrid(Summoning, NumericNumberGrid):
             state = state.replace(imp=state.imp & ~ended,
                                   activation_done=jnp.where(ended, False, state.activation_done))
         if self.has_poisoners:
-            ended = victory | withdrawal | lost | timeout
+            ended = victory | withdrawal | lost
             state = state.replace(poison_turns=jnp.where(ended, 0, state.poison_turns),
                 poison_damage=jnp.where(ended, 0, state.poison_damage),
                 poison_source=jnp.where(ended, -1, state.poison_source))
         if self.has_water:
-            ended = victory | withdrawal | lost | timeout
+            ended = victory | withdrawal | lost
             state = state.replace(water_turns=jnp.where(ended,0,state.water_turns),
                                   water_damage=jnp.where(ended,0,state.water_damage),
                                   water_source=jnp.where(ended,-1,state.water_source))
         if self.has_fire:
-            ended = victory | withdrawal | lost | timeout
+            ended = victory | withdrawal | lost
             state = state.replace(burn_turns=jnp.where(ended,0,state.burn_turns),
                                   burn_damage=jnp.where(ended,0,state.burn_damage),
                                   burn_source=jnp.where(ended,-1,state.burn_source))
         if self.has_shatterers:
-            state = state.replace(armor_shreds=jnp.where(victory | withdrawal | lost | timeout, 0, state.armor_shreds))
+            state = state.replace(armor_shreds=jnp.where(victory | withdrawal | lost, 0, state.armor_shreds))
         if self.has_wolf_lord:
             # Restore every natural form, including dead/escaped units, before XP.
             ended = raw_ended
@@ -2582,12 +2598,12 @@ class NumberGrid(Summoning, NumericNumberGrid):
             battle_key=key, hp=jnp.where(back, recovered_hp, hp), **progress,
             battle_fort_armor=jnp.where(back,0,state.battle_fort_armor),
             post_victory=post_team,pending_healers=pending,
-            second_strike=another_strike & ~(victory | withdrawal | lost | timeout),
+            second_strike=another_strike & ~(victory | withdrawal | lost),
             wards_used=jnp.where(back, jnp.uint32(0), wards_used),
             last_immune=immune_slots, last_ward=ward_slots,
             in_battle=~back, position=jnp.where(withdrawal, state.origin, state.position),
             alive=alive, number=state.number + victory.astype(jnp.int32), won=won, lost=lost,
-            done=won | lost | timeout, priority=jnp.where(back, 0., priority),
+            done=won | lost, priority=jnp.where(back, 0., priority),
             turn_phase=jnp.where(back, 0, phases), defended=defended & ~back,
             retreating=retreating & ~back, escaped=escaped & ~back,
             actor=jnp.where(back, 0, next_actor), round=jnp.where(back, 0, round_number),
@@ -2678,7 +2694,8 @@ class NumberGrid(Summoning, NumericNumberGrid):
                             & item_rules.equip_available(self, state)[index])
         if self.unit_swaps_enabled:
             world_valid |= self.unit_swaps.valid(state, action)
-        controlled = (state.actor < 6) & ~state.retreating[state.actor] & ~state.paralyzed[state.actor] & ~state.long_paralyzed[state.actor]
+        controlled = ((state.actor < 6) & (state.hp[state.actor] > 0) & ~state.escaped[state.actor]
+                      & ~state.retreating[state.actor] & ~state.paralyzed[state.actor] & ~state.long_paralyzed[state.actor])
         target_slot = jnp.clip(action - SHOOT, 0, 5)
         own_target = self._actor_is_healer(state) if self.basic_combat and self.has_healers else jnp.bool_(False)
         target = target_slot + jnp.where(own_target, 0, 6)
@@ -2723,33 +2740,52 @@ class NumberGrid(Summoning, NumericNumberGrid):
         battle_valid = jnp.where(self.round_limit_retreat(state),
                                  action == jnp.where(controlled, RETREAT, CONTINUE), battle_valid)
         valid = jnp.where(state.in_battle, battle_valid, world_valid) & ~state.done
-        # Share one random draw between the vmapped map/battle branches.
+        # Map actions can start a battle whose first activation belongs to RED.
+        # Keep map logic outside the loop: it runs only once per player decision.
         key, random_key = jax.random.split(state.battle_key)
         random_values = jax.random.uniform(random_key, (self.random_size,))
-        next_state, reward = jax.lax.cond(state.in_battle, self._battle_step,
-                                         lambda *args: self._world_step(*args, spell_targets),
-                                         state, action, key, random_values)
-        steps = state.step_count + 1
+        next_state, reward = jax.lax.cond(~state.in_battle & valid,
+            lambda s: self._world_step(s, action, key, random_values, spell_targets),
+            lambda s: (s, jnp.float32(0)), state)
+
+        def pending(carry):
+            current, _, first, _ = carry
+            return first | (valid & self.automatic_battle_turn(current))
+
+        def advance(carry):
+            current, total_reward, first, counts = carry
+            automatic = self.automatic_battle_turn(current)
+            chosen = jnp.where(first, action, self._automatic_battle_action(current))
+            next_key, draw_key = jax.random.split(current.battle_key)
+            draws = jax.random.uniform(draw_key, (self.random_size,))
+            following, gain = self._battle_step(current, chosen, next_key, draws)
+            counts += jnp.array([1, ~automatic, current.actor >= 6, automatic], jnp.int32)
+            return following, total_reward+gain, jnp.bool_(False), counts
+
+        next_state, reward, _, counts = jax.lax.while_loop(pending, advance,
+            (next_state, reward, valid & state.in_battle, jnp.zeros(4, jnp.int32)))
+        decision = ~state.done & ~self.automatic_battle_turn(state)
+        steps = state.step_count + decision.astype(jnp.int32)
         next_state = next_state.replace(step_count=steps, done=next_state.done | (steps >= self.max_steps))
-        fallback = state.replace(step_count=jnp.where(state.done, state.step_count, steps),
+        fallback = state.replace(step_count=steps,
                                  done=state.done | (steps >= self.max_steps))
         next_state = jax.tree.map(lambda new, old: jnp.where(valid, new, old), next_state, fallback)
         rested = valid & ~state.in_battle & (action == REST)
         # REST replaces the ordinary step cost with the unused-movement penalty.
-        reward = jnp.where(valid, reward, 0.) - jnp.where(rested, 0., jnp.float32(self.step_cost))
+        reward = jnp.where(valid, reward, 0.) - jnp.where(decision & ~rested, jnp.float32(self.step_cost), 0.)
         if self.territory_enabled:
             bumped = (~valid & ~state.done & ~state.in_battle & (action>=0) & (action<8)
                 & jnp.all((destination>0)&(destination<self.size-1)) & self.territory.blocked(destination))
             reward -= .25*bumped
             next_state = next_state.replace(last_event=jnp.where(bumped,OBSTACLE,next_state.last_event))
         if self.recruitment_enabled:
-            reward -= .05*self.recruitment.composition(next_state)[2]
+            reward -= jnp.where(decision, .05*self.recruitment.composition(next_state)[2], 0.)
         ts = self._timestep(next_state, jnp.where(state.done, 0., reward))
-        combat = state.in_battle & valid & ~state.done
-        ts = ts.replace(extras={**ts.extras, 'battle_transition': combat,
-                                'player_battle_transition': combat & (state.actor < 6) & ~state.retreating[state.actor],
-                                'enemy_battle_transition': combat & (state.actor >= 6),
-                                'battle_victory': combat & jnp.any(state.alive & ~next_state.alive),
+        ts = ts.replace(extras={**ts.extras, 'battle_transition': counts[0],
+                                'player_battle_transition': counts[1],
+                                'enemy_battle_transition': counts[2],
+                                'automatic_battle_transition': counts[3],
+                                'battle_victory': (counts[0] > 0) & jnp.any(state.alive & ~next_state.alive),
                                 'building_constructed': valid & ~state.in_battle & (action >= BUILD_START) & (action < REST),
                                 'turn_ended': rested,
                                 'rest_penalty': (jnp.where(rested, self.rest_penalty(state), 0.)

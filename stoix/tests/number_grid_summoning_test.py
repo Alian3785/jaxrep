@@ -93,8 +93,9 @@ def test_zero_round_copy_mask_stats_hp_and_normal_turn(summon_game,current_game)
     assert compiled_method(env,'unit_experience')(result)[0,1] == UNITS['doppelganger']['exp_kill']
     assert not compiled_method(env,'action_mask')(result.replace(actor=jnp.int32(0)))[COPY_ALLY+1]
     limited = act(env,state.replace(step_count=jnp.int32(env.max_steps-1)),COPY_ALLY+1)
-    assert limited.done and not limited.copied[0]
-    assert limited.unit_ids[0] == state.unit_ids[0] and limited.hp[0] == 40
+    # Raw preparation never spends the decision budget or erases a copied form.
+    assert not limited.done and limited.copied[0]
+    assert limited.unit_ids[0] == result.unit_ids[0] and limited.hp[0] == result.hp[0]
 
 
 @pytest.mark.core

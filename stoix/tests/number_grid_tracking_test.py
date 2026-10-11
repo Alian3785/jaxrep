@@ -169,7 +169,7 @@ def test_battle_wins_are_not_counted_as_whole_map_wins():
         row(10, 1, battle_victory=42, battle_transition=125_000), 250_000, 1.0, 1.1)
     assert metrics['episodes/wins'] == 1
     assert metrics['battles/wins'] == 42
-    assert metrics['battles/transition_fraction'] == 0.5
+    assert metrics['battles/unit_activations_per_decision'] == 0.5
     assert metrics['ppo/actor_loss'] == -0.1
     assert 'ppo/battle_victory' not in metrics
 
@@ -203,7 +203,8 @@ def test_million_step_summary_includes_all_episodes_with_weighted_means():
     for index, (episodes, wins, length) in enumerate(((1, 1, 10), (3, 0, 30), (0, 0, 0), (6, 2, 50))):
         summary = tracking.log_training(
             row(episodes, wins, (index + 1) * 250_000, mean_episode_length=length,
-                mean_episode_return=length / 10, battle_victory=10, battle_transition=100_000, building_constructed=index+1,
+                mean_episode_return=length / 10, battle_victory=10, battle_transition=400_000,
+                automatic_battle_transition=300_000, building_constructed=index+1,
                 turn_ended=2*(index+1), rest_penalty=.01*(index+1)),
             250_000, 0.5, (index + 1) * 0.6)
         if index < 3:
@@ -223,7 +224,9 @@ def test_million_step_summary_includes_all_episodes_with_weighted_means():
     assert logged['turns/rest_penalty'] == logged['turns/rest_penalty_total'] == pytest.approx(.1)
     assert 'ppo/turn_ended' not in logged and 'ppo/rest_penalty' not in logged
     assert 'ppo/building_constructed' not in logged
-    assert logged['battles/transition_fraction'] == pytest.approx(0.4)
+    assert logged['battles/unit_activations_per_decision'] == pytest.approx(1.6)
+    assert logged['battles/automatic_activations'] == 1_200_000
+    assert 'ppo/automatic_battle_transition' not in logged
     assert logged['performance/steps_per_second'] == 500_000
 
 

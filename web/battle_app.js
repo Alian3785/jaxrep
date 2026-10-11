@@ -204,6 +204,7 @@
     }).filter(Boolean));
   }
   const movementCap=snap=>snap.movement_cap;
+  const closedShopGroups=new Set();
   function renderSites(snap){
     const info=siteInfo(),s=snap.state,panel=$('site-services');
     panel.hidden=!info;if(!info)return;
@@ -226,13 +227,23 @@
       card.append(name,detail,button('Нанять · '+fmt(price)+' золота',offer.action),reason);return [card];
     }));
     $('merchant-status').textContent=ready('merchant')+' Драгоценности здесь продаются автоматически.';
-    $('merchant-stock').replaceChildren(...info.buy.map((p,i)=>{
+    const offers=info.buy.map((p,i)=>{
       const card=document.createElement('div');card.className='site-offer';
-      const name=document.createElement('b');name.textContent=p.name+' · '+(s.merchant_stock?.[i]??0)+' шт.'+siteName('merchant',p.site);
+      const stock=s.merchant_stock?.[i]??0,price=snap.site_quotes?.buy?.[i]??p.price;
+      const name=document.createElement('b');name.textContent=p.name+' · '+stock+' шт.'+siteName('merchant',p.site);
       const detail=document.createElement('small');detail.textContent=p.label;
-      const price=snap.site_quotes?.buy?.[i]??p.price;
-      card.append(name,detail,button('Купить · '+fmt(price)+' золота',p.action));return card;
-    }));
+      const reason=document.createElement('small');reason.textContent=!stock?'Продано':s.gold<price?'Недостаточно золота':'';
+      card.append(name,detail,button('Купить · '+fmt(price)+' золота',p.action),reason);return card;
+    });
+    // One collapsible section per category: potions, artifacts, scrolls...
+    const groups=[...new Set(info.buy.map(p=>p.group||'Зелья'))];
+    $('merchant-stock').replaceChildren(...(groups.length<2?offers:groups.map(group=>{
+      const box=document.createElement('details'),title=document.createElement('summary');box.className='site-group';
+      const cards=offers.filter((_,i)=>(info.buy[i].group||'Зелья')===group);
+      title.textContent=group+' · '+cards.length;box.open=!closedShopGroups.has(group);
+      box.ontoggle=()=>box.open?closedShopGroups.delete(group):closedShopGroups.add(group);
+      box.append(title,...cards);return box;
+    })));
     const book=castInfo()?.spells||[];
     $('spell-shop-status').textContent=ready('spell_shop')+' Купленное заклинание сразу изучено. Его может применять любой правитель, по полной цене маны.';
     $('spell-shop-offers').replaceChildren(...(info.spells||[]).map((offer,i)=>{

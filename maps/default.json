@@ -214,7 +214,7 @@
     {"position": [31, 25], "potions": {"healing": 1}, "items": {"bronze_ring": 1}}
   ],
   "merchants": [
-    {"name": "Лавка Алара", "position": [35, 22], "potions": {"life": 10, "healing": 10, "restoration": 10, "ointment": 10, "might": 1, "fire_ward": 1, "earth_ward": 1, "water_ward": 1, "air_ward": 1, "celerity": 1}},
+    {"name": "Лавка Алара", "position": [35, 22], "potions": {"life": 10, "healing": 10, "restoration": 10, "ointment": 10, "might": 1, "fire_ward": 1, "earth_ward": 1, "water_ward": 1, "air_ward": 1, "celerity": 1}, "items": {"runestone": 1}},
     {"name": "Лавка Тралара", "position": [2, 37], "potions": {}}
   ],
   "trainer": {"name": "Тренировочный лагерь", "position": [31, 39]},

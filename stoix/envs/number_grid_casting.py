@@ -25,7 +25,7 @@ NEUTRAL = (0., 1., 1., 0., 1.)
 CAST_REWARD = .005  # reward_spell_cast; magic kills use reward_magic_enemy_defeat_multiplier=0.
 SUMMON_ENGAGE_REWARD = .05  # reward_summon_hero_battle_engage
 FRONT_SLOT, REAR_SLOT = 0, 3  # reference positions 7 and 10
-FIELD_REGENERATION, OWN_LAND_REGENERATION = 15, 5
+NEUTRAL_LAND_REGENERATION, RUIN_REGENERATION = 10, 20  # getTerrainRegenBonus, GVars REGEN_RUIN
 
 
 def casting_enabled(game_map):
@@ -152,6 +152,13 @@ class SpellCastRules:
         self.enemy_city = territory.enemy_city
         self.enemy_ids = progression.enemy_ids
         self.occupied = self.enemy_ids != 0
+        # Original getUnitRegen (D2ModdingToolset unitutils.cpp) for map stacks: each
+        # unit's own Gunits REGEN plus the place. Map stacks are neutral, so there is no
+        # lord bonus: capital guards add the capital, city stacks the city level, ruin
+        # guards get a fixed REGEN_RUIN, field stacks +10 on land nobody owns.
+        self.unit_regen = territory.regen[self.enemy_ids]
+        self.enemy_ruin = (ruins.enemy_ruin if ruins is not None
+                           else jnp.full(len(positions), -1, jnp.int32))
         traits = progression.traits[self.enemy_ids]
         self.blocks = traits[..., 2] | traits[..., 3]  # immunity or ward stops spell damage
         base = np.asarray(progression.stats(self.enemy_ids, progression.base_levels[self.enemy_ids])[..., HP])
@@ -402,11 +409,14 @@ class SpellCastRules:
         current = jnp.maximum(maximum - wounds, 0)
         owned = self.territory.owned(state, self.positions)
         city = jnp.maximum(self.enemy_city, 0)
-        percent = (jnp.where(owned, OWN_LAND_REGENERATION, FIELD_REGENERATION)
-                   + jnp.where(self.enemy_city >= 0, self.city_bonus[state.city_levels[city]] if self.territory.count else 0, 0))
+        # Inside a fort only the fort bonus counts; the land bonus applies outside.
+        place = jnp.where(self.enemy_city >= 0, self.city_bonus[state.city_levels[city]] if self.territory.count else 0,
+                          jnp.where(owned, 0, NEUTRAL_LAND_REGENERATION))
         if self.territory.has_capital_guards:
-            percent = percent + jnp.where(self.territory.capital_guards, CAPITAL_REGENERATION, 0)
-        heal = jnp.maximum(1, jnp.rint(maximum * percent[:, None] / 100.).astype(jnp.int32))
+            place = jnp.where(self.territory.capital_guards, CAPITAL_REGENERATION, place)
+        percent = jnp.where((self.enemy_ruin >= 0)[:, None], RUIN_REGENERATION,
+                            jnp.clip(self.unit_regen + place[:, None], 0, 100))
+        heal = jnp.maximum(1, jnp.rint(maximum * percent / 100.).astype(jnp.int32))
         if self.full_regeneration is not None:
             heal = jnp.where(self.full_regeneration[:, None], maximum, heal)
         recovering = resting & state.alive[:, None] & self.occupied & (current > 0) & (wounds > 0)

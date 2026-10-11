@@ -97,11 +97,14 @@ class ItemRules:
         inventories += [item_counts(c.get('items',{}),'Chest items') for c in game_map.get('chests',[])]
         chest_count = len(inventories)-1
         inventories += [item_counts(r.get('items',{}),'Ruin items') for r in game_map.get('ruins',[])]
-        used = {key for contents in inventories for key,count in contents.items() if count}
+        # Every merchant copy may end up in the inventory; validated by number_grid_sites.
+        from stoix.envs.number_grid_potions import merchants
+        stock = [item_counts(m.get('items',{}),'Merchant items') for m in merchants(game_map)]
+        used = {key for contents in inventories+stock for key,count in contents.items() if count}
         self.items = tuple(p for p in ITEMS if p['key'] in used)
         self.keys = tuple(p['key'] for p in self.items)
         self.count = len(self.items)
-        self.capacity = sum(sum(c.values()) for c in inventories)
+        self.capacity = sum(sum(c.values()) for c in inventories+stock)
         if self.capacity > 1000:
             raise ValueError('A scenario may contain at most 1000 equipment/valuable items')
         self.policy = game_map.get('equipment_auto_equip','price')
@@ -128,6 +131,10 @@ class ItemRules:
         initial = [self.keys.index(key) for key,count in inventories[0].items() for _ in range(count)]
         self.initial_inventory = jnp.array(initial+[-1]*(self.capacity-len(initial)),jnp.int32)
         self.chest_loot = jnp.array([[c.get(key,0) for key in self.keys] for c in inventories[1:chest_count+1]],jnp.int32).reshape(chest_count,self.count)
+        # Chest and ruin loot features skip merchant-only kinds: their columns are always zero.
+        looted = {key for contents in inventories for key,count in contents.items() if count}
+        self.loot_kinds = [i for i,key in enumerate(self.keys) if key in looted]
+        self.observation_size = self.capacity+5+chest_count*len(self.loot_kinds)
         ruins = inventories[chest_count+1:]
         self.ruin_loot = jnp.array([[c.get(key,0) for key in self.keys] for c in ruins],jnp.int32).reshape(len(ruins),self.count)
         ruin_tokens = [(r,self.keys.index(key)) for r,c in enumerate(ruins) for key,count in c.items() for _ in range(count)]
@@ -221,7 +228,7 @@ class ItemRules:
 
     def observation(self,state):
         return jnp.concatenate(((state.item_inventory+1)/max(1,self.count),
-                                (state.equipped+1)/max(1,self.count),self.chest_loot.reshape(-1)))
+                                (state.equipped+1)/max(1,self.count),self.chest_loot[:,self.loot_kinds].reshape(-1)))
 
     @property
     def metadata(self):

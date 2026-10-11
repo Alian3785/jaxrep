@@ -35,6 +35,8 @@ ITEMS = {
 # table, so Алар sells all of it and Тралар sells nothing (campaign_env_map.py).
 ALAR = {'life': 10, 'healing': 10, 'restoration': 10, 'ointment': 10, 'might': 1,
         'fire_ward': 1, 'earth_ward': 1, 'water_ward': 1, 'air_ward': 1, 'celerity': 1}
+# User request: one artifact for sale as well (docs/MAP_SITES.md#предметы-у-торговца).
+ALAR_ITEMS = {'runestone': 1}
 # Requested shop: Armageddon and the strongest Ent summon (Verdant), 1000 gold each.
 SPELLS = [{'spell': 'g000ss0019', 'price': 1000, 'stock': 1},
           {'spell': 'g000ss0117', 'price': 1000, 'stock': 1}]
@@ -140,7 +142,7 @@ def build(layout):
         initial_potions={},
         initial_items={},
         chests=chests,
-        merchants=[site('T1', potions=ALAR), site('T2', potions={})],
+        merchants=[site('T1', potions=ALAR, items=ALAR_ITEMS), site('T2', potions={})],
         trainer=site('U1'),
         mercenaries=[site('H1', roster=[{'unit': 'g000uu5040', 'stock': 1}]),
                      site('H2', roster=[{'unit': 'goblin', 'stock': 1},

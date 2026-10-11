@@ -1,6 +1,7 @@
 """CUDA contracts: the Python reference Default map, its spell shop and capital guard."""
 import jax
 import jax.numpy as jnp
+import pytest
 
 from stoix.envs.number_grid import DEFEND, NumberGrid, REST, WAIT, action_names, load_map
 from stoix.envs.number_grid_battle_items import battle_item_action_names
@@ -8,9 +9,10 @@ from stoix.envs.number_grid_combat import DAMAGE
 from stoix.envs.number_grid_lords import STARTING_PARTIES
 from stoix.envs.number_grid_casting import SPELL_CAST, SPELL_KILL, SUMMON_CAST
 from stoix.envs.number_grid_progression import ProgressionRules
-from stoix.envs.number_grid_sites import SPELL_BOUGHT
+from stoix.envs.number_grid_sites import BOUGHT, SPELL_BOUGHT, merchant_items
 from stoix.envs.number_grid_territory import CAPITAL_ARMOR
 from stoix.envs.number_grid_unit_swaps import unit_swap_action_names
+from stoix.tests.number_grid_fixtures import compiled_method
 
 DEFAULT = load_map('default')
 SHOP = (4, 46)  # spell shop at [3, 43], approach offset (1, 3)
@@ -23,19 +25,20 @@ def test_default_map_layout_and_actions(default_game):
     env, state, _, _ = default_game
     names = action_names(DEFAULT)
     assert DEFAULT['size'] == 50 and len(DEFAULT['opponent_positions']) == 75
-    assert env.num_actions == len(names) == 278 and env.observation_size == 2471
+    assert env.num_actions == len(names) == 279 and env.observation_size == 2474
     assert [s['kind'] for s in env.site_rules.sites] == [
         'merchant', 'merchant', 'trainer', 'mercenary', 'mercenary', 'spell_shop']
     assert env.territory.count == 5 and len(env.territory.mines) == 12 and env.ruins.count == 5
-    assert len(DEFAULT['chests']) == 18 and env.item_rules.capacity == 15
+    assert len(DEFAULT['chests']) == 18 and env.item_rules.capacity == 15+1  # loot + Alar's Runestone
     shop = env.site_rules
     assert names[shop.spell_start:shop.end] == ('buy_spell_'+ARMAGEDDON, 'buy_spell_'+VERDANT)
     assert names[env.casting.start:env.casting.hire_action][-1] == 'cast_'+VERDANT and env.casting.count == 23
     assert names[env.casting.hire_action:env.casting.end] == ('hire_scroll_mage', 'cast_mind_ward_scroll')
     assert names[env.casting.end:env.unit_swaps.start] == battle_item_action_names(DEFAULT)  # docs/BATTLE_ITEMS.md
     assert names[env.unit_swaps.start:] == unit_swap_action_names(env.map_config)  # docs/UNIT_SWAPS.md
-    # Alar sells the reference merchant stock; Tralar only buys valuables.
-    assert names[shop.buy_start:shop.train_start] == tuple('buy_'+k for k in DEFAULT['merchants'][0]['potions'])
+    # Alar sells the reference potions, then the requested artifact; Tralar only buys valuables.
+    assert names[shop.buy_start:shop.train_start] == tuple(
+        'buy_'+k for k in [*DEFAULT['merchants'][0]['potions'], *DEFAULT['merchants'][0]['items']])
     assert [int(i) for i in env.recruitment.offer_sites] == [3, 4, 4]
     assert DEFAULT['enemy_rosters'][GUARD] == [None]*4+['g000uu3001', None]
     assert DEFAULT['enemy_capitals'][0]['position'] == DEFAULT['opponent_positions'][GUARD] == [11, 27]
@@ -46,6 +49,39 @@ def test_default_map_layout_and_actions(default_game):
     assert [rows[i]['key'] if i else None for i in state.unit_ids[:6].tolist()] == env.map_config['hero_roster']
     assert state.position.tolist() == [28, 6]
     assert int(state.gold) == 0 and state.spell_stock.tolist() == [1, 1]
+
+
+def test_alar_sells_an_artifact(default_game):
+    """User request: one artifact in Alar's shop; the merchant item mechanism is generic."""
+    env, initial, step, mask = default_game
+    shop, items, names = env.site_rules, env.item_rules, action_names(DEFAULT)
+    assert DEFAULT['merchants'][0]['items'] == {'runestone': 1}
+    buy = names.index('buy_runestone')
+    assert buy == shop.train_start-1 and shop.metadata['buy'][-1]['price'] == 500  # GItem.VALUE
+    alar, tralar = (jnp.array(site['interaction_tiles'][0], jnp.int32) for site in shop.sites[:2])
+    rich = initial.replace(gold=jnp.int32(600))
+    assert mask(rich.replace(position=alar))[buy]
+    assert not mask(rich)[buy] and not mask(rich.replace(position=tralar))[buy]
+    assert not mask(rich.replace(position=alar, gold=jnp.int32(499)))[buy]
+    # The warrior wears artifacts at once: the purchase is equipped in the same step.
+    bought, _ = step(rich.replace(position=alar), jnp.int32(buy))
+    stone = items.keys.index('runestone')
+    assert bought.last_event == BOUGHT and bought.gold == 100 and bought.merchant_stock[-1] == 0
+    assert bought.item_inventory[0] == stone and bought.equipped[0] == stone
+    assert not mask(bought.replace(gold=jnp.int32(600)))[buy]  # one copy
+    again, _ = step(bought.replace(gold=jnp.int32(600)), jnp.int32(buy))
+    assert again.gold == 600 and again.item_inventory.tolist() == bought.item_inventory.tolist()
+    reset, _ = compiled_method(env, 'reset')(jax.random.PRNGKey(1))
+    assert reset.merchant_stock.tolist() == shop.initial_stock.tolist()
+
+
+def test_merchants_sell_any_priced_item_but_valuables():
+    stock = {'bethrezens_claw': 1, 'tome_war': 2, 'zombie_talisman': 1, 'lightning_scroll': 1,
+             'staff_of_thunder': 1}
+    assert merchant_items({'items': stock}) == stock
+    for stock in ({'bronze_ring': 1}, {'orb_of_lycanthropy': 1}, {'runestone': 0}, {'unknown': 1}):
+        with pytest.raises(ValueError):
+            merchant_items({'items': stock})
 
 
 def test_spell_shop_sells_armageddon_and_verdant(default_game):
@@ -90,10 +126,30 @@ def test_capital_guard_armor_and_regeneration(default_game):
     near = initial.replace(position=jnp.array([guard[0]-dr, guard[1]-dc], jnp.int32))
     battle, _ = step(near, jnp.int32(direction))
     assert battle.in_battle and battle.enemy == GUARD and battle.battle_fort_armor == CAPITAL_ARMOR
-    # Rest: Myzrael +15% field +35% capital of 900; the Green Dragon heals fully.
+    # Rest: Myzrael's own 50% +35% capital of 900; the Green Dragon heals fully.
     wounds = initial.enemy_wounds.at[GUARD, 4].set(800).at[DRAGON, 1].set(500)
     rested, _ = step(initial.replace(enemy_wounds=wounds), jnp.int32(REST))
-    assert rested.enemy_wounds[GUARD, 4] == 350 and rested.enemy_wounds[DRAGON, 1] == 0
+    assert rested.enemy_wounds[GUARD, 4] == 35 and rested.enemy_wounds[DRAGON, 1] == 0
+
+
+def test_enemy_regeneration_uses_own_regen_and_place(default_game):
+    """Original getUnitRegen (D2ModdingToolset unitutils.cpp): Gunits REGEN + place."""
+    _, initial, step, _ = default_game
+    nobody = initial.replace(territory_claims=jnp.zeros_like(initial.territory_claims))
+    everywhere = initial.replace(territory_claims=jnp.full_like(initial.territory_claims, DEFAULT['size']**2))
+    # (stack, slot, max HP): the Troll (REGEN 50), a Squire in a level 1 city, an Orc guarding a ruin.
+    troll, city, ruin = (5, 1, 350), (21, 0, 100), (69, 0, 200)
+
+    def healed(state, stack, slot, hp):
+        hurt = state.replace(enemy_wounds=state.enemy_wounds.at[stack, slot].set(hp-1))
+        rested, _ = step(hurt, jnp.int32(REST))
+        return hp-1-int(rested.enemy_wounds[stack, slot])
+
+    assert healed(nobody, *troll) == 210  # 50% + 10% on land nobody owns
+    assert healed(everywhere, *troll) == 175  # no land bonus on the player's land
+    for state in (nobody, everywhere):
+        assert healed(state, *city) == 15  # 5% + 10% of a level 1 city, never the land bonus
+        assert healed(state, *ruin) == 40  # GVars REGEN_RUIN: a fixed 20%
 
 
 def test_capturing_both_objective_cities_wins(default_game):

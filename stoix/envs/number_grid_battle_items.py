@@ -306,7 +306,10 @@ class BattleItemRules:
         kind = jnp.maximum(items, 0)
         hero = env._equipment_hero(state)
         fallen = (hero < 0) | (state.hp[jnp.maximum(hero, 0)] <= 0)
-        held = (items >= 0) & jnp.where(fallen, state.in_battle, self.access(env, state)[kind])
+        # Map summons temporarily replace the roster before in_battle is set.
+        # Their absent hero is still with the stashed party and keeps its equipment.
+        held = (items >= 0) & (state.summon_battle
+                              | jnp.where(fallen, state.in_battle, self.access(env, state)[kind]))
         first = held[0] & (self.stock(state)[kind[0]] >= 1)
         second = held[1] & (self.stock(state)[kind[1]] >= 1+(first & (items[0] == items[1])).astype(jnp.int32))
         keep = jnp.stack((first, second))

@@ -165,6 +165,45 @@ def finish(step, state, action=DEFEND):
 
 
 @pytest.mark.core
+@pytest.mark.parametrize('victory', [True, False], ids=['victory', 'summon_defeat'])
+@pytest.mark.parametrize('pair', [('healing', 'vampire_orb'), ('zombie_talisman', 'zombie_talisman')])
+def test_map_summon_preserves_hero_battle_items(default_game, victory, pair):
+    """Reference _build_summoned_blue_team keeps the travelling party's equipment."""
+    env, initial, step, mask = default_game
+    rules = env.battle_item_rules
+    spell = next(row['action'] for row in env.casting.metadata['spells']
+                 if row['kind'] == 'summon_battle' and row['action'] is not None)
+    state = slots(env, owned(env, initial, *(key for key in pair if key != 'healing')), *pair)
+    state = state.replace(position=jnp.array([28, 7], jnp.int32),
+        unit_levels=state.unit_levels.at[1].set(10), mana=jnp.full(5, 5000, jnp.int32),
+        learned_spells=jnp.uint32(1 << (spell-env.casting.start)),
+        potions=state.potions.at[env.potion_rules.keys.index('healing')].set(2),
+        battle_item_equipped_today=jnp.bool_(True))
+    if pair[0] == 'zombie_talisman':
+        state = state.replace(battle_item_charges=jnp.array([2, 4], jnp.int32),
+                              item_charges_spent=state.item_charges_spent.at[:2].set(jnp.array([3, 1], jnp.int32)))
+    assert mask(state)[spell]
+    summoned, _ = step(state, jnp.int32(spell))
+    assert summoned.in_battle and summoned.summon_battle
+    assert not jnp.any(mask(summoned)[rules.use_start:rules.end])  # items stay with the hero
+    for field in ('battle_items', 'battle_item_charges', 'battle_item_equipped_today',
+                  'item_inventory', 'item_charges_spent', 'potions'):
+        np.testing.assert_array_equal(getattr(summoned, field), getattr(state, field))
+    # Resolve either outcome through the real battle boundary, with the hero still stashed.
+    ended_hp = summoned.hp.at[6:].set(0) if victory else summoned.hp.at[:6].set(0)
+    out = finish(step, summoned.replace(hp=ended_hp), DEFEND if victory else CONTINUE)
+    assert not out.summon_battle and not out.lost and not out.done
+    assert bool(out.alive[int(summoned.enemy)]) != victory
+    for field in ('unit_ids', 'unit_levels', 'unit_xp', 'hp'):
+        np.testing.assert_array_equal(getattr(out, field)[:6], getattr(state, field)[:6])
+    # Also exercise the next ordinary map synchronization after the party returns.
+    rested, _ = step(out, jnp.int32(REST))
+    for field in ('battle_items', 'battle_item_charges', 'item_inventory', 'item_charges_spent', 'potions'):
+        np.testing.assert_array_equal(getattr(out, field), getattr(state, field))
+        np.testing.assert_array_equal(getattr(rested, field), getattr(state, field))
+
+
+@pytest.mark.core
 @pytest.mark.parametrize('withdrawal', [False, True], ids=['victory', 'retreat'])
 @pytest.mark.parametrize('pair', [('healing', 'orb_of_life'), ('zombie_talisman', 'zombie_talisman')])
 def test_dead_leader_returns_both_slots_without_losing_items_or_charges(default_game, item_battle, withdrawal, pair):

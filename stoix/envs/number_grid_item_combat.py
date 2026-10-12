@@ -4,7 +4,7 @@ from stoix.envs.number_grid_combat import HP, INITIATIVE
 from stoix.envs.number_grid_effects import source_protection
 
 
-def transform_imp(env,state,used,slots,selected):
+def transform_imp(env,state,used,slots,selected,long=True):
     first=selected & ~state.imp[slots] & (state.decay_form[slots]==0)
     mask=jnp.zeros(12,bool).at[slots].set(selected)
     first_mask=jnp.zeros(12,bool).at[slots].set(first)
@@ -17,7 +17,8 @@ def transform_imp(env,state,used,slots,selected):
     priority=jnp.where(selected & (state.turn_phase[slots]<2),
                        jnp.where(sizes[slots]==2,50.,30.),state.priority[slots])
     state=_suspend_weakening(state,slots,selected,first)
-    state=state.replace(
+    state=env._record_effect(state,slots,selected,4)
+    state=state.replace(transform_long=state.transform_long.at[slots].set(jnp.where(selected,long,state.transform_long[slots])),
         imp=state.imp.at[slots].set(state.imp[slots]|selected),
         imp_wards=state.imp_wards.at[slots].set(saved),
         priority=state.priority.at[slots].set(priority))
@@ -104,14 +105,16 @@ def equipment_attack(env,state,hp,used,target,connected,inflicted,random_values)
         immune |= blocked
         warded |= protected
         if 'paralysis' in supported:
+            state=env._record_disable(state,slots,selected & (kind==1))
             state=state.replace(paralyzed=state.paralyzed.at[target].set(state.paralyzed[target] | (selected[0] & (kind==1))))
         if 'poison' in supported:
-            poisoned=selected[0] & (kind==2) & ((state.poison_turns[target]==0)|(state.poison_damage[target]<damages[item+1]))
-            duration=jnp.minimum((random_values[81+2*i]*6).astype(jnp.int32),5)+1
+            poisoned=selected[0] & (kind==2)
+            duration=2
+            state=env._record_effect(state,slots,poisoned[None],0)
             state=state.replace(
-                poison_turns=state.poison_turns.at[target].set(jnp.where(poisoned,duration,state.poison_turns[target])),
+                poison_mode=state.poison_mode.at[target].set(jnp.where(poisoned,duration,state.poison_mode[target])),
                 poison_damage=state.poison_damage.at[target].set(jnp.where(poisoned,damages[item+1],state.poison_damage[target])),
-                poison_source=state.poison_source.at[target].set(jnp.where(poisoned,-1,state.poison_source[target])))
+                poison_source=state.poison_source.at[target].set(jnp.where(poisoned,actor,state.poison_source[target])))
         if 'imp' in supported:
             state,used=transform_imp(env,state,used,slots,selected & (kind==3))
         if 'decay' in supported:

@@ -3,6 +3,49 @@ import jax.numpy as jnp
 
 CAPITAL_GUARDS = {'Ашган', 'Ашкаэль', 'Видар', 'Мизраэль', 'Иллюмиэлль'}
 
+# Installed GVars.dbf; original Steam EXE 0x626CB3. See ORIGINAL_EFFECTS.md.
+BAT_BREAK, BAT_BMODIF = 90, 10
+POISON, FROSTBITE, BLISTER, DISABLE, TRANSFORM = range(5)
+ABSENT, SHORT, LONG = range(3)
+
+
+def effect_breaks(round_number, applied_round, uniform):
+    """Inclusive 1..100 roll: 11%, 21%, ... conditional recovery by round age."""
+    roll = jnp.minimum((uniform * 100).astype(jnp.int32), 99) + 1
+    return roll >= BAT_BREAK - BAT_BMODIF * (round_number - applied_round)
+
+
+def native_attack(profile, secondary=False):
+    return (profile or {}).get('game_data', {}).get(
+        'secondary_attack' if secondary else 'primary_attack', {})
+
+
+def attack_class(profile, secondary=False):
+    return int(native_attack(profile, secondary).get('CLASS') or 0)
+
+
+def attack_long(profile, secondary=False):
+    # The engine's DBF getter accepts only Y/y/T/t; a blank is false.
+    return native_attack(profile, secondary).get('INFINITE', '').upper() in ('Y', 'T')
+
+
+def disable_mode(profile, secondary=False):
+    return (LONG if attack_long(profile, secondary) else SHORT) if attack_class(profile, secondary) in (3, 9) else ABSENT
+
+
+def effect_tables(profiles):
+    """Native attack data, including campaign duplicates, rather than unit-type aliases."""
+    return dict(
+        ghost_modes=[disable_mode(p) for p in profiles],
+        secondary_paralysis_modes=[disable_mode(p, True) for p in profiles],
+        poisoners=[attack_class(p, True) == 12 for p in profiles],
+        water_casters=[attack_class(p, True) == 13 for p in profiles],
+        fire_casters=[attack_class(p, True) == 23 for p in profiles],
+        power_long=[attack_class(p) == 8 and attack_long(p) for p in profiles],
+        dot_modes=[[LONG if attack_long(p, True) else SHORT]*3 for p in profiles],
+        transform_long=[attack_class(p) == 22 and attack_long(p) for p in profiles],
+    )
+
 
 def source_protection(eligible, source, traits, used, slots):
     """Secondary source is 1-based, or zero for an effect without a source.
@@ -27,7 +70,7 @@ def armor_after_shreds(base, count):
 
 def advance_poison_queue(hp, escaped, phases, priority, round_number, activated,
                          turns, damage, source, immunities, extra_priority,
-                         next_actor, hold, max_rounds):
+                         next_actor, hold, max_rounds, applied_rounds, removal_rolls):
     """Resolve the pending queue and, if necessary, one following round in bulk.
 
     Candidate ticks are independent. Apply only the prefix through the first
@@ -40,7 +83,7 @@ def advance_poison_queue(hp, escaped, phases, priority, round_number, activated,
         active = (health > 0) & ~escaped
         return ~jnp.any(active[:6]) | ~jnp.any(active[6:])
 
-    def sweep(health, phase, order, done, left, amounts, owners, actor, enabled):
+    def sweep(health, phase, order, done, left, amounts, owners, actor, enabled, current_round, rolls):
         active = (health > 0) & ~escaped
         pending = active & (phase < 2)
         scores = jnp.where(phase == 0, order, -order)
@@ -71,7 +114,8 @@ def advance_poison_queue(hp, escaped, phases, priority, round_number, activated,
                                       ((scores == scores[boundary]) & (slots <= boundary)))
         losses = jnp.where(visited, losses, 0)
         health -= losses
-        remaining = jnp.where(first & immune, 0, left-tick.astype(jnp.int32))
+        expires = tick & ((left == SHORT) | effect_breaks(current_round,applied_rounds,rolls))
+        remaining = jnp.where((first & immune) | expires, 0, left)
         left = jnp.where(visited, remaining, left)
         dead = visited & (health == 0)
         phase = jnp.where(dead, 2, phase)
@@ -86,21 +130,21 @@ def advance_poison_queue(hp, escaped, phases, priority, round_number, activated,
 
     enabled = ~hold & ~ended(hp) & (round_number <= max_rounds)
     hp, phases, activated, turns, damage, source, next_actor, losses, wrap, visited = sweep(
-        hp, phases, priority, activated, turns, damage, source, next_actor, enabled)
+        hp, phases, priority, activated, turns, damage, source, next_actor, enabled, round_number, removal_rolls[0])
     round_number += wrap.astype(jnp.int32)
     phases = jnp.where(wrap, 0, phases)
     priority = jnp.where(wrap, extra_priority, priority)
     activated = jnp.where(wrap, False, activated)
     hp, phases, activated, turns, damage, source, next_actor, more, _, more_visited = sweep(
         hp, phases, priority, activated, turns, damage, source, next_actor,
-        wrap & (round_number <= max_rounds))
+        wrap & (round_number <= max_rounds), round_number, removal_rolls[1])
     return hp, phases, priority, round_number, activated, turns, damage, source, next_actor, losses+more, visited | more_visited
 
 
 
 def advance_periodic_queue(hp, escaped, phases, priority, round_number, activated,
                          turns, damage, source, immunities, extra_priority,
-                         next_actor, hold, max_rounds, immunity_masks, fallback_damage):
+                         next_actor, hold, max_rounds, immunity_masks, fallback_damage, applied_rounds, removal_rolls):
     """Resolve the pending queue and, if necessary, one following round in bulk.
 
     Per-effect ticks run in source order for each candidate. Apply only the prefix through the first
@@ -113,7 +157,7 @@ def advance_periodic_queue(hp, escaped, phases, priority, round_number, activate
         active = (health > 0) & ~escaped
         return ~jnp.any(active[:6]) | ~jnp.any(active[6:])
 
-    def sweep(health, phase, order, done, left, amounts, owners, actor, enabled):
+    def sweep(health, phase, order, done, left, amounts, owners, actor, enabled, current_round, rolls):
         active = (health > 0) & ~escaped
         pending = active & (phase < 2)
         scores = jnp.where(phase == 0, order, -order)
@@ -147,7 +191,8 @@ def advance_periodic_queue(hp, escaped, phases, priority, round_number, activate
                                       ((scores == scores[boundary]) & (slots <= boundary)))
         losses = jnp.where(visited[:, None], losses, 0)
         health -= jnp.sum(losses, axis=1)
-        remaining = jnp.where(first & immune & (before > 0), 0, left-tick.astype(jnp.int32))
+        expires = tick & ((left == SHORT) | effect_breaks(current_round,applied_rounds,rolls))
+        remaining = jnp.where((first & immune & (before > 0)) | expires, 0, left)
         left = jnp.where(visited[:, None], remaining, left)
         dead = visited & (health == 0)
         phase = jnp.where(dead, 2, phase)
@@ -162,14 +207,14 @@ def advance_periodic_queue(hp, escaped, phases, priority, round_number, activate
 
     enabled = ~hold & ~ended(hp) & (round_number <= max_rounds)
     hp, phases, activated, turns, damage, source, next_actor, losses, wrap, visited = sweep(
-        hp, phases, priority, activated, turns, damage, source, next_actor, enabled)
+        hp, phases, priority, activated, turns, damage, source, next_actor, enabled, round_number, removal_rolls[0])
     round_number += wrap.astype(jnp.int32)
     phases = jnp.where(wrap, 0, phases)
     priority = jnp.where(wrap, extra_priority, priority)
     activated = jnp.where(wrap, False, activated)
     hp, phases, activated, turns, damage, source, next_actor, more, _, more_visited = sweep(
         hp, phases, priority, activated, turns, damage, source, next_actor,
-        wrap & (round_number <= max_rounds))
+        wrap & (round_number <= max_rounds), round_number, removal_rolls[1])
     return hp, phases, priority, round_number, activated, turns, damage, source, next_actor, losses+more, visited | more_visited
 
 def vampiric_heal(hp, maximum, escaped, actor, pool, share_leftover):

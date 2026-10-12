@@ -24,7 +24,7 @@
     if(base&&(current()?.state.summon_owner?.[i]??-1)>=0)base={...base,name:base.name+' · призван'};
     if(base&&current()?.state.imp?.[i])base={...base,name:base.name+' · '+(base.size===2?'Толстый бес':'Бес'),role:'melee',attack_type:'weapon',immunities:0,protections:0,unit_type:'Warrior'};
     const owners=current()?.state.healer_wards?.[i]||[];
-    const temporary=[4,256,8,2].reduce((bits,bit,j)=>bits|(owners[j]?bit:0),0);
+    const temporary=[1,256,8,2].reduce((bits,bit,j)=>bits|(owners[j]?bit:0),0);
     const s=current()?.state,potionWard=s&&!s.imp?.[i]&&!s.decay_form?.[i]&&(s.summon_owner?.[i]??-1)<0?(s.copied?.[i]?(s.copy_traits?.[i]?.[3]||0):(s.potion_wards?.[i]||0)):0;
     const bookWard=base?.hero&&i<6&&!s?.imp?.[i]&&!s?.decay_form?.[i]&&!s?.copied?.[i]?(equipmentInfo()?.items?.[s?.equipped?.[3]]?.ward||0):0;
     if(base)base={...base,protections:(base.protections||0)|temporary|potionWard|bookWard};
@@ -837,9 +837,9 @@
         b.querySelector('.status').textContent=!max?'':!hp?'Погиб':s.escaped[i]?'Отступил':unreachable?'Вне досягаемости':s.paralyzed?.[i]?'Паралич':s.long_paralyzed?.[i]?'Долгий паралич':s.feared?.[i]?'Страх':s.retreating[i]?'Побег':s.defended[i]?'Защита':s.imp?.[i]?'Временное превращение':s.decay_form?.[i]?'Понижение формы':s.weakened?.[i]?'Урон ослаблен':s.armor_shreds?.[i]?'Броня повреждена':s.turn_phase[i]===1?'Ожидание':s.turn_phase[i]===2?'Ход завершён':'';
         if((s.slow_original?.[i]??-1)>=0)b.querySelector('.status').textContent+=' · Инициатива снижена';
         if(s.powerup?.[i])b.querySelector('.status').textContent+=' · Урон усилен';
-        if(s.poison_turns?.[i])b.querySelector('.status').textContent+=' · Яд '+s.poison_damage[i]+' HP, ходов: '+s.poison_turns[i];
-        if(s.water_turns?.[i])b.querySelector('.status').textContent+=' · Вода '+(s.water_damage[i]||10)+' HP, ходов: '+s.water_turns[i];
-        if(s.burn_turns?.[i])b.querySelector('.status').textContent+=' · Огонь '+(s.burn_damage[i]||10)+' HP, ходов: '+s.burn_turns[i];
+        if(s.poison_mode?.[i]){const chance=s.poison_mode[i]===1?100:Math.min(100,11+10*Math.max(0,s.round-(s.effect_rounds?.[i]?.[0]??s.round)));b.querySelector('.status').textContent+=' · Яд '+s.poison_damage[i]+' HP, шанс снятия в этом раунде: '+chance+'%';}
+        if(s.water_mode?.[i]){const chance=s.water_mode[i]===1?100:Math.min(100,11+10*Math.max(0,s.round-(s.effect_rounds?.[i]?.[1]??s.round)));b.querySelector('.status').textContent+=' · Обморожение '+(s.water_damage[i]||10)+' HP, шанс снятия в этом раунде: '+chance+'%';}
+        if(s.burn_mode?.[i]){const chance=s.burn_mode[i]===1?100:Math.min(100,11+10*Math.max(0,s.round-(s.effect_rounds?.[i]?.[2]??s.round)));b.querySelector('.status').textContent+=' · Ожог '+(s.burn_damage[i]||10)+' HP, шанс снятия в этом раунде: '+chance+'%';}
         b.disabled=!targetTurn||mode!=='manual'||busy||s.done||!session||!mask[action];
         b.setAttribute('aria-label',(isHealer(s.actor)&&i<6?(profile(s.actor)?.unit_type==='Alchemist'?'Дать дополнительный ход: ':profile(s.actor)?.unit_type==='Patriach'&&!hp?'Воскресить: ':isPowerSupport(s.actor)?'Усилить: ':'Лечить: ')+unitName(i):i>=6?(profile(s.actor)?.unit_type==='Succub'?'Превращение всех доступных врагов: противник ':profile(s.actor)?.unit_type==='Witch'?'Превращение: противник ':isMage(s.actor)?'Заклинание по всем врагам: противник ':isWarrior(s.actor)?'Удар мечом: противник ':'Стрелять: противник ')+(i%6+1):unitName(i))+', '+hp+' из '+max+' здоровья'+(unreachable?', вне досягаемости':''));
       });

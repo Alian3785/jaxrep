@@ -129,7 +129,7 @@ def build_combat_tables(game_map):
                     raise ValueError('Invalid combat '+field)
             immune, wards = _protection_mask(values['immunities']), _protection_mask(values['protections'])
             profiles.append(dict(name=values['name'], level=values['level'], size=size, role=values['role'],
-                                 unit_type=values.get('unit_type', ''),
+                                 unit_type=values.get('unit_type', ''), game_data=values.get('game_data', {}),
                                  secondary_source=secondary_source,
                                  secondary_accuracy=values.get('secondary_accuracy', 0),
                                  secondary_damage=values.get('secondary_damage', 0),

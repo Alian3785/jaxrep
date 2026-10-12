@@ -54,7 +54,7 @@ def test_complete_catalogue_and_scenario_inventory(current_game):
     assert [sum(p['category']==c for p in ITEMS) for c in range(8)]==[21,11,8,5,10,85,101,14]
     assert [sum(c['items'].values()) for c in MAP['chests']]==[3]*5
     assert env.item_rules.capacity==15 and env.item_rules.count==15
-    assert env.num_actions==244 and compiled_method(env,'observation')(state).shape==(1694,)
+    assert env.num_actions==244 and compiled_method(env,'observation')(state).shape==(1802,)
     assert not jnp.any(state.item_inventory>=0) and jnp.all(state.equipped==-1)
     valuables=[p for p in ITEMS if p['category']==VALUABLE]
     # Original Tglobal item descriptions give the merchant payout, not GItem.VALUE.
@@ -223,7 +223,7 @@ def test_artifact_statuses_respect_sources_and_duplicate_names(all_items):
     start=compiled_method(env,'_begin_battle')(state.replace(enemy=jnp.int32(0)))
     # Source masks are actual Death/Mind bits, distinct from the poison tick bit.
     cases=(('soul_crystal','paralyzed',64),('horn_of_incubus','paralyzed',2),
-           ('thanatos_blade','poison_turns',32),('skull_of_thanatos','poison_turns',32),
+           ('thanatos_blade','poison_mode',32),('skull_of_thanatos','poison_mode',32),
            ('hags_ring','imp',64))
     for key,field,source in cases:
         before=refresh(inventory(env,start,key,key)).replace(actor=jnp.int32(1))
@@ -244,7 +244,7 @@ def test_artifact_statuses_respect_sources_and_duplicate_names(all_items):
         assert not getattr(missed,field)[6]
 
 
-def test_artifact_drain_stronger_poison_and_wight(all_items):
+def test_artifact_drain_poison_refresh_and_wight(all_items):
     env,state,refresh,attack=all_items
     start=compiled_method(env,'_begin_battle')(state.replace(enemy=jnp.int32(0)))
     start=start.replace(actor=jnp.int32(1),hp=start.hp.at[1].set(10))
@@ -252,14 +252,14 @@ def test_artifact_drain_stronger_poison_and_wight(all_items):
     result=attack(before,jnp.int32(6),jnp.bool_(True),jnp.int32(19),jnp.zeros(84))
     assert result[1][1]==14  # floor(19/4), once per named artifact
     before=refresh(inventory(env,start,'skull_of_thanatos'))
-    before=before.replace(poison_turns=before.poison_turns.at[6].set(4),
+    before=before.replace(poison_mode=before.poison_mode.at[6].set(2),
                           poison_damage=before.poison_damage.at[6].set(20),
                           poison_source=before.poison_source.at[6].set(3))
     result=attack(before,jnp.int32(6),jnp.bool_(True),jnp.int32(10),jnp.zeros(84))[0]
-    assert result.poison_damage[6]==35 and result.poison_source[6]==-1 and result.poison_turns[6]==1
+    assert result.poison_damage[6]==35 and result.poison_source[6]==1 and result.poison_mode[6]==2
     before=before.replace(poison_damage=before.poison_damage.at[6].set(50))
     result=attack(before,jnp.int32(6),jnp.bool_(True),jnp.int32(10),jnp.zeros(84))[0]
-    assert result.poison_damage[6]==50 and result.poison_turns[6]==4
+    assert result.poison_damage[6]==35 and result.poison_mode[6]==2
     # Use an existing upgrade with a known predecessor, instead of a level-1 foe.
     upgraded=env.progression.ids['knight']
     before=refresh(inventory(env,start,'wight_blade')).replace(

@@ -17,6 +17,7 @@ UNITS_SWAPPED = 55
 # Every state field whose leading axis is the twelve battle slots; the hero's six come first.
 SLOT_FIELDS = (
     'unit_ids', 'unit_levels', 'unit_xp', 'hp', 'native_ids', 'native_levels', 'native_xp', 'last_xp',
+    'effect_rounds', 'disable_source', 'transform_long', 'powerup_long', 'saved_powerup_long',
     'copied', 'copy_stats', 'copy_secondary', 'copy_traits', 'summon_owner', 'preparation',
     'initiative_override', 'saved_initiative_override', 'slow_original', 'waited', 'bonus_turns',
     'battle_revived', 'revival_xp_cutoff', 'primary_override', 'preweak_damage', 'powerup', 'powerup_layered',
@@ -24,9 +25,9 @@ SLOT_FIELDS = (
     'healer_wards', 'ward_native_used', 'saved_healer_wards', 'saved_ward_native_used', 'pending_healers',
     'fenrir', 'armor_shreds', 'imp', 'imp_wards', 'decay_form', 'decay_shreds', 'feared',
     'weakened', 'saved_weakened', 'item_weakened', 'saved_item_weakened', 'lycanthrope',
-    'paralyzed', 'long_paralyzed', 'poison_turns', 'poison_damage', 'poison_source', 'last_poison_damage',
-    'water_turns', 'water_damage', 'water_source', 'last_water_damage',
-    'burn_turns', 'burn_damage', 'burn_source', 'last_burn_damage', 'activation_done',
+    'paralyzed', 'long_paralyzed', 'poison_mode', 'poison_damage', 'poison_source', 'last_poison_damage',
+    'water_mode', 'water_damage', 'water_source', 'last_water_damage',
+    'burn_mode', 'burn_damage', 'burn_source', 'last_burn_damage', 'activation_done',
     'potion_doses', 'potion_bonus', 'potion_temporary', 'potion_active', 'potion_wards',
     'spell_mods', 'spell_wards', 'equipment_bonus', 'wards_used', 'priority', 'turn_phase',
     'defended', 'retreating', 'escaped')

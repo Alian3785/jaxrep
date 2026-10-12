@@ -129,7 +129,7 @@ def test_single_summon_corpse_empty_slot_owner_death_and_no_xp(summon_game):
     env,_ = summon_game
     state = battle(summon_game,['squire',None,None,'elementalist',None,None],['squire',None,None,None,None,None])
     state = state.replace(actor=jnp.int32(3),round=jnp.int32(1),preparation=jnp.zeros(12,bool),hp=state.hp.at[0].set(0),
-        poison_source=state.poison_source.at[6].set(0),poison_turns=state.poison_turns.at[6].set(4),
+        poison_source=state.poison_source.at[6].set(0),poison_mode=state.poison_mode.at[6].set(2),
         poison_damage=state.poison_damage.at[6].set(7))
     mask = compiled_method(env,'action_mask')(state)
     assert mask[SHOOT] and mask[SHOOT+1] and not mask[SHOOT+3]
@@ -138,7 +138,7 @@ def test_single_summon_corpse_empty_slot_owner_death_and_no_xp(summon_game):
     assert result.hp[0] == 100 and result.turn_phase[0] == 2
     assert result.native_ids[0] == env.progression.ids['squire']
     assert not result.defended[3] and compiled_method(env,'unit_experience')(result)[0,1] == 0
-    assert result.poison_source[6] == -1 and result.poison_turns[6] > 0 and result.poison_damage[6] == 7
+    assert result.poison_source[6] == -1 and result.poison_mode[6] > 0 and result.poison_damage[6] == 7
     dead = compiled_method(env,'_linked_summon_hp')(result,result.hp.at[3].set(0))
     assert dead[0] == 0
     restored,hp = compiled_method(env,'_restore_roster')(result,result.hp,jnp.bool_(True))
@@ -202,7 +202,7 @@ def test_linked_queue_skips_summon_when_its_owner_dies_from_poison(summon_game):
     waiting = spawned.replace(actor=jnp.int32(6),hp=spawned.hp.at[3].set(1),
         turn_phase=jnp.array([0,2,2,0,2,2,0,2,2,2,2,2],jnp.int32),
         priority=jnp.array([80.,50,0,90,0,0,100,0,0,0,0,0]),
-        activation_done=jnp.zeros(12,bool),poison_turns=spawned.poison_turns.at[3].set(1),
+        activation_done=jnp.zeros(12,bool),poison_mode=spawned.poison_mode.at[3].set(1),
         poison_damage=spawned.poison_damage.at[3].set(1),
         paralyzed=spawned.paralyzed.at[6].set(True))
     following = act(env,waiting,CONTINUE)

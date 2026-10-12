@@ -69,7 +69,7 @@ def test_forced_retreat_mask_and_step_preserve_paralysis_enemy_attacks_and_dots(
     poisoned = state.replace(actor=jnp.int32(1),
         turn_phase=jnp.full(12, 2, jnp.int32).at[0].set(0).at[1].set(0),
         activation_done=jnp.zeros(12, bool),
-        poison_turns=state.poison_turns.at[0].set(1),
+        poison_mode=state.poison_mode.at[0].set(1),
         poison_damage=state.poison_damage.at[0].set(7),
         poison_source=state.poison_source.at[0].set(6))
     out, _ = battle_step(poisoned, jnp.int32(RETREAT), poisoned.battle_key, rolls)

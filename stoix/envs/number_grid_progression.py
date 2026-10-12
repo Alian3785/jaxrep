@@ -104,7 +104,7 @@ class ProgressionRules:
         power_types = {'Travnitsa':1.25,'Novice':1.5,'Dwarfdruid':1.75,'Arhidruid':2.}
         self.power_factors = jnp.array([power_types.get(r.get('unit_type'),0.) for r in rows])
         self.power_cures = jnp.array([r.get('unit_type') in ('Dwarfdruid','Arhidruid') for r in rows])
-        ward_types = {'Sundancer':4,'Sylfid':256,'Deva roshi':270}
+        ward_types = {'Sundancer':1,'Sylfid':256,'Deva roshi':267}
         self.healer_ward_elements = jnp.array([ward_types.get(r.get('unit_type'),0) for r in rows],jnp.uint32)
         self.mass_healers = jnp.array([r.get('unit_type') in ('Profit','Deva roshi') for r in rows])
         self.mass_cures = jnp.array([r.get('unit_type') == 'Profit' and r['name'] in ('Аббатиса','Прорицательница','Matriarch','Prophetess') for r in rows])
@@ -153,6 +153,7 @@ class ProgressionRules:
                 if target_id not in used_ids:
                     used_ids.add(target_id)
                     pending.append(target_id)
+        self.used_ids = used_ids
         self.has_healers = any(rows[i]['role'] == 'healer' for i in used_ids)
         self.has_copies = any(rows[i].get('unit_type') == 'Doppelganger' for i in used_ids)
         self.has_summons = any(rows[i].get('unit_type') in summon_types for i in used_ids)

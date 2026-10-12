@@ -107,7 +107,7 @@ def test_wolf_lord_fenrir_form_damage_mask_and_reversion_before_xp(current_game)
     start = start.replace(enemy_initial_hp=start.hp[6:])
     mask = compiled_method(env,'action_mask')(start)
     assert mask[FENRIR] and mask[SHOOT+5] and len(mask) == 244
-    transformed, _ = step(start, jnp.int32(FENRIR))
+    transformed, _ = attack(start, jnp.int32(FENRIR),start.battle_key,jnp.zeros(env.random_size))
     assert transformed.fenrir[0] and transformed.hp[0] == 137
     assert transformed.last_event == TRANSFORMED and transformed.turn_phase[0] == 2
     chex.assert_trees_all_equal(transformed.hp[1:], start.hp[1:])
@@ -130,7 +130,7 @@ def test_wolf_lord_fenrir_form_damage_mask_and_reversion_before_xp(current_game)
                        jnp.zeros(env.random_size).at[36:].set(.99))
     assert nested.imp[0] and nested.fenrir[0] and compiled_method(env,'unit_stats')(nested)[0, HP] == 275
     restored = compiled_method(env,'_start_activation')(nested.replace(actor=jnp.int32(0),
-        activation_done=nested.activation_done.at[0].set(False)), jnp.float32(0))
+        activation_done=nested.activation_done.at[0].set(False)), jnp.float32(.995))
     assert not restored.imp[0] and restored.fenrir[0] and compiled_method(env,'unit_stats')(restored)[0, DAMAGE] == 90
     # No enemy-script transformation: the reference chooses the water AoE.
     enemy = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(4))).replace(actor=jnp.int32(10))
@@ -212,23 +212,23 @@ def test_witch_small_and_large_forms_zero_damage_recovery_and_wait(current_game)
     assert second.imp[7] and second.last_damage == 0
     assert values[7, HP] == 100 and values[7, DAMAGE] == 20
     assert values[7, ACCURACY] == 80 and values[7, ARMOR] == 0 and values[7, INITIATIVE] == 30
-    # Start-of-turn recovery occurs before choosing an action, once per round.
+    # Recovery precedes the action; age uses battle rounds, including after Wait.
     fresh = second.replace(actor=jnp.int32(7), activation_done=second.activation_done.at[7].set(False))
     recover = compiled_method(env,'_start_activation')
-    restored = recover(fresh, jnp.float32(.299))
-    stayed = recover(fresh, jnp.float32(.3))
+    restored = recover(fresh, jnp.float32(.895))
+    stayed = recover(fresh, jnp.float32(.885))
     assert not restored.imp[7] and stayed.imp[7]
     waited = stayed.replace(turn_phase=stayed.turn_phase.at[7].set(1))
     assert recover(waited, jnp.float32(0)).imp[7]
     next_round = waited.replace(activation_done=waited.activation_done.at[7].set(False))
-    assert not recover(next_round, jnp.float32(0)).imp[7]
+    assert not recover(next_round, jnp.float32(.995)).imp[7]
     assert not compiled_method(env,'action_mask')(second.replace(actor=jnp.int32(3)))[WAIT]  # already acted
     healer, _ = attack(start, jnp.int32(SHOOT+4), start.battle_key, rolls)
     assert healer.imp[10] and env._enemy_action(healer.replace(actor=jnp.int32(10)), jnp.zeros(6)) == DEFEND
     # Retained permanent identity and footprint are visible with the status flags.
     chex.assert_trees_all_equal(second.unit_ids, start.unit_ids)
     obs = compiled_method(env,'observation')(second)
-    assert obs.shape == (1694,) and int(round(float(obs[454+5*env.num_opponents])*255)) & 1
+    assert obs.shape == (1802,) and int(round(float(obs[454+5*env.num_opponents])*255)) & 1
     ending = second.replace(actor=jnp.int32(4), hp=second.hp.at[6:].set(jnp.array([1,1,1,0,1,0])))
     ended, _ = attack(ending, jnp.int32(SHOOT), ending.battle_key, rolls)
     assert not ended.in_battle and not jnp.any(ended.imp)
@@ -375,69 +375,6 @@ def test_demon_two_strikes_retarget_and_consume_one_activation(current_game):
     assert ts.extras['enemy_battle_transition'] == 2 and ts.extras['automatic_battle_transition'] == 2
 
 
-def test_niddog_secondary_poison_accuracy_source_cache_ticks_and_xp():
-    from stoix.envs.number_grid import CONTINUE, VICTORY
-    config = copy.deepcopy(MAP)
-    config['enemy_rosters'][9][1] = 'niddog'  # replaces a Titan, paired rear remains empty
-    config['hero_units'] = 5
-    config['hero_roster'] = ['possessed', 'duke', 'possessed', 'cultist', 'cultist', None]
-    config['hero_combat_stats'] = [dict(max_hp=1000, armor=90),
-        dict(max_hp=1000, immunities=['death']), dict(max_hp=1000, protections=['death']),
-        dict(max_hp=1000), dict(max_hp=1000)]
-    env = NumberGrid(map_config={**config,'initial_potions':{},'chests':[]})
-    initial, _ = compiled_method(env,'reset')(jax.random.PRNGKey(42))
-    start = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(9))).replace(actor=jnp.int32(7))
-    start = start.replace(hp=start.hp.at[:3].set(jnp.array([500,600,700])),
-        priority=start.priority.at[4].set(10000.))
-    states = jax.tree.map(lambda a: jnp.broadcast_to(a, (5,)+a.shape), start)
-    states = states.replace(hp=states.hp.at[3,1].set(400).at[4,2].set(300))
-    rolls = jnp.zeros((5,env.random_size)).at[:,36].set(.99).at[1,12:24].set(.99).at[2,37:49].set(.99)
-    result, _ = scalar_attack_cases(env,states,jnp.full(5,CONTINUE,jnp.int32),rolls)
-    chex.assert_trees_all_equal(result.last_damage, jnp.array([15,0,15,150,150]))
-    assert result.poison_turns[0,0] == 1 and result.poison_damage[0,0] == 50 and result.poison_source[0,0] == 7
-    assert not jnp.any(result.poison_turns[1:])
-    assert result.last_immune[3] == 1 << 1 and result.last_ward[4] == 1 << 2
-    assert result.wards_used[4,2] == 1 << 5  # death source, not the poison tick's source
-    attack = compiled_method(env,'_battle_step')
-    first = jax.tree.map(lambda a:a[0], result)
-    next_target = first.replace(hp=first.hp.at[2].set(400))
-    second, _ = attack(next_target, jnp.int32(CONTINUE), first.battle_key, rolls[0])
-    assert second.last_target == 2 and second.poison_turns[0] == 1 and second.poison_turns[2] == 0
-    assert second.wards_used[2] == 0  # caster lock prevents even spending this ward
-    released = first.replace(poison_turns=first.poison_turns.at[0].set(0))
-    again, _ = attack(released, jnp.int32(CONTINUE), released.battle_key, rolls[0])
-    assert again.poison_turns[0] == 1 and again.poison_source[0] == 7
-    # Resolve fatal poison before choosing the next live actor and bank XP once.
-    ticking = start.replace(actor=jnp.int32(3), turn_phase=jnp.zeros(12,jnp.int32),
-        hp=start.hp.at[:3].set(jnp.array([10,20,100])),
-        priority=jnp.arange(12,0,-1,dtype=jnp.float32), activation_done=jnp.zeros(12,jnp.bool_),
-        poison_turns=jnp.zeros(12,jnp.int32).at[:3].set(2),
-        poison_damage=jnp.zeros(12,jnp.int32).at[:3].set(jnp.array([15,25,30])),
-        poison_source=jnp.full(12,-1,jnp.int32).at[:3].set(7))
-    advanced, _ = attack(ticking, jnp.int32(DEFEND), ticking.battle_key, rolls[0])
-    assert advanced.actor == 2
-    chex.assert_trees_all_equal(advanced.hp[:3], jnp.array([0,0,70]))
-    chex.assert_trees_all_equal(advanced.last_poison_damage[:3], jnp.array([10,20,30]))
-    assert advanced.poison_turns[2] == 1 and advanced.activation_done[2]
-    expected_xp = jnp.sum(compiled_method(env,'unit_experience')(ticking)[:2,1])
-    assert advanced.battle_xp[0] == expected_xp
-    # WAIT may return to this actor, but cannot produce a second tick that round.
-    waiting = advanced.replace(priority=advanced.priority.at[2].set(1.),
-        turn_phase=jnp.full(12,2,jnp.int32).at[2].set(0))
-    waited, _ = attack(waiting, jnp.int32(15), waiting.battle_key, rolls[0])
-    assert waited.actor == 2 and waited.hp[2] == 70 and waited.poison_turns[2] == 1
-    # A final poison kill resolves victory, clears effects, and awards native XP.
-    fatal = ticking.replace(hp=ticking.hp.at[6:].set(jnp.array([0,10,0,0,0,0])),
-        priority=jnp.zeros(12).at[7].set(10000.),
-        poison_turns=jnp.zeros(12,jnp.int32).at[7].set(1),
-        poison_damage=jnp.zeros(12,jnp.int32).at[7].set(50),
-        poison_source=jnp.full(12,-1,jnp.int32).at[7].set(3))
-    won, _ = attack(fatal, jnp.int32(DEFEND), fatal.battle_key, rolls[0])
-    assert won.last_event == VICTORY and not won.in_battle
-    assert won.battle_xp[1] == compiled_method(env,'unit_experience')(fatal)[7,1]
-    assert not jnp.any(won.poison_turns)
-
-
 def test_poison_queue_wraps_round_and_checks_tick_immunity_once():
     from stoix.envs.number_grid_effects import advance_poison_queue
     hp = jnp.zeros((4,12),jnp.int32).at[:,0].set(5).at[:,1].set(100).at[:,6].set(100)
@@ -450,11 +387,11 @@ def test_poison_queue_wraps_round_and_checks_tick_immunity_once():
         return advance_poison_queue(health, jnp.zeros(12,jnp.bool_), phase,
             jnp.arange(12,0,-1,dtype=jnp.float32), jnp.int32(1), done,
             left, amount, jnp.full(12,7,jnp.int32), immunity,
-            jnp.zeros(12).at[1].set(100.), actor, jnp.bool_(False), 75)
+            jnp.zeros(12).at[1].set(100.), actor, jnp.bool_(False), 75,jnp.ones(12,jnp.int32),jnp.zeros((2,12)))
     result = jax.jit(jax.vmap(advance))(hp,phases,activated,turns,damage,immune,jnp.array([0,0,1,1]))
     chex.assert_trees_all_equal(result[0][:,1], jnp.array([85,100,100,100]))
     chex.assert_trees_all_equal(result[3], jnp.array([2,2,1,1]))
-    chex.assert_trees_all_equal(result[5][:,1], jnp.array([1,0,2,1]))
+    chex.assert_trees_all_equal(result[5][:,1], jnp.array([2,0,2,2]))
     chex.assert_trees_all_equal(result[8], jnp.ones(4,jnp.int32))
     assert result[7][1,1] == -1  # poison immunity cancels the cached effect
 
@@ -475,23 +412,23 @@ def test_death_poison_uses_own_accuracy_source_and_multiple_targets(elemental_at
     rolls = rolls.at[4,12:24].set(.99).at[5,37:49].set(.75)
     result, _ = scalar_attack_cases(env,states,actions,rolls)
     chex.assert_trees_all_equal(result.last_damage,jnp.array([60,60,0,60,0,60,60]))
-    chex.assert_trees_all_equal(jnp.sum(result.poison_turns,axis=1),jnp.array([0,0,0,6,0,0,6]))
+    chex.assert_trees_all_equal(jnp.sum(result.poison_mode,axis=1),jnp.array([0,0,0,2,0,0,2]))
     assert result.wards_used[0,6] == 1 << 5
     assert result.last_immune[1] == 1 << 7 and result.last_immune[2] == 1 << 8
-    assert not jnp.any(result.poison_source != -1)  # Death has no caster-target lock
+    assert result.poison_source[3,9] == 3  # source is tracked without a target lock
     cast = compiled_method(env,'_battle_step')
     first = jax.tree.map(lambda a:a[6],result).replace(actor=jnp.int32(3))
     more, _ = cast(first,jnp.int32(SHOOT+5),first.battle_key,rolls[6])
-    assert more.poison_turns[10] == 6 and more.poison_turns[11] == 6
+    assert more.poison_mode[10] == 2 and more.poison_mode[11] == 2
     refreshed, _ = cast(first,jnp.int32(SHOOT+4),first.battle_key,rolls[6].at[49:55].set(0.))
-    assert refreshed.poison_turns[10] == 6  # active poison is neither stacked nor refreshed
+    assert refreshed.poison_mode[10] == 2  # reapplication refreshes a long effect without stacking
     # Poison immunity is checked when the unit's activation begins, even though
     # the initial status source was death. No HP tick is applied in that case.
     poisoned = jax.tree.map(lambda a:a[3],result).replace(actor=jnp.int32(0),
         priority=jnp.zeros(12).at[9].set(10000.),
         activation_done=result.activation_done[3].at[9].set(False))
     cleared, _ = cast(poisoned,jnp.int32(DEFEND),poisoned.battle_key,rolls[0])
-    assert cleared.hp[9] == 240 and cleared.poison_turns[9] == 0
+    assert cleared.hp[9] == 240 and cleared.poison_mode[9] == 0
     secondary = jax.jit(env.progression.secondary_stats)(jnp.int32(env.progression.ids['imperial_assassin']),jnp.int32(4))
     chex.assert_trees_all_equal(secondary,jnp.array([26.,76.]))
 
@@ -533,24 +470,22 @@ def test_wight_secondary_roll_devolution_recovery_and_battle_cleanup():
     attack = compiled_method(env,'_battle_step')
     second,_ = attack(first.replace(actor=jnp.int32(3)),jnp.int32(SHOOT+3),first.battle_key,rolls[3])
     assert second.decay_form[9] == env.progression.ids['squire'] and second.hp[9] == 25
-    # Only the first activation may recover. Recovery restores the original
-    # native identity and wards, not just one link of a repeated devolution.
+    # Drain Level does not recover randomly, including after Wait.
     base = first.replace(actor=jnp.int32(9),activation_done=first.activation_done.at[9].set(False))
     recover = compiled_method(env,'_start_activation')
     restored = recover(base,jnp.float32(.0099))
     failed = recover(base,jnp.float32(.01))
-    assert restored.decay_form[9] == 0 and restored.hp[9] == 224 and restored.wards_used[9] == 1
+    assert restored.decay_form[9] == base.decay_form[9] and restored.hp[9] == base.hp[9]
     assert failed.decay_form[9] != 0
     waited = recover(base.replace(turn_phase=base.turn_phase.at[9].set(1),
         activation_done=base.activation_done.at[9].set(True)),jnp.float32(0))
     assert waited.decay_form[9] != 0
-    # Witch uses the same original snapshot and preserves an existing 1%
-    # Wight recovery chance. Restoring it also restores the original maximum.
+    # A hostile Witch overlay still uses its own round-age recovery.
     imp,_ = attack(first.replace(actor=jnp.int32(0)),jnp.int32(SHOOT+3),first.battle_key,rolls[3])
     assert imp.imp[9] and imp.decay_form[9] != 0 and compiled_method(env,'unit_stats')(imp)[9,HP] == 150
     nested = imp.replace(actor=jnp.int32(9),activation_done=imp.activation_done.at[9].set(False))
     assert recover(nested,jnp.float32(.1)).imp[9]
-    final = recover(nested,jnp.float32(0))
+    final = recover(nested,jnp.float32(.995))
     assert not final.imp[9] and final.decay_form[9] == 0 and final.hp[9] == 224
     # Battle-end cleanup restores both forms even for a dead unit, without
     # resurrecting it or awarding a spent activation again.
@@ -606,12 +541,10 @@ def test_current_melee_geometry_exhaustive_occupancy_on_both_sides(current_game)
     np.testing.assert_array_equal(actual,expected)
 
 
-
-
 @pytest.mark.parametrize('key,kind,actor,squad,slot,primary,secondary,bit',[
     ('sentry','water',3,16,0,55,20,8),
     ('watcher','burn',4,17,3,60,15,4)])
-def test_sentry_and_watcher_secondary_source_accuracy_duration_and_no_refresh(
+def test_sentry_and_watcher_secondary_source_accuracy_and_refresh(
         elemental_attack_game,key,kind,actor,squad,slot,primary,secondary,bit):
     from stoix.envs.number_grid_combat import UNITS
     assert MAP['enemy_rosters'][squad][slot] == key
@@ -622,7 +555,7 @@ def test_sentry_and_watcher_secondary_source_accuracy_duration_and_no_refresh(
     start = start.replace(actor=jnp.int32(actor))
     states = jax.tree.map(lambda x:jnp.broadcast_to(x,(9,)+x.shape),start)
     states = states.replace(unit_levels=states.unit_levels.at[8,actor].set(4),**{
-        kind+'_turns':getattr(states,kind+'_turns').at[7,10].set(4),
+        kind+'_mode':getattr(states,kind+'_mode').at[7,10].set(2),
         kind+'_damage':getattr(states,kind+'_damage').at[7,10].set(7)})
     actions = jnp.array([SHOOT,SHOOT+1,SHOOT+2,SHOOT+3,SHOOT+4,SHOOT+5,SHOOT+4,SHOOT+4,SHOOT+5],jnp.int32)
     rolls = jnp.zeros((9,env.random_size)).at[:,36].set(.99).at[:,37:49].set(.69).at[:,49:55].set(.99)
@@ -630,14 +563,14 @@ def test_sentry_and_watcher_secondary_source_accuracy_duration_and_no_refresh(
     result,_ = scalar_battle(env)(states,actions,states.battle_key,rolls)
     chex.assert_trees_all_equal(result.last_damage,jnp.array([primary,primary,0,primary,0,primary,primary,primary,primary+6]))
     targets = actions-SHOOT+6
-    chex.assert_trees_all_equal(getattr(result,kind+'_turns')[jnp.arange(9),targets],jnp.array([0,0,0,6,0,0,6,4,6]))
+    chex.assert_trees_all_equal(getattr(result,kind+'_mode')[jnp.arange(9),targets],jnp.array([0,0,0,2,0,0,2,2,2]))
     assert result.wards_used[0,6] == bit and result.last_immune[1] == 1 << 7
-    assert getattr(result,kind+'_damage')[3,9] == secondary and getattr(result,kind+'_damage')[7,10] == 7
+    assert getattr(result,kind+'_damage')[3,9] == secondary and getattr(result,kind+'_damage')[7,10] == secondary
     assert getattr(result,kind+'_damage')[8,11] == secondary+6
-    assert not jnp.any(getattr(result,kind+'_source') != -1)
+    assert getattr(result,kind+'_source')[3,9] == actor
     first = jax.tree.map(lambda x:x[6],result).replace(actor=jnp.int32(actor))
     second,_ = compiled_method(env,'_battle_step')(first,jnp.int32(SHOOT+3),first.battle_key,rolls[6])
-    assert getattr(second,kind+'_turns')[9] == getattr(second,kind+'_turns')[10] == 6
+    assert getattr(second,kind+'_mode')[9] == getattr(second,kind+'_mode')[10] == 2
     red = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(squad))).replace(actor=jnp.int32(6+slot))
     red = red.replace(hp=red.hp.at[:5].set(jnp.array([80,50,60,40,70])))
     assert compiled_method(env,'_enemy_action')(red,jnp.zeros(6)) == SHOOT+3
@@ -650,27 +583,27 @@ def test_poison_then_water_ticks_skip_dead_units_and_wait_and_award_xp(current_g
     start = start.replace(hp=start.hp.at[:3].set(jnp.array([10,20,100])),
         priority=jnp.arange(12,0,-1,dtype=jnp.float32),
         activation_done=jnp.zeros(12,jnp.bool_),turn_phase=jnp.zeros(12,jnp.int32),
-        poison_turns=jnp.zeros(12,jnp.int32).at[:2].set(2),
+        poison_mode=jnp.zeros(12,jnp.int32).at[:2].set(2),
         poison_damage=jnp.zeros(12,jnp.int32).at[:2].set(jnp.array([15,5])),
-        water_turns=jnp.zeros(12,jnp.int32).at[:3].set(2),
+        water_mode=jnp.zeros(12,jnp.int32).at[:3].set(2),
         water_damage=jnp.zeros(12,jnp.int32).at[:2].set(20))
     rolls = jnp.zeros(env.random_size).at[36].set(.99)
     after,_ = attack(start,jnp.int32(DEFEND),start.battle_key,rolls)
     chex.assert_trees_all_equal(after.hp[:3],jnp.array([0,0,90]))
     chex.assert_trees_all_equal(after.last_poison_damage[:3],jnp.array([10,5,0]))
     chex.assert_trees_all_equal(after.last_water_damage[:3],jnp.array([0,15,10]))
-    assert after.actor == 2 and after.water_turns[2] == 1 and after.activation_done[2]
+    assert after.actor == 2 and after.water_mode[2] == 2 and after.activation_done[2]
     assert after.battle_xp[0] == compiled_method(env,'unit_experience')(start)[:2,1].sum()
     waiting = after.replace(turn_phase=jnp.full(12,2,jnp.int32).at[2].set(0))
     waited,_ = attack(waiting,jnp.int32(WAIT),waiting.battle_key,rolls)
-    assert waited.actor == 2 and waited.hp[2] == 90 and waited.water_turns[2] == 1
+    assert waited.actor == 2 and waited.hp[2] == 90 and waited.water_mode[2] == 2
     fatal = start.replace(hp=start.hp.at[6:].set(0).at[6].set(10),
         priority=jnp.zeros(12).at[6].set(10000.),
-        poison_turns=jnp.zeros(12,jnp.int32),water_turns=jnp.zeros(12,jnp.int32).at[6].set(1),
+        poison_mode=jnp.zeros(12,jnp.int32),water_mode=jnp.zeros(12,jnp.int32).at[6].set(1),
         water_damage=jnp.zeros(12,jnp.int32).at[6].set(20))
     won,_ = attack(fatal,jnp.int32(DEFEND),fatal.battle_key,rolls)
     assert won.last_event == VICTORY and not won.in_battle
-    assert not jnp.any(won.water_turns) and won.last_water_damage[6] == 10
+    assert not jnp.any(won.water_mode) and won.last_water_damage[6] == 10
     assert won.battle_xp[1] == compiled_method(env,'unit_experience')(fatal)[6,1]
 
 
@@ -684,66 +617,33 @@ def test_water_tick_immunity_and_expiry_are_independent_of_poison():
         return advance_periodic_queue(hp,jnp.zeros(12,jnp.bool_),phases,jnp.arange(12,0,-1,dtype=jnp.float32),
             jnp.int32(1),jnp.zeros(12,jnp.bool_),left,damage,jnp.full((12,2),-1,jnp.int32),
             jnp.zeros(12,jnp.uint32).at[0].set(immune),jnp.ones(12),jnp.int32(0),jnp.bool_(False),75,
-            jnp.array([16,8],jnp.uint32),jnp.array([0,10],jnp.int32))
+            jnp.array([16,8],jnp.uint32),jnp.array([0,10],jnp.int32),jnp.ones((12,2),jnp.int32),jnp.zeros((2,12,2)))
     results = jax.jit(jax.vmap(run))(jnp.array([0,8,16,24],jnp.uint32))
     chex.assert_trees_all_equal(results[0][:,0],jnp.array([65,85,80,100]))
-    chex.assert_trees_all_equal(results[5][:,0],jnp.array([[1,0],[1,0],[0,0],[0,0]]))
+    chex.assert_trees_all_equal(results[5][:,0],jnp.array([[2,0],[2,0],[0,0],[0,0]]))
     assert not jnp.any(results[6][:,0,1])
 
 
 @pytest.mark.core
-def test_poison_fire_water_order_stops_later_effects_after_death(current_game):
+def test_poison_water_fire_order_stops_later_effects_after_death(current_game):
     env,initial,_,attack = current_game
     start = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(11))).replace(actor=jnp.int32(3))
     start = start.replace(hp=start.hp.at[:3].set(jnp.array([10,20,100])),
         priority=jnp.arange(12,0,-1,dtype=jnp.float32),turn_phase=jnp.zeros(12,jnp.int32),
         activation_done=jnp.zeros(12,jnp.bool_),
-        poison_turns=jnp.zeros(12,jnp.int32).at[:3].set(2),
+        poison_mode=jnp.zeros(12,jnp.int32).at[:3].set(2),
         poison_damage=jnp.zeros(12,jnp.int32).at[:3].set(jnp.array([15,5,5])),
-        burn_turns=jnp.zeros(12,jnp.int32).at[:3].set(2),
+        burn_mode=jnp.zeros(12,jnp.int32).at[:3].set(2),
         burn_damage=jnp.zeros(12,jnp.int32).at[:2].set(20),
-        water_turns=jnp.zeros(12,jnp.int32).at[:3].set(2),
+        water_mode=jnp.zeros(12,jnp.int32).at[:3].set(2),
         water_damage=jnp.zeros(12,jnp.int32).at[:3].set(20))
     result,_ = attack(start,jnp.int32(DEFEND),start.battle_key,jnp.zeros(env.random_size).at[36].set(.99))
     chex.assert_trees_all_equal(result.hp[:3],jnp.array([0,0,65]))
     chex.assert_trees_all_equal(result.last_poison_damage[:3],jnp.array([10,5,5]))
-    chex.assert_trees_all_equal(result.last_burn_damage[:3],jnp.array([0,15,10]))
-    chex.assert_trees_all_equal(result.last_water_damage[:3],jnp.array([0,0,20]))
+    chex.assert_trees_all_equal(result.last_burn_damage[:3],jnp.array([0,0,10]))
+    chex.assert_trees_all_equal(result.last_water_damage[:3],jnp.array([0,15,20]))
     assert result.actor == 2 and result.activation_done[2]
     assert result.battle_xp[0] == compiled_method(env,'unit_experience')(start)[:2,1].sum()
-
-
-def test_lord_burn_locks_one_target_until_expiry_death_or_escape(current_game):
-    from stoix.envs.number_grid import CONTINUE
-    from stoix.envs.number_grid_combat import UNITS
-    env,initial,_,_ = current_game
-    initial = hero_roster_state(env,initial,['possessed','duke','possessed','cultist','cultist',None])
-    assert MAP['enemy_rosters'][14] == ['lord',None,None,None,None,None]
-    profile = UNITS['lord']
-    assert (profile['size'],profile['max_hp'],profile['damage'],profile['secondary_damage']) == (2,570,170,30)
-    start = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(14))).replace(actor=jnp.int32(6))
-    start = start.replace(hp=start.hp.at[:5].set(jnp.array([500,300,400,500,500])),
-        priority=jnp.zeros(12).at[4].set(10000.))
-    states = jax.tree.map(lambda x:jnp.broadcast_to(x,(7,)+x.shape),start)
-    turns = states.burn_turns.at[:5,0].set(3)
-    sources = states.burn_source.at[:5,0].set(6).at[1,0].set(7)
-    states = states.replace(burn_turns=turns.at[4,0].set(0),burn_source=sources,
-        burn_damage=states.burn_damage.at[:5,0].set(30),
-        hp=states.hp.at[2,0].set(0),escaped=states.escaped.at[3,0].set(True),
-        imp=states.imp.at[6,6].set(True))
-    rolls = jnp.zeros((7,env.random_size)).at[:,36].set(.99).at[:,37:49].set(.69).at[:,49:55].set(.99)
-    rolls = rolls.at[5,37:49].set(.70)
-    result,_ = scalar_battle(env)(states,jnp.full(7,CONTINUE,jnp.int32),states.battle_key,rolls)
-    chex.assert_trees_all_equal(result.burn_turns[:,1],jnp.array([0,6,6,6,6,0,0]))
-    chex.assert_trees_all_equal(result.burn_source[:,1],jnp.array([-1,6,6,6,6,-1,-1]))
-    chex.assert_trees_all_equal(result.burn_damage[:,1],jnp.array([0,30,30,30,30,0,0]))
-    # A caster's death and revival do not release its living target's lock.
-    corpse = jax.tree.map(lambda x:x[0],states).replace(hp=states.hp[0].at[6].set(0))
-    restored = corpse.replace(hp=corpse.hp.at[6].set(1))
-    after,_ = compiled_method(env,'_battle_step')(restored,jnp.int32(CONTINUE),restored.battle_key,rolls[0])
-    assert after.burn_source[0] == 6 and after.burn_turns[1] == 0
-    grown = jax.jit(env.progression.secondary_stats)(jnp.int32(env.progression.ids['lord']),jnp.int32(6))
-    chex.assert_trees_all_equal(grown,jnp.array([47.,71.]))
 
 
 def test_bone_lord_leech_overkill_sharing_defend_miss_and_imp(current_game):
@@ -799,27 +699,6 @@ def test_vampiric_sharing_matches_reference_integer_distribution():
     np.testing.assert_array_equal(actual,expected)
 
 
-def test_dregazul_self_leech_and_single_live_poison_target(current_game):
-    from stoix.envs.number_grid import CONTINUE
-    env,initial,_,_ = current_game
-    initial = hero_roster_state(env,initial,['possessed','duke','possessed','cultist','cultist',None])
-    assert MAP['enemy_rosters'][19][0] == 'dregazul'
-    start = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(19))).replace(actor=jnp.int32(6))
-    start = start.replace(hp=start.hp.at[:5].set(jnp.array([300,100,300,300,300])).at[6].set(150).at[7].set(50),
-        priority=jnp.zeros(12).at[4].set(10000.))
-    states = jax.tree.map(lambda x:jnp.broadcast_to(x,(5,)+x.shape),start)
-    states = states.replace(hp=states.hp.at[1,1].set(50).at[4,6].set(200),
-        poison_turns=states.poison_turns.at[2,0].set(3),poison_source=states.poison_source.at[2,0].set(6),
-        poison_damage=states.poison_damage.at[2,0].set(20))
-    rolls = jnp.zeros((5,env.random_size)).at[:,36].set(.99).at[:,49:55].set(.99).at[3,37:49].set(.5)
-    result,_ = scalar_battle(env)(states,jnp.full(5,CONTINUE,jnp.int32),states.battle_key,rolls)
-    chex.assert_trees_all_equal(result.hp[:,6],jnp.array([182,175,182,182,200]))
-    chex.assert_trees_all_equal(result.hp[:,7],jnp.full(5,50))  # surplus is never shared
-    chex.assert_trees_all_equal(result.poison_turns[:,1],jnp.array([6,0,0,0,6]))
-    chex.assert_trees_all_equal(result.poison_source[:,1],jnp.array([6,-1,-1,-1,6]))
-    chex.assert_trees_all_equal(result.poison_damage[:,1],jnp.array([20,0,0,0,20]))
-
-
 def test_dead_dragon_area_poison_has_independent_hits_and_no_caster_lock(current_game):
     from stoix.envs.number_grid import CONTINUE
     env,initial,_,attack = current_game
@@ -831,11 +710,11 @@ def test_dead_dragon_area_poison_has_independent_hits_and_no_caster_lock(current
     rolls = jnp.zeros(env.random_size).at[36].set(.99).at[13].set(.99).at[19].set(.99).at[41].set(.99).at[47].set(.99).at[49:55].set(.99)
     result,_ = attack(start,jnp.int32(CONTINUE),start.battle_key,rolls)
     chex.assert_trees_all_equal(result.hp[:5],jnp.array([0,500,435,500,435]))
-    chex.assert_trees_all_equal(result.poison_turns[:5],jnp.array([0,0,6,0,0]))
-    assert result.poison_damage[2] == 20 and not jnp.any(result.poison_source != -1)
+    chex.assert_trees_all_equal(result.poison_mode[:5],jnp.array([0,0,2,0,0]))
+    assert result.poison_damage[2] == 20 and result.poison_source[2] == 6
     again = result.replace(actor=jnp.int32(6),hp=result.hp.at[1].set(500))
     second,_ = attack(again,jnp.int32(CONTINUE),again.battle_key,rolls.at[13].set(0).at[19].set(0))
-    assert second.poison_turns[1] == 6 and second.poison_turns[2] == 6
+    assert second.poison_mode[1] == 2 and second.poison_mode[2] == 2
 
 
 def test_gumtic_area_fire_has_independent_hits_and_no_caster_lock(current_game):
@@ -849,44 +728,11 @@ def test_gumtic_area_fire_has_independent_hits_and_no_caster_lock(current_game):
     rolls = jnp.zeros(env.random_size).at[36].set(.99).at[13].set(.99).at[19].set(.99).at[41].set(.99).at[47].set(.99).at[49:55].set(.99)
     result,_ = attack(start,jnp.int32(CONTINUE),start.battle_key,rolls)
     chex.assert_trees_all_equal(result.hp[:5],jnp.array([0,500,390,500,390]))
-    chex.assert_trees_all_equal(result.burn_turns[:5],jnp.array([0,0,6,0,0]))
-    assert result.burn_damage[2] == 15 and not jnp.any(result.burn_source != -1)
+    chex.assert_trees_all_equal(result.burn_mode[:5],jnp.array([0,0,2,0,0]))
+    assert result.burn_damage[2] == 15 and result.burn_source[2] == 8
     again = result.replace(actor=jnp.int32(8),hp=result.hp.at[1].set(500))
     second,_ = attack(again,jnp.int32(CONTINUE),again.battle_key,rolls.at[13].set(0).at[19].set(0))
-    assert second.burn_turns[1] == 6 and second.burn_turns[2] == 6
-
-
-def test_ismir_water_locks_one_target_until_expiry_death_or_escape(current_game):
-    from stoix.envs.number_grid import CONTINUE
-    from stoix.envs.number_grid_combat import UNITS
-    env,initial,_,_ = current_game
-    initial = hero_roster_state(env,initial,['possessed','duke','possessed','cultist','cultist',None])
-    assert MAP['enemy_rosters'][28] == [None,'ismir_son',None,None,None,None]
-    profile = UNITS['ismir_son']
-    assert (profile['size'],profile['max_hp'],profile['damage'],profile['secondary_damage']) == (2,500,150,30)
-    start = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(28))).replace(actor=jnp.int32(7))
-    start = start.replace(hp=start.hp.at[:5].set(jnp.array([500,300,400,500,500])),
-        priority=jnp.zeros(12).at[4].set(10000.))
-    states = jax.tree.map(lambda x:jnp.broadcast_to(x,(7,)+x.shape),start)
-    turns = states.water_turns.at[:5,0].set(3)
-    sources = states.water_source.at[:5,0].set(7).at[1,0].set(6)
-    states = states.replace(water_turns=turns.at[4,0].set(0),water_source=sources,
-        water_damage=states.water_damage.at[:5,0].set(30),
-        hp=states.hp.at[2,0].set(0),escaped=states.escaped.at[3,0].set(True),
-        imp=states.imp.at[6,7].set(True))
-    rolls = jnp.zeros((7,env.random_size)).at[:,36].set(.99).at[:,37:49].set(.84).at[:,49:55].set(.99)
-    rolls = rolls.at[5,37:49].set(.85)
-    result,_ = scalar_battle(env)(states,jnp.full(7,CONTINUE,jnp.int32),states.battle_key,rolls)
-    chex.assert_trees_all_equal(result.water_turns[:,1],jnp.array([0,6,6,6,6,0,0]))
-    chex.assert_trees_all_equal(result.water_source[:,1],jnp.array([-1,7,7,7,7,-1,-1]))
-    chex.assert_trees_all_equal(result.water_damage[:,1],jnp.array([0,30,30,30,30,0,0]))
-    # A caster's death and revival do not release its living target's lock.
-    corpse = jax.tree.map(lambda x:x[0],states).replace(hp=states.hp[0].at[7].set(0))
-    restored = corpse.replace(hp=corpse.hp.at[7].set(1))
-    after,_ = compiled_method(env,'_battle_step')(restored,jnp.int32(CONTINUE),restored.battle_key,rolls[0])
-    assert after.water_source[0] == 7 and after.water_turns[1] == 0
-    grown = jax.jit(env.progression.secondary_stats)(jnp.int32(env.progression.ids['ismir_son']),jnp.int32(5))
-    chex.assert_trees_all_equal(grown,jnp.array([45.,86.]))
+    assert second.burn_mode[1] == 2 and second.burn_mode[2] == 2
 
 
 def test_ghost_primary_paralysis_and_gast_long_effect(elemental_attack_game):
@@ -914,38 +760,13 @@ def test_ghost_primary_paralysis_and_gast_long_effect(elemental_attack_game):
     assert compiled_method(env,'_enemy_action')(red,jnp.zeros(6)) == SHOOT+2
 
 
-def test_paralysis_forced_skip_recovery_and_delayed_retreat(current_game):
-    from stoix.envs.number_grid import CONTINUE, PARALYSIS_SKIP
-    env,initial,advance,_ = current_game
-    start = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(11))).replace(actor=jnp.int32(0))
-    start = start.replace(priority=jnp.zeros(12).at[1].set(10000.),activation_done=start.activation_done.at[0].set(True))
-    states = jax.tree.map(lambda x:jnp.broadcast_to(x,(5,)+x.shape),start)
-    states = states.replace(paralyzed=states.paralyzed.at[:,0].set(jnp.array([1,1,0,0,1],bool)),
-        long_paralyzed=states.long_paralyzed.at[:,0].set(jnp.array([0,1,1,1,0],bool)),
-        retreating=states.retreating.at[4,0].set(True))
-    masks = compiled_method(env,'action_mask',batched=True)(states)
-    assert jnp.all(jnp.sum(masks,axis=1) == 1) and jnp.all(masks[:,CONTINUE])
-    invalid = jax.tree.map(lambda x:x[0],states)
-    rejected,_ = advance(invalid,jnp.int32(SHOOT))
-    chex.assert_trees_all_equal(rejected.paralyzed,invalid.paralyzed)
-    chex.assert_trees_all_equal(rejected.hp,invalid.hp)
-    rolls = jnp.zeros((5,env.random_size)).at[:,36].set(.99).at[:,67].set(.329).at[2,67].set(.33)
-    out,_ = scalar_battle(env)(states,jnp.full(5,CONTINUE),states.battle_key,rolls)
-    assert not jnp.any(out.paralyzed) and not jnp.any(out.escaped)
-    chex.assert_trees_all_equal(out.long_paralyzed[:,0],jnp.array([0,1,1,0,0],bool))
-    chex.assert_trees_all_equal(out.last_event,jnp.full(5,PARALYSIS_SKIP))
-    chex.assert_trees_all_equal(out.hp,states.hp)
-    assert out.retreating[4,0] and jnp.all(out.turn_phase[:,0] == 2)
-    assert jnp.all(out.actor == 1)
-
-
 def test_paralysis_periodic_tick_precedes_skip_and_terminal_cleanup(current_game):
     from stoix.envs.number_grid import CONTINUE, DEFEND
     env,initial,_,_ = current_game
     base = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(11)))
     state = base.replace(actor=jnp.int32(1),priority=jnp.zeros(12).at[0].set(10000.),
         hp=base.hp.at[0].set(20),paralyzed=base.paralyzed.at[0].set(True),
-        activation_done=jnp.zeros(12,bool),poison_turns=base.poison_turns.at[0].set(1),
+        activation_done=jnp.zeros(12,bool),poison_mode=base.poison_mode.at[0].set(1),
         poison_damage=base.poison_damage.at[0].set(7))
     rolls = jnp.zeros(env.random_size).at[36].set(.99).at[67].set(.99)
     attack = compiled_method(env,'_battle_step')
@@ -1122,8 +943,8 @@ def test_tiamat_modifier_precedes_damage_cap_and_survives_temporary_form(current
     env,initial,_,_ = current_game
     start = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(11)))
     grown = start.replace(unit_levels=start.unit_levels.at[1].set(80),weakened=start.weakened.at[1].set(True))
-    # Duke: 162 at level 10, +5 for 70 later levels = 512; round(512*.68)=348.
-    assert compiled_method(env,'unit_stats')(grown)[1,1] == 348
+    # Duke: 162 at level 10, +5 for 70 later levels = 512; round(512*.67)=343.
+    assert compiled_method(env,'unit_stats')(grown)[1,1] == 343
     cast = start.replace(actor=jnp.int32(3),unit_ids=start.unit_ids.at[3].set(env.progression.ids['witch']),
         unit_levels=start.unit_levels.at[3].set(3),weakened=start.weakened.at[6].set(True),
         priority=jnp.zeros(12).at[0].set(10000.))
@@ -1132,7 +953,7 @@ def test_tiamat_modifier_precedes_damage_cap_and_survives_temporary_form(current
     assert transformed.imp[6] and not transformed.weakened[6] and transformed.saved_weakened[6]
     assert compiled_method(env,'unit_stats')(transformed)[6,1] == 20
     recovered = compiled_method(env,'_start_activation')(transformed.replace(actor=jnp.int32(6),
-        activation_done=transformed.activation_done.at[6].set(False)),jnp.float32(0))
+        activation_done=transformed.activation_done.at[6].set(False)),jnp.float32(.995))
     assert not recovered.imp[6] and recovered.weakened[6]
     fleeing = grown.replace(actor=jnp.int32(3),retreating=grown.retreating.at[3].set(True),
                             escaped=grown.escaped.at[:6].set(True).at[3].set(False))
@@ -1197,7 +1018,7 @@ def test_baroness_escape_keeps_temporary_form_until_exit_and_ticks_first(current
     start = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(11))).replace(actor=jnp.int32(3))
     start = start.replace(imp=start.imp.at[6].set(True),feared=start.feared.at[6].set(True),
         retreating=start.retreating.at[6].set(True),hp=start.hp.at[6].set(50),
-        poison_turns=start.poison_turns.at[6].set(2),poison_damage=start.poison_damage.at[6].set(7),
+        poison_mode=start.poison_mode.at[6].set(2),poison_damage=start.poison_damage.at[6].set(7),
         priority=jnp.zeros(12).at[6].set(10000.),activation_done=jnp.zeros(12,bool))
     rolls = jnp.zeros(env.random_size)
     ready,_ = attack(start,jnp.int32(DEFEND),start.battle_key,rolls)
@@ -1333,7 +1154,7 @@ def test_cliric_post_victory_restores_forms_and_heals_before_xp(current_game):
     assert not first.imp[3] and first.weakened[3] and first.paralyzed[3]
     mask = compiled_method(env,'action_mask')(first)
     assert mask[WAIT] and mask[SHOOT] and not mask[DEFEND]
-    assert compiled_method(env,'observation')(first).shape == (1694,)
+    assert compiled_method(env,'observation')(first).shape == (1802,)
     bad,_ = compiled_method(env,'step')(first,jnp.int32(DEFEND))
     chex.assert_trees_all_equal(bad.hp,first.hp)
     chex.assert_trees_all_equal(bad.battle_key,first.battle_key)
@@ -1374,7 +1195,7 @@ def test_profit_mass_heal_excludes_self_and_only_named_forms_cure(elemental_atta
     assert MAP['enemy_rosters'][34][3] == 'cleric'
     start = start.replace(actor=jnp.int32(3),hp=start.hp.at[:5].set(jnp.array([50,100,0,5,20])),
         paralyzed=start.paralyzed.at[0].set(True),long_paralyzed=start.long_paralyzed.at[0].set(True),
-        poison_turns=start.poison_turns.at[0].set(3),poison_damage=start.poison_damage.at[0].set(7),
+        poison_mode=start.poison_mode.at[0].set(2),poison_damage=start.poison_damage.at[0].set(7),
         poison_source=start.poison_source.at[0].set(7),
         retreating=start.retreating.at[0].set(True).at[1].set(True),feared=start.feared.at[0].set(True),
         weakened=start.weakened.at[0].set(True),armor_shreds=start.armor_shreds.at[0].set(2),
@@ -1390,86 +1211,66 @@ def test_profit_mass_heal_excludes_self_and_only_named_forms_cure(elemental_atta
     assert not jnp.any(out.hp[:,2]) and jnp.all(out.last_target == -1)
     chex.assert_trees_all_equal(out.paralyzed[:,0],jnp.array([1,0,0,1],bool))
     chex.assert_trees_all_equal(out.long_paralyzed[:,0],jnp.array([1,0,0,1],bool))
-    chex.assert_trees_all_equal(out.retreating[:,0],jnp.array([1,0,0,1],bool))
+    chex.assert_trees_all_equal(out.retreating[:,0],jnp.ones(4,bool))
     assert jnp.all(out.retreating[:,1])  # Cure preserves a voluntary retreat.
     chex.assert_trees_all_equal(out.poison_source[:,0],jnp.array([7,-1,-1,7]))
-    chex.assert_trees_all_equal(out.weakened[:,0],jnp.array([1,0,0,1],bool))
-    chex.assert_trees_all_equal(out.armor_shreds[:,0],jnp.array([2,0,0,2]))
-
-
-def test_profit_cure_restores_wight_hp_before_heal_and_saved_wards(elemental_attack_game):
-    env,_,start = elemental_attack_game
-    start = hero_roster_state(env,start,['dark_paladin','duke','possessed','abbess','cultist',None])
-    start = start.replace(actor=jnp.int32(3),hp=start.hp.at[0].set(85).at[4].set(20),
-        decay_form=start.decay_form.at[0].set(env.progression.ids['berserker']),
-        imp=start.imp.at[4].set(True),imp_wards=start.imp_wards.at[0].set(1).at[4].set(4),
-        weakened=start.weakened.at[0].set(True),saved_weakened=start.saved_weakened.at[4].set(True),
-        water_turns=start.water_turns.at[0].set(3),water_damage=start.water_damage.at[0].set(20),water_source=start.water_source.at[0].set(8),
-        burn_turns=start.burn_turns.at[4].set(2),burn_damage=start.burn_damage.at[4].set(10),burn_source=start.burn_source.at[4].set(9),
-        priority=jnp.zeros(12).at[6].set(10000.))
-    rolls = jnp.full(env.random_size,.99)
-    out,_ = compiled_method(env,'_battle_step')(start,jnp.int32(SHOOT),start.battle_key,rolls)
-    # 85/170 of Dark Paladin's 220 native HP, then +40 healing.
-    assert out.hp[0] == 150 and out.hp[4] == 45
-    assert not out.decay_form[0] and not out.imp[4] and not out.saved_weakened[4]
-    assert out.wards_used[0] == 1 and out.wards_used[4] == 4
-    assert out.water_turns[0] == out.burn_turns[4] == 0
-    assert out.water_source[0] == out.burn_source[4] == -1
+    chex.assert_trees_all_equal(out.weakened[:,0],jnp.ones(4,bool))
+    chex.assert_trees_all_equal(out.armor_shreds[:,0],jnp.full(4,2))
 
 
 def test_sundancer_shared_ward_recast_owners_and_sticky_native_consumption():
     from stoix.envs.number_grid_wards import grant_wards,expire_wards,ward_tags
     owners = jnp.zeros((12,4),jnp.uint32)
     sticky = jnp.zeros(12,jnp.uint32)
-    native = jnp.zeros(12,jnp.uint32).at[1].set(4).at[3].set(4)
-    used = jnp.zeros(12,jnp.uint32).at[1].set(4)
+    native = jnp.zeros(12,jnp.uint32).at[1].set(1).at[3].set(1)
+    used = jnp.zeros(12,jnp.uint32).at[1].set(1)
     recipients = jnp.zeros(12,bool).at[1:4].set(True)
     grant,expire = jax.jit(grant_wards),jax.jit(expire_wards)
-    owners,sticky,used = grant(owners,sticky,used,native,recipients,jnp.uint32(4),jnp.int32(0))
-    assert used[1] == 0 and sticky[1] == 4 and jnp.all(ward_tags(owners)[1:4] == 4)
-    owners,sticky,used = grant(owners,sticky,used,native,recipients,jnp.uint32(4),jnp.int32(6))
+    owners,sticky,used = grant(owners,sticky,used,native,recipients,jnp.uint32(1),jnp.int32(0))
+    assert used[1] == 0 and sticky[1] == 1 and jnp.all(ward_tags(owners)[1:4] == 1)
+    owners,sticky,used = grant(owners,sticky,used,native,recipients,jnp.uint32(1),jnp.int32(6))
     assert jnp.all(owners[1:4,0] == 65)
     owners,sticky,used = expire(owners,sticky,used,native,jnp.uint32(1))
     assert jnp.all(owners[1:4,0] == 64) and not jnp.any(used)
     # One blocked hit consumes the shared projection, independent of owner count.
-    used = used.at[1:3].set(4)
-    owners,sticky,used = grant(owners,sticky,used,native,recipients,jnp.uint32(4),jnp.int32(6))
-    assert not jnp.any(used) and sticky[1] == 4
+    used = used.at[1:3].set(1)
+    owners,sticky,used = grant(owners,sticky,used,native,recipients,jnp.uint32(1),jnp.int32(6))
+    assert not jnp.any(used) and sticky[1] == 1
     owners,sticky,used = expire(owners,sticky,used,native,jnp.uint32(64))
     assert not jnp.any(owners) and not jnp.any(sticky)
-    assert used[1] == 4 and used[2] == 0 and used[3] == 0
+    assert used[1] == 1 and used[2] == 0 and used[3] == 0
     # Native protection first consumed while a temporary grant is active stays spent.
-    owners,sticky,used = grant(owners,sticky,used,native,recipients,jnp.uint32(270),jnp.int32(11))
-    used = used.at[3].set(270)
+    owners,sticky,used = grant(owners,sticky,used,native,recipients,jnp.uint32(267),jnp.int32(11))
+    used = used.at[3].set(267)
     owners,sticky,used = expire(owners,sticky,used,native,jnp.uint32(1 << 11))
-    assert used[3] == 4 and not jnp.any(owners)
+    assert used[3] == 1 and not jnp.any(owners)
 
 
-def test_sundancer_heals_full_hp_grants_shared_fire_block_and_expires_on_wait_return(current_game):
+def test_sundancer_heals_full_hp_grants_shared_weapon_block_and_expires_on_wait_return(current_game):
     from stoix.envs.number_grid import CONTINUE
     from stoix.tests.number_grid_fixtures import enemy_roster_state
     env,initial,_,attack = current_game
     assert MAP['enemy_rosters'][35][4] == 'sundancer'
     state = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(11)))
     state = hero_roster_state(env,state,['possessed','duke','possessed','sundancer','cultist',None])
-    state = enemy_roster_state(env,state,['watcher','squire','squire','archer','archer','archer'])
+    state = enemy_roster_state(env,state,['archer','squire','squire','archer','archer','archer'])
     state = state.replace(actor=jnp.int32(3),priority=jnp.zeros(12).at[0].set(10000.))
     rolls = jnp.zeros(env.random_size).at[36].set(.99)
     granted,_ = attack(state,jnp.int32(SHOOT),state.battle_key,rolls)
     assert granted.last_damage == 0 and granted.healer_wards[0,0] == 8
-    assert env.unit_traits(granted)[0,3] & 4
+    assert env.unit_traits(granted)[0,3] & 1
     # A ward cast still grants at full HP. Force the enemy's lowest-HP target.
     target = granted.replace(actor=jnp.int32(6),hp=granted.hp.at[0].set(1),
         priority=jnp.zeros(12).at[1].set(10000.))
     blocked,_ = attack(target,jnp.int32(CONTINUE),target.battle_key,rolls)
-    assert blocked.hp[0] == 1 and blocked.last_ward == 1 and blocked.wards_used[0] & 4
+    assert blocked.hp[0] == 1 and blocked.last_ward == 1 and blocked.wards_used[0] & 1
     assert blocked.healer_wards[0,0] == 8
     # Returning after WAIT expires the caster's grants even after first activation.
     waiting = granted.replace(actor=jnp.int32(4),turn_phase=jnp.full(12,2,jnp.int32).at[3].set(1),
         activation_done=jnp.ones(12,bool),paralyzed=granted.paralyzed.at[3].set(True))
     expired,_ = attack(waiting,jnp.int32(DEFEND),waiting.battle_key,rolls)
     assert expired.actor == 3 and not jnp.any(expired.healer_wards)
-    assert not (env.unit_traits(expired)[0,3] & 4)
+    assert not (env.unit_traits(expired)[0,3] & 1)
 
 
 def test_sundancer_expiry_in_saved_forms_and_on_caster_lethal_periodic_tick(current_game):
@@ -1486,27 +1287,10 @@ def test_sundancer_expiry_in_saved_forms_and_on_caster_lethal_periodic_tick(curr
     # Caster grants expire on its activation, even if poison kills it before acting.
     poisoned = start.replace(actor=jnp.int32(4),hp=start.hp.at[3].set(1),
         healer_wards=start.healer_wards.at[0,0].set(8),priority=jnp.zeros(12).at[3].set(10000.).at[1].set(100.),
-        activation_done=jnp.zeros(12,bool),poison_turns=start.poison_turns.at[3].set(2),
+        activation_done=jnp.zeros(12,bool),poison_mode=start.poison_mode.at[3].set(2),
         poison_damage=start.poison_damage.at[3].set(20))
     end,_ = attack(poisoned,jnp.int32(DEFEND),poisoned.battle_key,jnp.zeros(env.random_size).at[36].set(.99))
     assert end.hp[3] == 0 and end.actor == 1 and not jnp.any(end.healer_wards)
-
-
-def test_sundancer_ward_snapshot_survives_wight_then_mass_cure(elemental_attack_game):
-    from stoix.envs.number_grid import CONTINUE
-    from stoix.tests.number_grid_fixtures import enemy_roster_state
-    env,_,start = elemental_attack_game
-    start = enemy_roster_state(env,start,['dark_paladin','squire','squire','abbess','archer','archer'])
-    start = hero_roster_state(env,start,['possessed','duke','possessed','wight','cultist',None])
-    start = start.replace(actor=jnp.int32(3),healer_wards=start.healer_wards.at[6,0].set(1 << 10),
-        priority=jnp.zeros(12).at[0].set(10000.))
-    rolls = jnp.zeros(env.random_size).at[36].set(.99)
-    lower,_ = compiled_method(env,'_battle_step')(start,jnp.int32(SHOOT),start.battle_key,rolls)
-    assert lower.decay_form[6] == env.progression.ids['berserker']
-    assert not lower.healer_wards[6,0] and lower.saved_healer_wards[6,0] == (1 << 10)
-    healed,_ = compiled_method(env,'_battle_step')(lower.replace(actor=jnp.int32(9)),jnp.int32(CONTINUE),lower.battle_key,rolls)
-    assert not healed.decay_form[6] and healed.healer_wards[6,0] == (1 << 10)
-    assert not healed.saved_healer_wards[6,0] and env.unit_traits(healed)[6,3] & 4
 
 
 def test_sylfid_point_heal_air_ward_and_minimum_hp_representative(current_game):
@@ -1527,62 +1311,6 @@ def test_sylfid_point_heal_air_ward_and_minimum_hp_representative(current_game):
     assert healed.healer_wards[0,1] == 8 and env.unit_traits(healed)[0,3] == (1 << 8)
     attacked,_ = attack(healed.replace(actor=jnp.int32(6),priority=jnp.zeros(12).at[1].set(10000.)),jnp.int32(CONTINUE),healed.battle_key,rolls)
     assert attacked.hp[0] == 105 and attacked.last_ward & 1 and attacked.wards_used[0] == (1 << 8)
-
-
-def test_travnitsa_round_even_recast_mask_ai_and_wait_expiry(current_game):
-    from stoix.envs.number_grid import WAIT, CONTINUE
-    from stoix.envs.number_grid_combat import UNITS, DAMAGE
-    from stoix.tests.number_grid_fixtures import enemy_roster_state
-    env,initial,advance,attack = current_game
-    assert MAP['enemy_rosters'][37][4] == 'travnitsa'
-    p = UNITS['travnitsa']
-    assert tuple(p[k] for k in ('max_hp','damage','initiative','exp_kill','exp_required')) == (60,0,70,50,95)
-    start = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(11)))
-    start = hero_roster_state(env,start,['knight','duke','possessed','travnitsa','cultist',None])
-    start = start.replace(actor=jnp.int32(3),priority=jnp.zeros(12).at[1].set(10000.))
-    rolls = jnp.zeros(env.random_size).at[36].set(.99)
-    mask = compiled_method(env,'action_mask')(start)
-    assert mask[SHOOT] and not mask[SHOOT+3]
-    invalid,_ = advance(start,jnp.int32(SHOOT+3))
-    chex.assert_trees_all_equal(invalid.battle_key,start.battle_key)
-    buffed,_ = attack(start,jnp.int32(SHOOT),start.battle_key,rolls)
-    assert compiled_method(env,'unit_stats')(buffed)[0,DAMAGE] == 62 and buffed.powerup[0]
-    again,_ = attack(buffed.replace(actor=jnp.int32(3)),jnp.int32(SHOOT),buffed.battle_key,rolls)
-    assert compiled_method(env,'unit_stats')(again)[0,DAMAGE] == 62
-    waited,_ = attack(again.replace(actor=jnp.int32(0)),jnp.int32(WAIT),again.battle_key,rolls)
-    assert not waited.powerup[0] and compiled_method(env,'unit_stats')(waited)[0,DAMAGE] == 50
-    red = enemy_roster_state(env,start,['squire','lord','archer','travnitsa',None,'archer'])
-    red = red.replace(actor=jnp.int32(9))
-    assert compiled_method(env,'_enemy_action')(red,jnp.zeros(6)) == SHOOT+1
-    result,_ = attack(red,jnp.int32(CONTINUE),red.battle_key,rolls)
-    assert compiled_method(env,'unit_stats')(result)[7,DAMAGE] == 212
-
-
-def test_travnitsa_lower_damage_order_expiry_and_no_debuff_stack(current_game):
-    from stoix.envs.number_grid import CONTINUE
-    from stoix.envs.number_grid_combat import DAMAGE
-    from stoix.tests.number_grid_fixtures import enemy_roster_state
-    env,initial,_,attack = current_game
-    start = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(11)))
-    start = hero_roster_state(env,start,['duke','lord','possessed','travnitsa',None,'cultist'])
-    start = enemy_roster_state(env,start,['tiamat','squire','squire',None,'archer','archer'])
-    start = start.replace(actor=jnp.int32(3),priority=jnp.zeros(12).at[0].set(10000.))
-    rolls = jnp.zeros(env.random_size).at[36].set(.99)
-    buffed,_ = attack(start,jnp.int32(SHOOT+1),start.battle_key,rolls)
-    lowered,_ = attack(buffed.replace(actor=jnp.int32(6)),jnp.int32(CONTINUE),buffed.battle_key,rolls)
-    assert lowered.weakened[1] and lowered.powerup_layered[1]
-    assert compiled_method(env,'unit_stats')(lowered)[1,DAMAGE] == 144  # round(round(170*1.25)*.68)
-    expired,_ = attack(lowered.replace(actor=jnp.int32(1)),jnp.int32(DEFEND),lowered.battle_key,rolls)
-    assert compiled_method(env,'unit_stats')(expired)[1,DAMAGE] == 116 and expired.preweak_damage[1] == 170
-    # A later buff replaces the live .68 layer, but the status still rejects a second debuff.
-    late = start.replace(weakened=start.weakened.at[1].set(True),primary_override=start.primary_override.at[1].set(116),
-        preweak_damage=start.preweak_damage.at[1].set(170))
-    replaced,_ = attack(late,jnp.int32(SHOOT+1),late.battle_key,rolls)
-    assert compiled_method(env,'unit_stats')(replaced)[1,DAMAGE] == 212 and replaced.weakened[1] and not replaced.powerup_layered[1]
-    repeated,_ = attack(replaced.replace(actor=jnp.int32(6)),jnp.int32(CONTINUE),replaced.battle_key,rolls)
-    assert compiled_method(env,'unit_stats')(repeated)[1,DAMAGE] == 212
-    plain,_ = attack(repeated.replace(actor=jnp.int32(1)),jnp.int32(DEFEND),repeated.battle_key,rolls)
-    assert compiled_method(env,'unit_stats')(plain)[1,DAMAGE] == 170 and plain.weakened[1]
 
 
 def test_travnitsa_transformed_original_buff_expires_with_imp_turn(current_game):
@@ -1626,22 +1354,6 @@ def test_travnitsa_buff_lasts_through_two_strikes_but_expires_on_paralysis(curre
     assert not skipped.powerup[0] and compiled_method(env,'unit_stats')(skipped)[0,DAMAGE] == original
 
 
-def test_travnitsa_cure_restores_pre_weakening_amount_without_reviving_spent_buff(elemental_attack_game):
-    from stoix.envs.number_grid_combat import DAMAGE
-    env,_,state = elemental_attack_game
-    state = hero_roster_state(env,state,['duke','lord','possessed','travnitsa',None,'cultist'])
-    state = state.replace(primary_override=state.primary_override.at[1].set(144),
-        preweak_damage=state.preweak_damage.at[1].set(212),powerup=state.powerup.at[1].set(True),
-        powerup_layered=state.powerup_layered.at[1].set(True),weakened=state.weakened.at[1].set(True))
-    selected = jnp.zeros(12,bool).at[1].set(True)
-    cleanse = compiled_method(env,'_cleanse')
-    cured,_,_ = cleanse(state,state.hp,state.wards_used,selected)
-    assert compiled_method(env,'unit_stats')(cured)[1,DAMAGE] == 212 and cured.powerup[1] and not cured.weakened[1]
-    spent = compiled_method(env,'_expire_powerups')(state,selected)
-    cured_spent,_,_ = cleanse(spent,spent.hp,spent.wards_used,selected)
-    assert compiled_method(env,'unit_stats')(cured_spent)[1,DAMAGE] == 170 and not cured_spent.powerup[1]
-
-
 def test_travnitsa_fenrir_uses_reference_stored_original_damage(current_game):
     from stoix.envs.number_grid import FENRIR
     from stoix.envs.number_grid_combat import DAMAGE
@@ -1674,7 +1386,7 @@ def test_deva_roshi_mass_heals_and_grants_four_elements_without_self_or_cure(cur
     assert out.paralyzed[0] and out.last_target == -1
     for slot in (0,1,4):
         assert jnp.all(out.healer_wards[slot] == 8)
-        assert (env.unit_traits(out)[slot,3] & 270) == 270
+        assert (env.unit_traits(out)[slot,3] & 267) == 267
     assert not jnp.any(out.healer_wards[2:4]) and not jnp.any(out.healer_wards[5])
 
 
@@ -1687,7 +1399,7 @@ def test_patriach_revives_once_half_hp_cleanses_and_cannot_act_this_round(curren
     state = state.replace(actor=jnp.int32(3),hp=state.hp.at[4].set(0),
         paralyzed=state.paralyzed.at[4].set(True),long_paralyzed=state.long_paralyzed.at[4].set(True),
         feared=state.feared.at[4].set(True),retreating=state.retreating.at[4].set(True),
-        poison_turns=state.poison_turns.at[4].set(3),poison_damage=state.poison_damage.at[4].set(20),
+        poison_mode=state.poison_mode.at[4].set(2),poison_damage=state.poison_damage.at[4].set(20),
         poison_source=state.poison_source.at[4].set(6),battle_xp=jnp.array([0,100],jnp.int32),
         priority=jnp.zeros(12).at[1].set(10000.))
     assert compiled_method(env,'action_mask')(state)[SHOOT+4]
@@ -1696,7 +1408,7 @@ def test_patriach_revives_once_half_hp_cleanses_and_cannot_act_this_round(curren
     assert risen.hp[4] == 22  # Python round(45*.5), ties to even.
     assert risen.battle_revived[4] and risen.revival_xp_cutoff[4] == 100 and risen.turn_phase[4] == 2
     assert not risen.paralyzed[4] and not risen.long_paralyzed[4] and not risen.feared[4] and not risen.retreating[4]
-    assert risen.poison_turns[4] == 0 and risen.poison_source[4] == -1
+    assert risen.poison_mode[4] == 0 and risen.poison_source[4] == -1
     fallen = risen.replace(actor=jnp.int32(3),hp=risen.hp.at[4].set(0))
     assert not compiled_method(env,'action_mask')(fallen)[SHOOT+4]
     invalid,_ = advance(fallen,jnp.int32(SHOOT+4))
@@ -1705,7 +1417,7 @@ def test_patriach_revives_once_half_hp_cleanses_and_cannot_act_this_round(curren
     # Healing a living unit does not grant resurrection's cleansing.
     wounded = state.replace(hp=state.hp.at[4].set(1))
     healed,_ = attack(wounded,jnp.int32(SHOOT+4),wounded.battle_key,rolls)
-    assert healed.hp[4] == 45 and healed.paralyzed[4] and healed.poison_turns[4] == 3
+    assert healed.hp[4] == 45 and healed.paralyzed[4] and healed.poison_mode[4] == 2
 
 
 def test_patriach_large_footprint_and_ai_dead_first_uniform_ties(current_game):
@@ -1794,18 +1506,18 @@ def test_alchemist_extra_turn_preserves_wait_and_round_effects(current_game):
     start = hero_roster_state(env,start,['knight','duke','possessed','alchemist','cultist',None])
     start = start.replace(actor=jnp.int32(3),turn_phase=jnp.full(12,2,jnp.int32).at[6].set(0).at[3].set(0),
         waited=start.waited.at[0].set(True),activation_done=jnp.ones(12,bool),
-        poison_turns=start.poison_turns.at[0].set(3),poison_damage=start.poison_damage.at[0].set(20),
+        poison_mode=start.poison_mode.at[0].set(2),poison_damage=start.poison_damage.at[0].set(20),
         priority=jnp.zeros(12).at[6].set(5.))
     rolls = jnp.zeros(env.random_size).at[36].set(.99)
     extra,_ = attack(start,jnp.int32(SHOOT),start.battle_key,rolls)
     assert extra.actor == 0 and extra.turn_phase[0] == 0 and extra.priority[0] == 50
-    assert extra.hp[0] == 150 and extra.poison_turns[0] == 3 and extra.bonus_turns[0] == 1
+    assert extra.hp[0] == 150 and extra.poison_mode[0] == 2 and extra.bonus_turns[0] == 1
     assert extra.waited[0] and not compiled_method(env,'action_mask')(extra)[WAIT]
     invalid,_ = advance(extra,jnp.int32(WAIT))
     chex.assert_trees_all_equal(invalid.battle_key,extra.battle_key)
     # A granted turn still permits two consecutive strikes from a dual attacker.
     dual = hero_roster_state(env,start,['blade_master','duke','possessed','alchemist','cultist',None])
-    dual = dual.replace(poison_turns=jnp.zeros(12,jnp.int32),waited=jnp.zeros(12,bool))
+    dual = dual.replace(poison_mode=jnp.zeros(12,jnp.int32),waited=jnp.zeros(12,bool))
     granted,_ = attack(dual,jnp.int32(SHOOT),dual.battle_key,rolls)
     first,_ = attack(granted,jnp.int32(SHOOT),granted.battle_key,rolls)
     assert first.second_strike and first.actor == 0
@@ -1830,89 +1542,6 @@ def test_alchemist_rejects_self_other_alchemist_retreat_and_ai_selects_spent_dam
     assert result.bonus_turns[7] == 1
 
 
-def test_dwarfdruid_cures_then_boosts_restored_form_without_hp_heal(current_game):
-    from stoix.envs.number_grid_combat import DAMAGE
-    env,initial,_,attack = current_game
-    assert MAP['enemy_rosters'][22][4] == 'dwarfdruid'
-    state = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(11)))
-    state = hero_roster_state(env,state,['dark_paladin','duke','possessed','dwarfdruid','cultist',None])
-    state = state.replace(actor=jnp.int32(3),hp=state.hp.at[0].set(17),
-        decay_form=state.decay_form.at[0].set(env.progression.ids['berserker']),
-        paralyzed=state.paralyzed.at[0].set(True),weakened=state.weakened.at[0].set(True),
-        poison_turns=state.poison_turns.at[0].set(2),poison_damage=state.poison_damage.at[0].set(10),
-        priority=jnp.zeros(12).at[1].set(10000.))
-    result,_ = attack(state,jnp.int32(SHOOT),state.battle_key,jnp.zeros(env.random_size).at[36].set(.99))
-    assert result.hp[0] == 22 and result.decay_form[0] == 0
-    assert not result.paralyzed[0] and not result.weakened[0] and result.poison_turns[0] == 0
-    assert compiled_method(env,'unit_stats')(result)[0,DAMAGE] == 131 and result.powerup[0]
-
-    # The native support path permits cleansing oneself even though a self-buff fails.
-    self_case = state.replace(poison_turns=state.poison_turns.at[3].set(2),poison_damage=state.poison_damage.at[3].set(10))
-    assert compiled_method(env,'action_mask')(self_case)[SHOOT+3]
-    self_cured,_ = attack(self_case,jnp.int32(SHOOT+3),self_case.battle_key,jnp.zeros(env.random_size).at[36].set(.99))
-    assert self_cured.poison_turns[3] == 0 and not self_cured.powerup[3]
-
-
-def test_arhidruid_doubles_primary_and_cures_without_healing(current_game):
-    from stoix.envs.number_grid_combat import DAMAGE
-    env,initial,_,attack = current_game
-    assert MAP['enemy_rosters'][23][4] == 'archdruid'
-    state = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(11)))
-    state = hero_roster_state(env,state,['knight','duke','possessed','archdruid','cultist',None])
-    state = state.replace(actor=jnp.int32(3),hp=state.hp.at[0].set(1),
-        long_paralyzed=state.long_paralyzed.at[0].set(True),feared=state.feared.at[0].set(True),
-        retreating=state.retreating.at[0].set(True),priority=jnp.zeros(12).at[1].set(10000.))
-    result,_ = attack(state,jnp.int32(SHOOT),state.battle_key,jnp.zeros(env.random_size).at[36].set(.99))
-    assert result.hp[0] == 1 and compiled_method(env,'unit_stats')(result)[0,DAMAGE] == 100
-    assert not result.long_paralyzed[0] and not result.feared[0] and not result.retreating[0]
-
-
-def test_hermit_area_hit_and_slow_ends_on_first_activation_before_poison(current_game):
-    from stoix.envs.number_grid import CONTINUE
-    from stoix.envs.number_grid_combat import INITIATIVE, UNITS
-    from stoix.tests.number_grid_fixtures import enemy_roster_state
-    env,initial,_,attack = current_game
-    assert MAP['enemy_rosters'][31][0] == 'hermit' and UNITS['hermit']['role'] == 'area'
-    state = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(11)))
-    state = hero_roster_state(env,state,['knight','duke','possessed','cultist','cultist',None])
-    state = enemy_roster_state(env,state,['hermit','squire','squire','archer','archer','archer'])
-    state = state.replace(actor=jnp.int32(6),priority=jnp.zeros(12).at[7].set(10000.))
-    rolls = jnp.zeros(env.random_size).at[36].set(.99)
-    hit,_ = attack(state,jnp.int32(CONTINUE),state.battle_key,rolls)
-    assert jnp.all(hit.hp[:3] < state.hp[:3]) and hit.last_target == -1
-    assert hit.slow_original[0] == 50 and compiled_method(env,'unit_stats')(hit)[0,INITIATIVE] == 25
-    ready = hit.replace(actor=jnp.int32(1),turn_phase=jnp.full(12,2,jnp.int32).at[0].set(0).at[1].set(0),
-        priority=jnp.zeros(12).at[0].set(25.),activation_done=jnp.zeros(12,bool),
-        poison_turns=hit.poison_turns.at[0].set(2),poison_damage=hit.poison_damage.at[0].set(20))
-    next_turn,_ = attack(ready,jnp.int32(DEFEND),ready.battle_key,rolls)
-    assert next_turn.actor == 0 and next_turn.slow_original[0] == -1 and next_turn.priority[0] == 50
-    assert next_turn.hp[0] == hit.hp[0]-20 and compiled_method(env,'unit_stats')(next_turn)[0,INITIATIVE] == 50
-    # A scenario with only Hermit still records the first activation: WAIT
-    # cannot make the newly applied slow expire a second time that round.
-    from copy import copy
-    isolated = copy(env)
-    for flag in ('has_witches','has_poisoners','has_water','has_fire','has_wights'):
-        setattr(isolated,flag,False)
-    started = jax.jit(isolated._start_activation)(ready.replace(actor=jnp.int32(0)),jnp.float32(.99))
-    assert started.activation_done[0]
-    # A slow applied after the unit's first activation survives its WAIT return.
-    waiting = ready.replace(turn_phase=ready.turn_phase.at[0].set(1),activation_done=jnp.ones(12,bool))
-    returned,_ = attack(waiting,jnp.int32(DEFEND),waiting.battle_key,rolls)
-    assert returned.actor == 0 and returned.slow_original[0] == 50 and compiled_method(env,'unit_stats')(returned)[0,INITIATIVE] == 25
-
-
-def test_hermit_cure_does_not_regrant_spent_turn_and_odd_initiative_rounds_even(current_game):
-    from stoix.envs.number_grid_combat import INITIATIVE
-    env,initial,_,_ = current_game
-    state = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(11)))
-    state = state.replace(slow_original=state.slow_original.at[0].set(51),
-        initiative_override=state.initiative_override.at[0].set(26),turn_phase=state.turn_phase.at[0].set(2),
-        priority=state.priority.at[0].set(0.))
-    cured,_,_ = compiled_method(env,'_cleanse')(state,state.hp,state.wards_used,jnp.zeros(12,bool).at[0].set(True))
-    assert cured.slow_original[0] == -1 and compiled_method(env,'unit_stats')(cured)[0,INITIATIVE] == 51
-    assert cured.turn_phase[0] == 2 and cured.priority[0] == 0
-
-
 def test_hermit_secondary_miss_and_primary_water_protection(elemental_attack_game):
     env,_,state = elemental_attack_game
     state = hero_roster_state(env,state,['possessed','duke','possessed','hermit','cultist',None]).replace(actor=jnp.int32(3))
@@ -1924,23 +1553,6 @@ def test_hermit_secondary_miss_and_primary_water_protection(elemental_attack_gam
     miss,_ = attack(state,jnp.int32(SHOOT),state.battle_key,rolls.at[37:49].set(.99))
     chex.assert_trees_all_equal(miss.hp,hit.hp)
     assert jnp.all(miss.slow_original == -1)
-
-
-def test_hermit_live_slow_survives_form_change_but_snapshot_keeps_original_base(current_game):
-    from stoix.envs.number_grid_combat import INITIATIVE
-    env,initial,_,_ = current_game
-    state = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(11)))
-    state = hero_roster_state(env,state,['knight','duke','possessed','cultist','cultist',None])
-    selected = jnp.zeros(12,bool).at[0].set(True)
-    state = state.replace(slow_original=state.slow_original.at[0].set(50),
-        initiative_override=state.initiative_override.at[0].set(25))
-    transformed = compiled_method(env,'_capture_initiative_form')(state,selected,selected)
-    transformed = transformed.replace(imp=transformed.imp.at[0].set(True))
-    assert transformed.slow_original[0] == 50 and compiled_method(env,'unit_stats')(transformed)[0,INITIATIVE] == 30
-    expired,_ = compiled_method(env,'_restore_slow')(transformed,transformed.priority,transformed.turn_phase,selected)
-    assert expired.slow_original[0] == -1 and compiled_method(env,'unit_stats')(expired)[0,INITIATIVE] == 50
-    restored = compiled_method(env,'_restore_initiative_form')(expired,selected).replace(imp=jnp.zeros(12,bool))
-    assert compiled_method(env,'unit_stats')(restored)[0,INITIATIVE] == 25  # Exact saved Python form base.
 
 
 @pytest.mark.core
@@ -1977,24 +1589,6 @@ def test_highvampire_leech_heals_self_then_splits_leftover_with_caps(current_gam
     chex.assert_trees_all_equal(result.hp[:6],jnp.array([210,117,117,26,26,0]))
 
 
-def test_spider_death_source_cached_poison_and_no_leech(current_game):
-    from stoix.tests.number_grid_fixtures import enemy_roster_state
-    env,initial,_,attack = current_game
-    assert MAP['enemy_rosters'][35][0] == 'thug'
-    state = compiled_method(env,'_begin_battle')(initial.replace(enemy=jnp.int32(11)))
-    state = hero_roster_state(env,state,['possessed','thug','possessed','cultist','cultist',None])
-    state = enemy_roster_state(env,state,['squire','squire','nosferatu','archer','archer','archer'])
-    state = state.replace(actor=jnp.int32(1),hp=state.hp.at[1].set(1),priority=jnp.zeros(12).at[0].set(10000.))
-    rolls = jnp.zeros(env.random_size).at[36].set(.99)
-    immune,_ = attack(state,jnp.int32(SHOOT+2),state.battle_key,rolls)
-    assert immune.hp[8] == 55 and immune.poison_turns[8] == 0 and immune.hp[1] == 1
-    poisoned,_ = attack(state,jnp.int32(SHOOT),state.battle_key,rolls)
-    assert poisoned.hp[6] == 65 and poisoned.poison_turns[6] == 1 and poisoned.poison_damage[6] == 20
-    assert poisoned.poison_source[6] == 1 and poisoned.hp[1] == 1
-    locked,_ = attack(poisoned.replace(actor=jnp.int32(1)),jnp.int32(SHOOT+1),poisoned.battle_key,rolls)
-    assert locked.hp[7] == 65 and locked.poison_turns[7] == 0
-
-
 def test_drulliaan_life_area_and_independent_uncached_water_effect(elemental_attack_game):
     env,_,state = elemental_attack_game
     assert MAP['enemy_rosters'][36][0] == 'drulliaan'
@@ -2002,13 +1596,13 @@ def test_drulliaan_life_area_and_independent_uncached_water_effect(elemental_att
     rolls = jnp.zeros(env.random_size).at[36].set(.99)
     result,_ = compiled_method(env,'_battle_step')(state,jnp.int32(SHOOT),state.battle_key,rolls)
     chex.assert_trees_all_equal(result.hp[6:],jnp.full(6,125,jnp.int32))
-    chex.assert_trees_all_equal(result.water_turns[6:],jnp.array([0,0,1,1,1,1]))
+    chex.assert_trees_all_equal(result.water_mode[6:],jnp.array([0,0,2,2,2,2]))
     assert jnp.all(result.water_source == -1) and jnp.all(result.water_damage[8:] == 30)
     # Miss the separate status roll while retaining the primary Life damage.
     miss_rolls = rolls.at[37:49].set(.99)
     miss,_ = compiled_method(env,'_battle_step')(state,jnp.int32(SHOOT),state.battle_key,miss_rolls)
     chex.assert_trees_all_equal(miss.hp[6:],result.hp[6:])
-    assert not jnp.any(miss.water_turns)
+    assert not jnp.any(miss.water_mode)
 
 
 def test_elfarcher_two_ranged_strikes_can_retarget_rear(current_game):

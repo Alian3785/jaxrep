@@ -15,7 +15,7 @@ BATTLE_ITEM, ITEM_EQUIPPED = 52, 53
  TRANSFORM, LYCANTHROPY, WEAKEN) = range(13)
 KIND_NAMES = ('heal', 'revive', 'summon', 'damage', 'drain', 'dot', 'damage_buff', 'extra_turn',
               'paralysis', 'fear', 'transform', 'lycanthropy', 'debuff_damage')
-POISON, BURN, WATER = range(3)  # reference DOT tick order
+POISON, BURN, WATER = range(3)  # catalogue identifiers; tick order is poison, water, burn
 # One-based JAX attack sources (number_grid_combat.ATTACK_TYPES).
 EARTH, FIRE, WATER_SOURCE, DEATH, MIND, AIR = 2, 3, 4, 6, 7, 9
 SOURCE_LABELS = {EARTH: 'Земля', FIRE: 'Огонь', WATER_SOURCE: 'Вода', DEATH: 'Смерть', MIND: 'Разум', AIR: 'Воздух'}
@@ -63,7 +63,7 @@ def _dot(dot, amount, party):
     name = ('Яд', 'Ожог', 'Обморожение')[dot]
     who = 'вражескому отряду' if party else 'врагу'
     source = (5, FIRE, WATER_SOURCE)[dot]
-    return _effect(DOT, f'{name} {who}: {amount} HP за ход, 1–6 ходов', True, party,
+    return _effect(DOT, f'{name} {who}: {amount} HP за срабатывание; растущий шанс снятия', True, party,
                    amount=amount, dot=dot, source=source)
 
 
@@ -73,9 +73,9 @@ EFFECTS = (
     ('restoration', 'Restoration', 17, 400, _effect(HEAL, 'Лечение отряда: +30 HP', party=True, amount=30)),
     ('regeneration', 'Regeneration', 18, 600, _effect(HEAL, 'Лечение отряда: +75 HP', party=True, amount=75)),
     ('life', 'Life', 19, 800, _effect(REVIVE, 'Воскрешение союзника с 50% HP', amount=1, percent=50)),
-    ('vigor', 'Vigor', 20, 400, _effect(BUFF, 'Отряду: +25% урона до следующего хода бойца',
+    ('vigor', 'Vigor', 20, 400, _effect(BUFF, 'Отряду: +25% урона до конца боя',
                                         party=True, multiplier=1.25)),
-    ('strength', 'Strength', 21, 600, _effect(BUFF, 'Отряду: +50% урона до следующего хода бойца',
+    ('strength', 'Strength', 21, 600, _effect(BUFF, 'Отряду: +50% урона до конца боя',
                                               party=True, multiplier=1.5)),
     ('fire', 'Fire', 22, 400, _damage(25, FIRE)),
     ('inferno', 'Inferno', 23, 600, _damage(75, FIRE)),
@@ -94,7 +94,7 @@ EFFECTS = (
     ('thanatos', 'Thanatos', 36, 800, _dot(POISON, 30, True)),
     ('frost', 'Frost', 37, 400, _dot(WATER, 10, True)),
     ('freezing', 'Freezing', 38, 600, _dot(WATER, 30, True)),
-    ('fear', 'Fear', 39, 600, _effect(PARALYSIS, 'Паралич врага на один ход, Разум', True, source=MIND)),
+    ('fear', 'Fear', 39, 600, _effect(PARALYSIS, 'Длительный паралич врага, Разум; растущий шанс снятия', True, source=MIND)),
     ('witches', 'Witches', 40, 800, _effect(TRANSFORM, 'Превращение врага в беса, Разум', True, source=MIND)),
 )
 ORB_ONLY = (
@@ -344,7 +344,8 @@ class BattleItemRules:
         if BUFF in self.kinds:
             original = env._original_primary(state)
             current = env._combat_stats(state, cap=False)[:, DAMAGE]
-            buffable = alive & (original > 0) & (jnp.rint(original*self.multiplier[kind]) != current)
+            boosted = jnp.rint(original*(self.multiplier[kind]-jnp.where(state.weakened,.33,0.)))
+            buffable = alive & (original > 0) & (boosted != current)
             party = alive & jnp.any(buffable & side)
             valid = jnp.where(code == BUFF, jnp.where(self.party[kind], party, buffable), valid)
         return valid & side
@@ -466,26 +467,27 @@ class BattleItemRules:
             affected, used, blocked, ward = protect(DOT, alive, used)
             immune |= blocked
             warded |= ward
-            duration = jnp.minimum((random_values[49:55]*6).astype(jnp.int32), 5)+1
+            duration = 2
             updates = {}
             for dot in sorted(self.dot_kinds):
                 name = DOT_FIELDS[dot]
-                turns, damage = getattr(state, name+'_turns'), getattr(state, name+'_damage')
-                stronger = (turns[target_slots] > 0) & (damage[target_slots] >= amount)
-                applying = affected & (self.dot[kind] == dot) & ~stronger
-                updates[name+'_turns'] = turns.at[target_slots].set(jnp.where(applying, duration, turns[target_slots]))
+                turns, damage = getattr(state, name+'_mode'), getattr(state, name+'_damage')
+                applying = affected & (self.dot[kind] == dot)
+                state = env._record_effect(state,target_slots,applying,{'poison':0,'water':1,'burn':2}[name])
+                updates[name+'_mode'] = turns.at[target_slots].set(jnp.where(applying, duration, turns[target_slots]))
                 updates[name+'_damage'] = damage.at[target_slots].set(jnp.where(applying, amount, damage[target_slots]))
                 source = getattr(state, name+'_source')
-                updates[name+'_source'] = source.at[target_slots].set(jnp.where(applying, -1, source[target_slots]))
+                updates[name+'_source'] = source.at[target_slots].set(jnp.where(applying, state.actor, source[target_slots]))
                 applied += jnp.sum(applying)*amount
             state = state.replace(**updates)
         if BUFF in self.kinds:
             original = env._original_primary(state)
             current = env._combat_stats(state, cap=False)[:, DAMAGE]
-            boosted = jnp.rint(original*self.multiplier[kind]).astype(jnp.int32)
+            boosted = jnp.rint(original*(self.multiplier[kind]-jnp.where(state.weakened,.33,0.))).astype(jnp.int32)
             buffed = chosen & alive & (code == BUFF) & (original > 0) & (boosted != current)
             state = state.replace(primary_override=jnp.where(buffed, boosted, state.primary_override),
-                powerup=state.powerup | buffed, powerup_layered=state.powerup_layered & ~buffed)
+                # Original g000aa9120/9121 have INFINITE=T, for both orb and talisman.
+                powerup=state.powerup | buffed, powerup_long=state.powerup_long | buffed, powerup_layered=state.powerup_layered & ~buffed)
             applied += jnp.sum(jnp.where(buffed, boosted-original, 0))
         if EXTRA_TURN in self.kinds:
             extra = chosen & alive & (code == EXTRA_TURN)
@@ -494,16 +496,19 @@ class BattleItemRules:
                 bonus_turns=state.bonus_turns+extra.astype(jnp.int32))
             status |= extra[:6]  # an ally-only effect
         if PARALYSIS in self.kinds:
-            affected, used, blocked, ward = protect(PARALYSIS, alive & ~state.paralyzed, used)
+            affected, used, blocked, ward = protect(PARALYSIS, alive & ~state.long_paralyzed, used)
             immune |= blocked
             warded |= ward
             status |= affected
-            state = state.replace(paralyzed=state.paralyzed.at[target_slots].set(state.paralyzed[target_slots] | affected))
+            state = env._record_disable(state,target_slots,affected)
+            # g000aa9139 is long paralysis, unlike the two finite equipment procs.
+            state = state.replace(long_paralyzed=state.long_paralyzed.at[target_slots].set(state.long_paralyzed[target_slots] | affected))
         if FEAR in self.kinds:
             affected, used, blocked, ward = protect(FEAR, alive & ~state.retreating, used)
             immune |= blocked
             warded |= ward
             protected = env._fear_protected(state, target_slots)
+            state = env._record_disable(state,target_slots,affected & protected)
             status |= affected & ~(protected & state.paralyzed[target_slots])
             state = state.replace(
                 paralyzed=state.paralyzed.at[target_slots].set(state.paralyzed[target_slots] | (affected & protected)),
@@ -526,7 +531,8 @@ class BattleItemRules:
             state, hp, used, selected = transform_form(env, state, hp, used, target_slots, selected,
                                                        jnp.full(6, self.summon[kind]))
             status |= selected
-            state = state.replace(lycanthrope=state.lycanthrope.at[target_slots].set(state.lycanthrope[target_slots] | selected))
+            state = env._record_effect(state,target_slots,selected,4)
+            state = state.replace(transform_long=state.transform_long.at[target_slots].set(state.transform_long[target_slots] | selected),lycanthrope=state.lycanthrope.at[target_slots].set(state.lycanthrope[target_slots] | selected))
         if WEAKEN in self.kinds:
             affected, used, blocked, ward = protect(WEAKEN, alive, used)
             immune |= blocked
@@ -537,7 +543,7 @@ class BattleItemRules:
                 raw = env._combat_stats(state, cap=False)[target_slots, DAMAGE].astype(jnp.int32)
                 state = state.replace(
                     primary_override=state.primary_override.at[target_slots].set(jnp.where(
-                        newly, jnp.rint(raw*self.multiplier[kind]).astype(jnp.int32), state.primary_override[target_slots])),
+                        newly, jnp.rint(raw-env._original_primary(state)[target_slots]*(1-self.multiplier[kind])).astype(jnp.int32), state.primary_override[target_slots])),
                     preweak_damage=state.preweak_damage.at[target_slots].set(jnp.where(newly, raw, state.preweak_damage[target_slots])),
                     powerup_layered=state.powerup_layered.at[target_slots].set(jnp.where(
                         newly, state.powerup[target_slots], state.powerup_layered[target_slots])))

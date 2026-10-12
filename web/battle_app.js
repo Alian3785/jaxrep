@@ -3,6 +3,13 @@
   const data=JSON.parse(document.getElementById('run-data').textContent);
   const $=id=>document.getElementById(id), fmt=n=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:3}).format(n);
   const canvas=$('board'), ctx=canvas.getContext('2d');
+  const manaMarkers={
+    infernal:{letter:'П',color:'#c65320'},life:{letter:'Ж',color:'#25833c'},
+    death:{letter:'С',color:'#7940b0'},runes:{letter:'Р',color:'#246bb1'},elves:{letter:'Э',color:'#117c77'}
+  };
+  const manaLegend=document.createElement('div');
+  manaLegend.className='legend mana-legend';manaLegend.setAttribute('aria-label','Источники маны');
+  $('chest-status').before(manaLegend);
   let mode='manual', session=null, manual=null, manualMap=null, busy=false, frame=0, recordIndex=0, timer=null, messages=[];
   let manualConstruction=null, manualTurnRules=null, manualCombat=null, manualCapital=null, manualPotions=null, capitalOpen=false, potionsOpen=false, selectedPotion=0, capitalKey=null;
   let manualEquipment=null, manualBattleItems=null, manualSites=null, manualRecruitment=null, manualTerritory=null, manualRuins=null, manualSpells=null, manualCasting=null, manualSwaps=null, spellsOpen=false;
@@ -17,7 +24,7 @@
     if(base&&(current()?.state.summon_owner?.[i]??-1)>=0)base={...base,name:base.name+' · призван'};
     if(base&&current()?.state.imp?.[i])base={...base,name:base.name+' · '+(base.size===2?'Толстый бес':'Бес'),role:'melee',attack_type:'weapon',immunities:0,protections:0,unit_type:'Warrior'};
     const owners=current()?.state.healer_wards?.[i]||[];
-    const temporary=[4,256,8,2].reduce((bits,bit,j)=>bits|(owners[j]?bit:0),0);
+    const temporary=[1,256,8,2].reduce((bits,bit,j)=>bits|(owners[j]?bit:0),0);
     const s=current()?.state,potionWard=s&&!s.imp?.[i]&&!s.decay_form?.[i]&&(s.summon_owner?.[i]??-1)<0?(s.copied?.[i]?(s.copy_traits?.[i]?.[3]||0):(s.potion_wards?.[i]||0)):0;
     const bookWard=base?.hero&&i<6&&!s?.imp?.[i]&&!s?.decay_form?.[i]&&!s?.copied?.[i]?(equipmentInfo()?.items?.[s?.equipped?.[3]]?.ward||0):0;
     if(base)base={...base,protections:(base.protections||0)|temporary|potionWard|bookWard};
@@ -166,6 +173,13 @@
   function renderTerritory(snap){
     const info=territoryInfo(),q=snap.territory_quotes,s=snap.state;
     $('city-services').hidden=!info;$('mana-resources').hidden=!info;
+    const manaKinds=(info?.resource_kinds||[]).filter(kind=>manaMarkers[kind]&&info.mines.some(mine=>mine.kind===kind));
+    manaLegend.hidden=!manaKinds.length;
+    manaLegend.replaceChildren(...manaKinds.map(kind=>{
+      const marker=manaMarkers[kind],entry=document.createElement('span'),icon=document.createElement('i');
+      icon.textContent=marker.letter;icon.style.backgroundColor=marker.color;
+      entry.append(icon,document.createTextNode(info.resource_names[info.resource_kinds.indexOf(kind)]));return entry;
+    }));
     $('income-summary').textContent='Текущий доход: +'+fmt(q?.income[0]??turnRules().income)+' золота / ход';
     if(!info||!q)return;
     $('mana-resources').replaceChildren(...info.resource_names.slice(1).map((name,i)=>{
@@ -452,6 +466,17 @@
     $('map-targets').hidden=!attacks.length;
   }
   const terrainNames=['Равнина','Дорога','Лес','Вода'];
+  // Python reference GridVisualizer._display_tile/_display_rect, adapted from
+  // (x, y) to the JAX [row, column] grid including its outer wall.
+  const displayTile=([row,col],size)=>({x:size-1-row,y:col});
+  const displayRect=([row,col],rows,cols,size)=>({x:size-row-rows,y:col,width:rows,height:cols});
+  const worldTile=(x,y,size)=>[size-1-x,y];
+  const directionAction=screenDirection=>(screenDirection+6)%8;
+  const directionLabels=['↑ север','↗ северо-восток','→ восток','↘ юго-восток','↓ юг','↙ юго-запад','← запад','↖ северо-запад'];
+  function mapTileAtPointer(event){
+    const rect=canvas.getBoundingClientRect(),size=currentMap().size;
+    return worldTile(Math.floor((event.clientX-rect.left)/rect.width*size),Math.floor((event.clientY-rect.top)/rect.height*size),size);
+  }
   const terrainCache=new WeakMap();
   function terrainGrid(map){
     if(!terrainCache.has(map)){
@@ -469,12 +494,13 @@
     for(let r=0;r<map.size;r++)for(let c=0;c<map.size;c++){
       const wall=r===0||c===0||r===map.size-1||c===map.size-1,index=r*map.size+c;
       const seen=s.visited&&(s.visited[index>>>5]&(1<<(index&31)));
-      roundRect(c*cell+1,r*cell+1,cell-2,cell-2,Math.max(2,cell*.12),wall?'#d3decc':current()?.territory_quotes?.territory[r][c]?'#e6cfb5':seen?'#dfecd9':(r+c)%2?'#f3f6ef':'#ecf2e6');
+      const {x,y}=displayTile([r,c],map.size);
+      roundRect(x*cell+1,y*cell+1,cell-2,cell-2,Math.max(2,cell*.12),wall?'#d3decc':current()?.territory_quotes?.territory[r][c]?'#e6cfb5':seen?'#dfecd9':(r+c)%2?'#f3f6ef':'#ecf2e6');
     }
     const terrain=terrainGrid(map);
     for(let r=1;r<map.size-1;r++)for(let c=1;c<map.size-1;c++){
       const kind=terrain[r*map.size+c];if(!kind)continue;
-      const x=c*cell,y=r*cell;
+      const tile=displayTile([r,c],map.size),x=tile.x*cell,y=tile.y*cell;
       roundRect(x+1,y+1,cell-2,cell-2,cell*.12,['','#dbc7a6','#b4cca2','#a9d4e2'][kind]);
       ctx.strokeStyle=kind===3?'#6ea6bb':kind===2?'#6c9061':'#af9672';ctx.lineWidth=Math.max(1,cell*.045);
       if(kind===3){for(const dy of [.37,.66]){ctx.beginPath();ctx.moveTo(x+cell*.2,y+cell*dy);ctx.quadraticCurveTo(x+cell*.4,y+cell*(dy-.12),x+cell*.55,y+cell*dy);ctx.quadraticCurveTo(x+cell*.7,y+cell*(dy+.12),x+cell*.83,y+cell*dy);ctx.stroke();}}
@@ -482,13 +508,15 @@
       if(kind===1){ctx.setLineDash([cell*.12,cell*.12]);ctx.beginPath();ctx.moveTo(x+cell*.18,y+cell*.5);ctx.lineTo(x+cell*.82,y+cell*.5);ctx.stroke();ctx.setLineDash([]);}
       if(current()?.territory_quotes?.territory[r][c]){ctx.strokeStyle='#b58d64';ctx.strokeRect(x+1,y+1,cell-2,cell-2);}
     }
-    for(const [r,c] of territoryInfo()?.obstacles||[]){
+    for(const position of territoryInfo()?.obstacles||[]){
+      const {x:c,y:r}=displayTile(position,map.size);
       roundRect(c*cell+1,r*cell+1,cell-2,cell-2,cell*.14,'#899088');
       ctx.fillStyle='#626c63';ctx.beginPath();ctx.moveTo((c+.16)*cell,(r+.8)*cell);ctx.lineTo((c+.48)*cell,(r+.2)*cell);ctx.lineTo((c+.84)*cell,(r+.8)*cell);ctx.fill();
     }
     for(const capital of territoryInfo()?.enemy_capitals||[]){
       const cells=capital.footprint||[];if(!cells.length)continue;
-      const rows=cells.map(p=>p[0]),cols=cells.map(p=>p[1]),r=Math.min(...rows),c=Math.min(...cols),h=Math.max(...rows)-r+1,w=Math.max(...cols)-c+1;
+      const rows=cells.map(p=>p[0]),cols=cells.map(p=>p[1]),top=Math.min(...rows),left=Math.min(...cols);
+      const {x:c,y:r,width:w,height:h}=displayRect([top,left],Math.max(...rows)-top+1,Math.max(...cols)-left+1,map.size);
       roundRect(c*cell+1,r*cell+1,w*cell-2,h*cell-2,cell*.2,'#ead0cd');
       ctx.strokeStyle='#a5524f';ctx.lineWidth=1.5;ctx.strokeRect(c*cell+2,r*cell+2,w*cell-4,h*cell-4);
       ctx.fillStyle='#7d2f2c';ctx.textAlign='center';ctx.textBaseline='middle';
@@ -496,57 +524,83 @@
       ctx.font=Math.round(cell*.5)+'px system-ui';ctx.fillText('врага',(c+w/2)*cell,(r+h/2-.2)*cell);
     }
     for(const [i,mine] of (territoryInfo()?.mines||[]).entries()){
-      const kind=territoryInfo().resource_kinds.indexOf(mine.kind),[r,c]=mine.position;
-      const color=['#d1a737','#cb7159','#61a373','#8d73b5','#6393c0','#69aea4'][kind];
-      ctx.fillStyle=color;ctx.beginPath();ctx.moveTo((c+.5)*cell,(r+.07)*cell);ctx.lineTo((c+.91)*cell,(r+.5)*cell);ctx.lineTo((c+.5)*cell,(r+.93)*cell);ctx.lineTo((c+.09)*cell,(r+.5)*cell);ctx.closePath();ctx.fill();
-      ctx.fillStyle='#fff';ctx.textAlign='center';ctx.textBaseline='middle';ctx.font='700 '+Math.round(cell*.48)+'px system-ui';ctx.fillText(['З','П','Ж','С','Р','Э'][kind],(c+.5)*cell,(r+.52)*cell);
+      const {x:c,y:r}=displayTile(mine.position,map.size),marker=manaMarkers[mine.kind];
+      if(marker){
+        roundRect(c*cell+1,r*cell+1,cell-2,cell-2,cell*.12,marker.color);
+        ctx.strokeStyle='#fff';ctx.lineWidth=1;ctx.strokeRect(c*cell+1.5,r*cell+1.5,cell-3,cell-3);
+      }else{
+        ctx.fillStyle='#d1a737';ctx.beginPath();ctx.moveTo((c+.5)*cell,(r+.07)*cell);ctx.lineTo((c+.91)*cell,(r+.5)*cell);ctx.lineTo((c+.5)*cell,(r+.93)*cell);ctx.lineTo((c+.09)*cell,(r+.5)*cell);ctx.closePath();ctx.fill();
+      }
+      ctx.fillStyle='#fff';ctx.textAlign='center';ctx.textBaseline='middle';ctx.font='800 '+Math.round(cell*(marker ? .72 : .48))+'px system-ui';ctx.fillText(marker?.letter||'З',(c+.5)*cell,(r+.52)*cell);
       if(current()?.territory_quotes?.mine_owned[i]){ctx.strokeStyle='#795a37';ctx.lineWidth=1.5;ctx.strokeRect(c*cell+1,r*cell+1,cell-2,cell-2);}
     }
     for(const site of siteInfo()?.sites||[]){
       const style={merchant:['#b58242','#e3cba5','#775129','Торг'],trainer:['#688da4','#c3d7df','#3f637b','Тренер'],mercenary:['#8e7b59','#e5dcc7','#665238','Наём'],spell_shop:['#7b68a8','#ddd5ef','#4c3d78','Магия']}[site.kind];
       const [color,fill,ink,label]=style;
       ctx.fillStyle=color+'29';
-      for(const [r,c] of site.interaction_tiles)ctx.fillRect(c*cell+1,r*cell+1,cell-2,cell-2);
-      const [r,c]=site.position,x=c*cell,y=r*cell;
+      for(const position of site.interaction_tiles){const {x,y}=displayTile(position,map.size);ctx.fillRect(x*cell+1,y*cell+1,cell-2,cell-2);}
+      const bounds=displayRect(site.position,3,3,map.size),x=bounds.x*cell,y=bounds.y*cell;
       roundRect(x+1,y+1,cell*3-2,cell*3-2,cell*.2,fill);
       ctx.strokeStyle=color;ctx.lineWidth=1;ctx.strokeRect(x+2,y+2,cell*3-4,cell*3-4);
       ctx.fillStyle=ink;ctx.textAlign='center';ctx.textBaseline='middle';
       ctx.font='650 '+Math.round(cell*.7)+'px system-ui';ctx.fillText(label,x+cell*1.5,y+cell*1.35);
       ctx.font=Math.round(cell*.52)+'px system-ui';ctx.fillText('3 × 3',x+cell*1.5,y+cell*2);
-      ctx.fillStyle=color;ctx.fillRect(x+cell*2.25,y+cell*2.25,cell*.55,cell*.55);
+      ctx.fillStyle=color;ctx.fillRect(x+cell*.2,y+cell*2.25,cell*.55,cell*.55);
     }
     for(const [i,ruin] of (ruinInfo()?.ruins||[]).entries()){
-      const cleared=s.ruin_looted?.[i],[r,c]=ruin.position,x=c*cell,y=r*cell;
-      if(!cleared){ctx.fillStyle='#97795324';for(const [rr,cc] of ruin.interaction_tiles)ctx.fillRect(cc*cell+1,rr*cell+1,cell-2,cell-2);}
+      const cleared=s.ruin_looted?.[i],bounds=displayRect(ruin.position,3,3,map.size),x=bounds.x*cell,y=bounds.y*cell;
+      if(!cleared){ctx.fillStyle='#97795324';for(const position of ruin.interaction_tiles){const tile=displayTile(position,map.size);ctx.fillRect(tile.x*cell+1,tile.y*cell+1,cell-2,cell-2);}}
       roundRect(x+1,y+1,cell*3-2,cell*3-2,cell*.16,cleared?'#c6c9c3':'#d6c9b4');
       ctx.strokeStyle=cleared?'#8a9086':'#9a7b56';ctx.lineWidth=1;ctx.strokeRect(x+2,y+2,cell*3-4,cell*3-4);
       ctx.fillStyle=cleared?'#697164':'#725738';ctx.textAlign='center';ctx.textBaseline='middle';
       ctx.font='650 '+Math.round(cell*.7)+'px system-ui';ctx.fillText('Руины',x+cell*1.5,y+cell*1.2);
       ctx.font=Math.round(cell*.46)+'px system-ui';ctx.fillText(cleared?'Разграблены':'Стража: '+map.enemy_units[ruin.enemy],x+cell*1.5,y+cell*1.92);
-      if(!cleared)ctx.fillRect(x+cell*2.25,y+cell*2.25,cell*.55,cell*.55);
+      if(!cleared)ctx.fillRect(x+cell*.2,y+cell*2.25,cell*.55,cell*.55);
     }
-    const token=(p,n,hero)=>{roundRect(p[1]*cell+cell*.09,p[0]*cell+cell*.09,cell*.82,cell*.82,cell*.2,hero?'#a5d6ad':'#d5c0e8');ctx.fillStyle=hero?'#244c30':'#654777';ctx.font='650 '+Math.round(cell*.55)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n,(p[1]+.5)*cell,(p[0]+.52)*cell);};
-    map.opponent_positions.forEach((p,i)=>{if(s.alive[i]&&!(ruinInfo()?.ruins||[]).some(r=>r.enemy===i)&&!(territoryInfo()?.cities||[]).some(c=>c.position.every((v,j)=>v===p[j])))token(p,map.enemy_units[i],false);});
+    // Cities occupy one tile. Keep the larger label transparent and below
+    // neighboring units/chests so the annotation cannot hide a selectable target.
+    (territoryInfo()?.cities||[]).forEach((city,i)=>{
+      const tile=displayTile(city.position,map.size),x=(tile.x+.5)*cell,y=(tile.y+.5)*cell;
+      const owned=s.city_owned[i],size=cell*3;
+      ctx.save();
+      roundRect(x-cell/2+1,y-cell/2+1,cell-2,cell-2,cell*.12,owned?'#eadcbb':'#e2d8ec');
+      ctx.strokeStyle=owned?'#a48649':'#9676af';ctx.lineWidth=1;
+      ctx.strokeRect(x-size/2+2,y-size/2+2,size-4,size-4);
+      ctx.fillStyle=owned?'#745522':'#654777';
+      ctx.strokeStyle='#f3f6ef';ctx.lineWidth=Math.max(2,cell*.1);ctx.lineJoin='round';
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.font='650 '+Math.round(cell*.7)+'px system-ui';
+      ctx.strokeText('Город',x,y-cell*.35);ctx.fillText('Город',x,y-cell*.35);
+      const label=(owned?'ваш · ':'')+'ур. '+s.city_levels[i];
+      ctx.font=Math.round(cell*.5)+'px system-ui';
+      ctx.strokeText(label,x,y+cell*.35);ctx.fillText(label,x,y+cell*.35);
+      ctx.restore();
+    });
+    const token=(p,n)=>{const {x,y}=displayTile(p,map.size);roundRect(x*cell+cell*.09,y*cell+cell*.09,cell*.82,cell*.82,cell*.2,'#d5c0e8');ctx.fillStyle='#654777';ctx.font='650 '+Math.round(cell*.55)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n,(x+.5)*cell,(y+.52)*cell);};
+    map.opponent_positions.forEach((p,i)=>{if(s.alive[i]&&!(ruinInfo()?.ruins||[]).some(r=>r.enemy===i)&&!(territoryInfo()?.cities||[]).some(c=>c.position.every((v,j)=>v===p[j])))token(p,map.enemy_units[i]);});
     (map.chests||[]).forEach((chest,i)=>{
       if(!s.chest_alive?.[i])return;
-      const [r,c]=chest.position,x=c*cell,y=r*cell;
+      const tile=displayTile(chest.position,map.size),x=tile.x*cell,y=tile.y*cell;
       roundRect(x+cell*.12,y+cell*.24,cell*.76,cell*.6,cell*.1,'#9b6230');
       roundRect(x+cell*.12,y+cell*.17,cell*.76,cell*.28,cell*.1,'#d8ad64');
       ctx.fillStyle='#f5dfa1';ctx.fillRect(x+cell*.44,y+cell*.35,cell*.12,cell*.24);
     });
-    (territoryInfo()?.cities||[]).forEach((city,i)=>{
-      const [r,c]=city.position;
-      roundRect(c*cell+1,r*cell+1,cell-2,cell-2,cell*.1,s.city_owned[i]?'#b89958':'#9b82b0');
-      ctx.fillStyle='#fff';ctx.font='700 '+Math.round(cell*.6)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('♜',(c+.5)*cell,(r+.48)*cell);
-      ctx.fillStyle='#44364f';ctx.font='700 '+Math.round(cell*.32)+'px system-ui';ctx.fillText(s.city_levels[i],(c+.8)*cell,(r+.8)*cell);
-    });
     const capital=capitalInfo()?.position;
     if(capital){
-      roundRect(capital[1]*cell+1,capital[0]*cell+1,cell-2,cell-2,cell*.15,'#dfb963');
-      ctx.fillStyle='#604515';ctx.font='650 '+Math.round(cell*.62)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('♜',(capital[1]+.5)*cell,(capital[0]+.52)*cell);
+      const {x,y}=displayTile(capital,map.size);
+      roundRect(x*cell+1,y*cell+1,cell-2,cell-2,cell*.15,'#dfb963');
+      ctx.fillStyle='#604515';ctx.font='650 '+Math.round(cell*.62)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('♜',(x+.5)*cell,(y+.52)*cell);
+      ctx.strokeStyle='#aa7623';ctx.lineWidth=2;ctx.strokeRect(x*cell+1,y*cell+1,cell-2,cell-2);
     }
-    token(s.position,s.hp.slice(0,6).filter(h=>h>0).length,true);
-    if(capital){ctx.strokeStyle='#aa7623';ctx.lineWidth=2;ctx.strokeRect(capital[1]*cell+1,capital[0]*cell+1,cell-2,cell-2);}
+    const agent=displayTile(s.position,map.size),x=(agent.x+.5)*cell,y=(agent.y+.5)*cell,radius=Math.max(16,cell*.85);
+    ctx.save();
+    ctx.shadowColor='#ff182899';ctx.shadowBlur=12;
+    ctx.fillStyle='#ff1828';ctx.strokeStyle='#fff';ctx.lineWidth=3;
+    ctx.beginPath();ctx.arc(x,y,radius,0,Math.PI*2);ctx.fill();ctx.stroke();
+    ctx.shadowBlur=0;ctx.fillStyle='#fff';
+    ctx.font='900 '+Math.round(radius*1.4)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText('А',x,y+1);
+    ctx.restore();
   }
   const slots=[3,0,4,1,5,2,6,9,7,10,8,11];
   for(const i of slots){
@@ -789,9 +843,9 @@
         b.querySelector('.status').textContent=!max?'':!hp?'Погиб':s.escaped[i]?'Отступил':unreachable?'Вне досягаемости':s.paralyzed?.[i]?'Паралич':s.long_paralyzed?.[i]?'Долгий паралич':s.feared?.[i]?'Страх':s.retreating[i]?'Побег':s.defended[i]?'Защита':s.imp?.[i]?'Временное превращение':s.decay_form?.[i]?'Понижение формы':s.weakened?.[i]?'Урон ослаблен':s.armor_shreds?.[i]?'Броня повреждена':s.turn_phase[i]===1?'Ожидание':s.turn_phase[i]===2?'Ход завершён':'';
         if((s.slow_original?.[i]??-1)>=0)b.querySelector('.status').textContent+=' · Инициатива снижена';
         if(s.powerup?.[i])b.querySelector('.status').textContent+=' · Урон усилен';
-        if(s.poison_turns?.[i])b.querySelector('.status').textContent+=' · Яд '+s.poison_damage[i]+' HP, ходов: '+s.poison_turns[i];
-        if(s.water_turns?.[i])b.querySelector('.status').textContent+=' · Вода '+(s.water_damage[i]||10)+' HP, ходов: '+s.water_turns[i];
-        if(s.burn_turns?.[i])b.querySelector('.status').textContent+=' · Огонь '+(s.burn_damage[i]||10)+' HP, ходов: '+s.burn_turns[i];
+        if(s.poison_mode?.[i]){const chance=s.poison_mode[i]===1?100:Math.min(100,11+10*Math.max(0,s.round-(s.effect_rounds?.[i]?.[0]??s.round)));b.querySelector('.status').textContent+=' · Яд '+s.poison_damage[i]+' HP, шанс снятия в этом раунде: '+chance+'%';}
+        if(s.water_mode?.[i]){const chance=s.water_mode[i]===1?100:Math.min(100,11+10*Math.max(0,s.round-(s.effect_rounds?.[i]?.[1]??s.round)));b.querySelector('.status').textContent+=' · Обморожение '+(s.water_damage[i]||10)+' HP, шанс снятия в этом раунде: '+chance+'%';}
+        if(s.burn_mode?.[i]){const chance=s.burn_mode[i]===1?100:Math.min(100,11+10*Math.max(0,s.round-(s.effect_rounds?.[i]?.[2]??s.round)));b.querySelector('.status').textContent+=' · Ожог '+(s.burn_damage[i]||10)+' HP, шанс снятия в этом раунде: '+chance+'%';}
         b.disabled=!targetTurn||mode!=='manual'||busy||s.done||!session||!mask[action];
         b.setAttribute('aria-label',(isHealer(s.actor)&&i<6?(profile(s.actor)?.unit_type==='Alchemist'?'Дать дополнительный ход: ':profile(s.actor)?.unit_type==='Patriach'&&!hp?'Воскресить: ':isPowerSupport(s.actor)?'Усилить: ':'Лечить: ')+unitName(i):i>=6?(profile(s.actor)?.unit_type==='Succub'?'Превращение всех доступных врагов: противник ':profile(s.actor)?.unit_type==='Witch'?'Превращение: противник ':isMage(s.actor)?'Заклинание по всем врагам: противник ':isWarrior(s.actor)?'Удар мечом: противник ':'Стрелять: противник ')+(i%6+1):unitName(i))+', '+hp+' из '+max+' здоровья'+(unreachable?', вне досягаемости':''));
       });
@@ -835,13 +889,13 @@
     canvas.style.width=(Number($('map-zoom').value)*100)+'%';
     const snap=current();if(!snap)return;drawMap(snap.state);
     const viewport=$('map-viewport'),cell=canvas.clientWidth/currentMap().size;
-    viewport.scrollLeft=(snap.state.position[1]+.5)*cell-viewport.clientWidth/2;
-    viewport.scrollTop=(snap.state.position[0]+.5)*cell-viewport.clientHeight/2;
+    const agent=displayTile(snap.state.position,currentMap().size);
+    viewport.scrollLeft=(agent.x+.5)*cell-viewport.clientWidth/2;
+    viewport.scrollTop=(agent.y+.5)*cell-viewport.clientHeight/2;
   };
   canvas.onmousemove=event=>{
     const snap=current();if(!snap)return;
-    const rect=canvas.getBoundingClientRect(),map=currentMap();
-    const row=Math.floor((event.clientY-rect.top)/rect.height*map.size),col=Math.floor((event.clientX-rect.left)/rect.width*map.size);
+    const map=currentMap(),[row,col]=mapTileAtPointer(event);
     const chest=(map.chests||[]).find((c,i)=>snap.state.chest_alive?.[i]&&c.position[0]===row&&c.position[1]===col);
     const territory=territoryInfo(),cityIndex=territory?.cities.findIndex(c=>c.position[0]===row&&c.position[1]===col)??-1;
     const mineIndex=territory?.mines.findIndex(m=>m.position[0]===row&&m.position[1]===col)??-1;
@@ -861,8 +915,7 @@
   };
   canvas.ondblclick=event=>{
     const snap=current();if(mode!=='manual'||!snap||snap.state.in_battle||busy||snap.state.done)return;
-    const rect=canvas.getBoundingClientRect(),map=currentMap();
-    const row=Math.floor((event.clientY-rect.top)/rect.height*map.size),col=Math.floor((event.clientX-rect.left)/rect.width*map.size);
+    const map=currentMap(),[row,col]=mapTileAtPointer(event);
     const ruin=ruinInfo()?.ruins.find((r,i)=>!snap.state.ruin_looted[i]&&r.footprint.some(p=>p[0]===row&&p[1]===col));
     const enemy=ruin?.enemy??map.opponent_positions.findIndex((p,i)=>snap.state.alive[i]&&p[0]===row&&p[1]===col);
     if(enemy<0)return;
@@ -877,13 +930,14 @@
   $('lord-type').value=data.map.lord_type||'warrior';
   $('lord-type').onchange=render;
   $('building-branch').onchange=render;
+  document.querySelectorAll('.dpad [data-action]').forEach(b=>{b.dataset.action=directionAction(Number(b.dataset.action));});
   $('reset').onclick=resetGame;document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>sendAction(Number(b.dataset.action)));
   $('play').onclick=()=>{if(timer){stop();return;}if(frame===records[recordIndex].frames.length-1){frame=0;messages=[];}timer=setInterval(nextFrame,230);$('play').textContent='Ⅱ Пауза';};
   $('next').onclick=nextFrame;$('scrubber').oninput=()=>{stop();frame=Number($('scrubber').value);messages=[];render();};
   $('record').onchange=()=>{stop();recordIndex=Number($('record').value);frame=0;messages=[];render();};
   records.forEach((r,i)=>{const option=document.createElement('option');option.value=i;option.textContent=r.label;$('record').append(option);});
   const keys={ArrowUp:0,ArrowRight:2,ArrowDown:4,ArrowLeft:6,KeyW:0,KeyE:1,KeyD:2,KeyC:3,KeyX:4,KeyS:4,KeyZ:5,KeyA:6,KeyQ:7};
-  window.addEventListener('keydown',event=>{if(event.target.matches('select,input,textarea')||event.ctrlKey||event.metaKey||event.altKey)return;if(mode==='manual'&&!capitalOpen&&!potionsOpen&&!spellsOpen&&!manual?.state.in_battle&&keys[event.code]!==undefined){event.preventDefault();sendAction(keys[event.code]);}});
+  window.addEventListener('keydown',event=>{if(event.target.matches('select,input,textarea')||event.ctrlKey||event.metaKey||event.altKey)return;if(mode==='manual'&&!capitalOpen&&!potionsOpen&&!spellsOpen&&!manual?.state.in_battle&&keys[event.code]!==undefined){event.preventDefault();sendAction(directionAction(keys[event.code]));}});
   window.addEventListener('resize',()=>{const snap=current();if(snap&&!snap.state.in_battle)drawMap(snap.state);});
   document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});
   $('version').textContent=data.map.name;
@@ -902,7 +956,8 @@
     try{const pick=await request('/api/agent',{session});
       if(session!==askedSession||actionCount!==askedCount)return null;
       agentPick={...pick,count:actionCount};
-      $('agent-hint').textContent='Агент выбирает: '+pick.label+' (вероятность '+Math.round(pick.probability*100)+'%).';showPick();return agentPick;}
+      const label=pick.action>=0&&pick.action<8?directionLabels[(pick.action+2)%8]:pick.label;
+      $('agent-hint').textContent='Агент выбирает: '+label+' (вероятность '+Math.round(pick.probability*100)+'%).';showPick();return agentPick;}
     catch(error){if(session===askedSession)$('agent-hint').textContent=error.message;return null;}
   }
   async function agentMove(){if(busy)return false;const pick=await askAgent();if(!pick||busy)return false;return await sendAction(pick.action);}

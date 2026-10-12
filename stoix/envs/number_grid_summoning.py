@@ -2,6 +2,7 @@
 import jax
 import jax.numpy as jnp
 
+from stoix.envs.number_grid_effects import effect_breaks, SHORT
 from stoix.envs.number_grid_combat import HP, DAMAGE, ACCURACY, ARMOR, INITIATIVE, MELEE
 
 COPY_ALLY, COPY_ACTIONS = 57, 6
@@ -12,7 +13,7 @@ SHOOT, DEFEND, CONTINUE = 8, 14, 17
 def advance_linked_queue(hp, escaped, phases, priority, round_number, activated,
                          turns, damage, source, immunities, extra_priority,
                          next_actor, hold, max_rounds, immunity_masks, fallback_damage,
-                         summon_owner):
+                         applied_rounds, removal_rolls, summon_owner):
     """Bounded device queue: a DOT-killed caster removes dependents immediately.
 
     The ordinary vectorized queue remains the fast path for maps without summons.
@@ -44,10 +45,12 @@ def advance_linked_queue(hp, escaped, phases, priority, round_number, activated,
         loss = jnp.minimum(raw,before)
         health = health.at[candidate].add(-jnp.sum(loss))
         losses = losses.at[candidate].add(loss)
-        remaining = jnp.where(first & immune & (before > 0),0,left[candidate]-tick.astype(jnp.int32))
+        expires = tick & ((left[candidate] == SHORT) | effect_breaks(round_no,applied_rounds[candidate],
+            removal_rolls[jnp.minimum(round_no-round_number,1),candidate]))
+        remaining = jnp.where((first & immune & (before > 0)) | expires,0,left[candidate])
         left = left.at[candidate].set(remaining)
         def kill(_, values):
-            return jnp.where((summon_owner >= 0) & (values[jnp.maximum(summon_owner,0)] <= 0),0,values)
+            return jnp.where((summon_owner >= 0) & ((values[jnp.maximum(summon_owner,0)] <= 0) | escaped[jnp.maximum(summon_owner,0)]),0,values)
         health = jax.lax.fori_loop(0,12,kill,health)
         dead = health <= 0
         phase = jnp.where(dead,2,phase)
@@ -135,7 +138,7 @@ class Summoning:
                        copy_secondary=self._secondary_stats(state,target,temporary=False),
                        armor_shreds=jnp.int32(0), weakened=jnp.bool_(False), item_weakened=jnp.bool_(False),
                        primary_override=jnp.int32(-1), preweak_damage=jnp.int32(-1),
-                       powerup=jnp.bool_(False), powerup_layered=jnp.bool_(False),
+                       powerup=jnp.bool_(False), powerup_long=jnp.bool_(False), powerup_layered=jnp.bool_(False),
                        initiative_override=jnp.int32(-1), slow_original=jnp.int32(-1),
                        healer_wards=state.healer_wards[target], ward_native_used=jnp.uint32(0),
                        wards_used=jnp.uint32(0))
@@ -206,18 +209,18 @@ class Summoning:
         return state.replace(**updates), selected
 
     def _empty_summon_fields(self, state):
-        zero = ('defended','retreating','escaped','copied','fenrir','imp','imp_wards','decay_form',
+        zero = ('effect_rounds','transform_long','powerup_long','saved_powerup_long','defended','retreating','escaped','copied','fenrir','imp','imp_wards','decay_form',
             'decay_shreds','armor_shreds','feared','weakened','saved_weakened','item_weakened',
             'saved_item_weakened','lycanthrope','paralyzed','long_paralyzed',
             'waited','bonus_turns','battle_revived','revival_xp_cutoff','powerup','powerup_layered',
             'saved_powerup','saved_powerup_layered','healer_wards','saved_healer_wards',
             'ward_native_used','saved_ward_native_used','wards_used')
-        negative = ('initiative_override','saved_initiative_override','slow_original','primary_override',
+        negative = ('disable_source','initiative_override','saved_initiative_override','slow_original','primary_override',
             'preweak_damage','saved_primary_override','saved_preweak_damage')
         result = {name: jnp.zeros_like(getattr(state,name)) for name in zero}
         result.update({name: jnp.full_like(getattr(state,name),-1) for name in negative})
         for kind in ('poison','burn','water'):
-            result[kind+'_turns'] = jnp.zeros(12,jnp.int32)
+            result[kind+'_mode'] = jnp.zeros(12,jnp.int32)
             result[kind+'_damage'] = jnp.zeros(12,jnp.int32)
             result[kind+'_source'] = jnp.full(12,-1,jnp.int32)
         return result
@@ -259,7 +262,8 @@ class Summoning:
         if not self.has_summons:
             return hp
         def kill(_, values):
-            dead_owner = values[jnp.maximum(state.summon_owner,0)] <= 0
+            owner = jnp.maximum(state.summon_owner,0)
+            dead_owner = (values[owner] <= 0) | state.escaped[owner]
             return jnp.where((state.summon_owner >= 0) & dead_owner,0,values)
         return jax.lax.fori_loop(0,12,kill,hp)
 

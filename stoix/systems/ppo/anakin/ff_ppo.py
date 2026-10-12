@@ -205,10 +205,13 @@ def get_learner_fn(
                     entropy = actor_policy.entropy().mean()
 
                     total_loss_actor = loss_actor - config.system.ent_coef * entropy
+                    log_ratio = log_prob - traj_batch.log_prob
                     loss_info = {
                         "actor_loss": loss_actor,
                         "entropy": entropy,
                         "advantages": gae,
+                        "approx_kl": jnp.mean(jnp.expm1(log_ratio) - log_ratio),
+                        "clip_fraction": jnp.mean(jnp.abs(jnp.expm1(log_ratio)) > config.system.clip_eps),
                     }
                     return total_loss_actor, loss_info
 
@@ -338,6 +341,9 @@ def get_learner_fn(
         params, opt_states, traj_batch, advantages, targets, key = update_state
         learner_state = learner_state._replace(params=params, opt_states=opt_states, key=key)
         metric = traj_batch.info
+        target_variance = jnp.var(targets)
+        loss_info['explained_variance'] = jnp.where(target_variance > 0,
+            1. - jnp.var(targets - v_tm1) / jnp.maximum(target_variance, 1e-12), 0.)
         return learner_state, (metric, loss_info)
 
     def learner_fn(

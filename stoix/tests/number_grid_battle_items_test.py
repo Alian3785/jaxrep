@@ -356,18 +356,19 @@ def test_reference_item_effects(effects):
     assert nosferat[6:] == [25, 25, 25, 25, 0, 25] and int(info['immune'][row['orb_of_nosferat']]) == 1 << 10
     assert hp[row['orb_of_nosferat'], 1] == 50+125//2
     assert hp[row['orb_of_elder_vampires'], 0] == 100  # the hero is unhurt: the party shares the pool
-    # DOTs: single and party, duration 1..6 from the shared roll, the Templar ward blocks water/fire.
+    # DOTs: single and party, long effects with round-age recovery, the Templar ward blocks water/fire.
     for key, field, amount, targets in (('orb_of_poison', 'poison', 20, [7]), ('orb_of_frost', 'water', 10, [6, 7, 8, 10, 11]),
                                         ('orb_of_flame', 'burn', 15, [6, 7, 8, 10, 11])):
         damage = getattr(after, field+'_damage')[row[key]]
         assert [int(i) for i in jnp.flatnonzero(damage == amount)] == targets, key
-        assert jnp.all(getattr(after, field+'_turns')[row[key], jnp.array(targets)] == 1)
+        assert jnp.all(getattr(after, field+'_mode')[row[key], jnp.array(targets)] == 2)
     original = env._original_primary(base)
     assert after.primary_override[row['orb_of_vigor'], 0] == jnp.rint(original[0]*1.25)
+    assert after.powerup_long[row['orb_of_vigor'], 0]
     rage = row['orb_of_rage']
     assert after.turn_phase[rage, 0] == 0 and after.bonus_turns[rage, 0] == 1 and info['extra'][rage, 0]
     assert hp[row['orb_of_healing'], 0] == 100 and hp[row['orb_of_restoration'], 0] == 40
-    assert after.paralyzed[row['orb_of_fear'], 7] and after.retreating[row['talisman_of_nightmare'], 7]
+    assert after.long_paralyzed[row['orb_of_fear'], 7] and after.retreating[row['talisman_of_nightmare'], 7]
     assert after.imp[row['orb_of_witches'], 8]
     lycan = row['orb_of_lycanthropy']
     assert after.decay_form[lycan, 7] == ids['g000uu0092'] and after.lycanthrope[lycan, 7]

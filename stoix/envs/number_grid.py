@@ -36,6 +36,7 @@ from stoix.envs.number_grid_unit_swaps import UnitSwapRules, unit_swap_action_na
 from stoix.envs.number_grid_lords import with_starting_party
 from stoix.envs import number_grid_unit_swaps as unit_swaps
 from stoix.envs.number_grid_wards import ward_tags, grant_wards, expire_wards
+from stoix.envs.number_grid_metrics import campaign_events, empty_campaign_counts
 from stoix.envs.number_grid_effects import effect_tables, effect_breaks, POISON, FROSTBITE, BLISTER, DISABLE, TRANSFORM, SHORT, LONG, armor_after_shreds, source_protection, advance_poison_queue, advance_periodic_queue, vampiric_heal
 from stoix.envs.number_grid_buildings import (
     BuildingRules, BUILD_START, BUILD_SLOTS, DAILY_GOLD,
@@ -1697,6 +1698,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
                                     'battle_victory': jnp.bool_(False),
                                     'building_constructed': jnp.bool_(False),
                                     'turn_ended': jnp.bool_(False),
+                                    'campaign_events': empty_campaign_counts(),
                                     'rest_penalty': jnp.float32(0)})
         return ts
 
@@ -2025,14 +2027,19 @@ class NumberGrid(Summoning, NumericNumberGrid):
             updates[kind+'_source'] = jnp.where(mask,-1,getattr(state,kind+'_source'))
         return state.replace(**updates),hp,wards_used
 
-    def _battle_step(self, state, action, key, random_values):
+    def _battle_step(self, state, action, key, random_values, with_metrics=False):
         state = state.replace(last_sale_gold=jnp.int32(0), last_sold_count=jnp.int32(0), last_trade_item=jnp.int32(-1))
         if self.has_copies:
+            if with_metrics:
+                return jax.lax.cond(state.round == 0,
+                    lambda *args: (*self._prepare_copies(*args), jnp.zeros(4, jnp.int32)),
+                    lambda *args: self._battle_step_regular(*args, with_metrics=True),
+                    state, action, key, random_values)
             return jax.lax.cond(state.round == 0,self._prepare_copies,self._battle_step_regular,
                                 state,action,key,random_values)
-        return self._battle_step_regular(state,action,key,random_values)
+        return self._battle_step_regular(state,action,key,random_values,with_metrics=with_metrics)
 
-    def _battle_step_regular(self, state, action, key, random_values):
+    def _battle_step_regular(self, state, action, key, random_values, with_metrics=False):
         actor = state.actor
         post_turn = state.post_victory > 0
         skipping = (state.paralyzed[actor] | state.long_paralyzed[actor]) & ~post_turn
@@ -2456,7 +2463,8 @@ class NumberGrid(Summoning, NumericNumberGrid):
             next_actor = jnp.where(active[next_actor],next_actor,jnp.argmax(jnp.where(
                 active & (phases == 0),priority,jnp.where(active & (phases == 1),-priority,-1e9)))).astype(jnp.int32)
         state = state.replace(waited=jnp.where(round_number != state.round,False,state.waited))
-        lost = ~jnp.any(hp[:6] > 0)
+        party_defeated = ~jnp.any(hp[:6] > 0)
+        lost = party_defeated
         summon_battle = state.summon_battle if self.spell_casting_enabled else jnp.bool_(False)
         lost &= ~summon_battle  # a fallen summon only ends its own battle
         victory = ~jnp.any(active[6:]) & ~lost
@@ -2685,6 +2693,11 @@ class NumberGrid(Summoning, NumericNumberGrid):
         if self.has_paralysis:
             next_state = self._prepare_disable(next_state,random_values[67],
                 next_state.in_battle & ~next_state.done & (next_state.post_victory == 0) & ~another_strike)
+        if with_metrics:
+            ended = victory | withdrawal | lost
+            upgrades = jax.lax.population_count(next_state.last_promoted & jnp.uint32(63))
+            return next_state, reward, jnp.array([victory, ended & party_defeated,
+                withdrawal & ~party_defeated, jnp.where(victory, upgrades, 0)], jnp.int32)
         return next_state, reward
 
     def step(self, state, action, env_params=None):
@@ -2795,6 +2808,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         next_state, reward = jax.lax.cond(~state.in_battle & valid,
             lambda s: self._world_step(s, action, key, random_values, spell_targets),
             lambda s: (s, jnp.float32(0)), state)
+        world_state = next_state
 
         def pending(carry):
             current, _, first, _ = carry
@@ -2806,12 +2820,12 @@ class NumberGrid(Summoning, NumericNumberGrid):
             chosen = jnp.where(first, action, self._automatic_battle_action(current))
             next_key, draw_key = jax.random.split(current.battle_key)
             draws = jax.random.uniform(draw_key, (self.random_size,))
-            following, gain = self._battle_step(current, chosen, next_key, draws)
-            counts += jnp.array([1, ~automatic, current.actor >= 6, automatic], jnp.int32)
+            following, gain, events = self._battle_step(current, chosen, next_key, draws, with_metrics=True)
+            counts += jnp.concatenate((jnp.array([1, ~automatic, current.actor >= 6, automatic], jnp.int32), events))
             return following, total_reward+gain, jnp.bool_(False), counts
 
         next_state, reward, _, counts = jax.lax.while_loop(pending, advance,
-            (next_state, reward, valid & state.in_battle, jnp.zeros(4, jnp.int32)))
+            (next_state, reward, valid & state.in_battle, jnp.zeros(8, jnp.int32)))
         decision = ~state.done & ~self.automatic_battle_turn(state)
         steps = state.step_count + decision.astype(jnp.int32)
         next_state = next_state.replace(step_count=steps, done=next_state.done | (steps >= self.max_steps))
@@ -2836,6 +2850,8 @@ class NumberGrid(Summoning, NumericNumberGrid):
                                 'battle_victory': (counts[0] > 0) & jnp.any(state.alive & ~next_state.alive),
                                 'building_constructed': valid & ~state.in_battle & (action >= BUILD_START) & (action < REST),
                                 'turn_ended': rested,
+                                'campaign_events': campaign_events(self, state, world_state, next_state,
+                                    action, valid, counts[4:]),
                                 'rest_penalty': (jnp.where(rested, self.rest_penalty(state), 0.)
                                                  if self.basic_combat else jnp.float32(0))})
         return next_state, ts

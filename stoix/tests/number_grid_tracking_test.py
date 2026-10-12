@@ -1,6 +1,7 @@
 """Reporting regressions included in the project's GPU-only test session."""
 from argparse import ArgumentParser, Namespace
 import json
+from pathlib import Path
 import sys
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -254,6 +255,50 @@ def test_smoke_run_shorter_than_interval_still_has_training_chart_point():
     tracking.log_training(row(4, 1), 250_000, 0.5, 0.6, final=True)
     tracking.run.log.assert_called_once()
     assert tracking.run.log.call_args.args[0]['episodes/wins'] == 1
+
+
+@pytest.mark.parametrize('backend', ['comet', 'wandb'])
+def test_reference_campaign_charts_reach_both_backends_and_local_series(tmp_path, services, backend):
+    from stoix.envs.number_grid_metrics import CAMPAIGN_FIELDS
+    _, _, experiment = services
+    tracking = start(tmp_path, '--tracking', backend)
+    values = dict.fromkeys(CAMPAIGN_FIELDS, 0.)
+    values.update(victories=1, timeouts=1, battle_victories=4, battle_retreats=1,
+                  hired_units=3, spell_casts=5, enemy_squads_defeated=4)
+    ordered = [values[name] for name in CAMPAIGN_FIELDS]
+    tracking.campaign.add({'events': ordered, 'completed': ordered,
+        'participation': [float(v > 0) for v in ordered], 'count': 2,
+        'recent': [[v / 2 for v in ordered] + [7., 80.]] * 2})
+    tracking.log_training(row(2, 1), 250_000, .5, .6, final=True)
+    data = experiment.log_metrics.call_args.args[0] if backend == 'comet' else tracking.run.log.call_args.args[0]
+    assert data['campaign/victory_rate'] == .5
+    assert data['campaign/timeout_rate'] == .5
+    assert data['campaign/battle_win_rate'] == .8
+    assert data['campaign/hired_units_total'] == 3
+    assert data['campaign/window/spell_casts_mean'] == 2.5
+    assert data['campaign/window/enemy_squads_defeated_mean_100'] == 2
+    assert data['rollout/ep_rew_mean'] == 7  # rolling episodes, not latest block's reward 4
+    reference_keys = json.loads((Path(__file__).resolve().parents[2] /
+        'docs/validation/reference-campaign-metric-keys.json').read_text(encoding='utf-8'))
+    assert set(reference_keys['supported']) <= data.keys()
+    assert 'campaign/scripted_bot_victories_per_episode_mean' not in data
+    if backend == 'comet':
+        assert experiment.log_metrics.call_args.kwargs['step'] == 250_000
+    saved = json.loads((tmp_path / 'charts.jsonl').read_text())
+    assert saved['training_steps'] == 250_000 and saved['campaign/hired_units_total'] == 3
+
+
+def test_campaign_no_completed_episode_omits_undefined_rates_but_keeps_activity():
+    from stoix.envs.number_grid_metrics import CAMPAIGN_FIELDS
+    tracking = tracker()
+    events = [float(name == 'spell_casts') for name in CAMPAIGN_FIELDS]
+    zero = [0.] * len(events)
+    tracking.campaign.add({'events': events, 'completed': zero, 'participation': zero, 'count': 0, 'recent': []})
+    metrics = tracking.training_metrics(row(0, 0), 250_000, 1., 1.)
+    assert metrics['campaign/spell_casts_total'] == 1
+    assert metrics['campaign/episodes_total'] == 0
+    assert 'campaign/victory_rate' not in metrics
+    assert 'campaign/spell_casts_per_episode_mean' not in metrics
 
 
 @pytest.fixture

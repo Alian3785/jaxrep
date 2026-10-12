@@ -4,9 +4,10 @@ import json
 import os
 from pathlib import Path
 import time
+from numbergrid_campaign import CampaignMetrics
 
 SUMMARY_INTERVAL = 1_000_000
-CHART_GROUPS = ('episodes', 'battles', 'construction', 'turns', 'ppo', 'performance', 'eval_argmax', 'eval_sample')
+CHART_GROUPS = ('episodes', 'battles', 'construction', 'turns', 'ppo', 'performance', 'eval_argmax', 'eval_sample', 'campaign', 'eval', 'rollout', 'train')
 TAGS = ['numbergrid', 'ppo', 'jax']
 
 
@@ -70,6 +71,8 @@ class NumberGridTracking:
         self.logging_seconds = 0.0
         self.metadata = {}
         self.pending = []
+        self.campaign = CampaignMetrics()
+        self.last_campaign_metrics = {}
 
     def __enter__(self):
         return self
@@ -94,9 +97,17 @@ class NumberGridTracking:
         requested = self.args.tracking
         self.metadata = {'requested': requested, 'service': None, 'mode': 'disabled', 'url': None,
                          'skipped': [], 'status': 'running', 'summary_interval': SUMMARY_INTERVAL}
+        self.metadata['campaign_metrics'] = {
+            'source': 'Python reference Big_map/train_campaign.py::CampaignMetricsCallback',
+            'episode_window': 100,
+            'window_rates': 'whole logging interval; recent means: last 100 completed episodes',
+            'unavailable': {'scripted_bot': 'Scripted capital bot is not implemented in the JAX environment'},
+            'local_series': 'charts.jsonl',
+        }
         name = self.args.run_name or self.output.name
         settings = {'training': config, 'environment': game_map, 'source_hashes': source_hashes,
-                    'logging': {'summary_interval': SUMMARY_INTERVAL}}
+                    'logging': {'summary_interval': SUMMARY_INTERVAL,
+                                'campaign_metrics': self.metadata['campaign_metrics']}}
         begin = time.perf_counter()
         if requested in ('auto', 'wandb'):
             import wandb
@@ -236,6 +247,9 @@ class NumberGridTracking:
             })
         if self.episodes:
             data['episodes/win_rate_total'] = self.wins / self.episodes
+        if episodes:
+            data['rollout/ep_rew_mean'] = row['mean_episode_return']
+            data['rollout/ep_len_mean'] = row['mean_episode_length']
         if 'battle_victory' in row:
             data['battles/wins'] = int(row['battle_victory'])
             data['battles/wins_total'] = self.battle_wins
@@ -256,20 +270,45 @@ class NumberGridTracking:
                     'battle_transition', 'player_battle_transition', 'enemy_battle_transition', 'automatic_battle_transition',
                     'battle_victory', 'building_constructed', 'turn_ended', 'rest_penalty'}
         data.update({f'ppo/{key}': value for key, value in row.items() if key not in excluded})
+        for source, target in (('actor_loss', 'policy_gradient_loss'), ('value_loss', 'value_loss'),
+                               ('approx_kl', 'approx_kl'), ('clip_fraction', 'clip_fraction'),
+                               ('explained_variance', 'explained_variance')):
+            if source in row:
+                data[f'train/{target}'] = row[source]
+        if 'entropy' in row:
+            data['train/entropy_loss'] = -row['entropy']
+        self.last_campaign_metrics = self.campaign.metrics(reset_window=True)
+        data.update(self.last_campaign_metrics)
+        for reference, source in (('ep_rew_mean', 'episode_return_mean'), ('ep_len_mean', 'episode_length_mean')):
+            key = 'campaign/window/' + source
+            if key in data:
+                data['rollout/' + reference] = data[key]
         return data
 
     def log(self, data):
+        begin = time.perf_counter()
+        if self.output is not None:
+            with (self.output / 'charts.jsonl').open('a', encoding='utf-8') as stream:
+                stream.write(json.dumps(data, ensure_ascii=False, allow_nan=False) + '\n')
         if self.run is not None:
-            begin = time.perf_counter()
             self.run.log(data)
-            self.logging_seconds += time.perf_counter() - begin
+        self.logging_seconds += time.perf_counter() - begin
 
     def evaluation(self, evaluation, steps):
         group = 'eval_argmax' if evaluation['action_selection'] == 'argmax' else 'eval_sample'
-        self.log({'training_steps': steps, **{
+        mode = 'deterministic' if evaluation['action_selection'] == 'argmax' else 'stochastic'
+        data = {'training_steps': steps, **{
             f'{group}/{name}': evaluation[key] for name, key in (
                 ('wins', 'successes'), ('episodes', 'episodes'), ('win_rate', 'success_rate'),
-                ('length_mean', 'mean_length'), ('return_mean', 'mean_return'))}})
+                ('length_mean', 'mean_length'), ('return_mean', 'mean_return'))}, **{
+            f'eval/{mode}_{name}': evaluation[key] for name, key in (
+                ('victory_rate', 'success_rate'), ('success_rate', 'success_rate'),
+                ('mean_ep_length', 'mean_length'), ('mean_reward', 'mean_return'))}}
+        if mode == 'deterministic':
+            data.update({f'eval/{name}': evaluation[key] for name, key in (
+                ('victory_rate', 'success_rate'), ('success_rate', 'success_rate'),
+                ('mean_ep_length', 'mean_length'), ('mean_reward', 'mean_return'))})
+        self.log(data)
 
     def summary(self, result):
         if isinstance(self.run, CometRun):

@@ -24,6 +24,7 @@ from stoix.utils.make_env import make
 from stoix.envs.number_grid import MAP, NumberGrid, load_map, wrap_wall_action_mask
 from numbergrid_config import ROOT, make_config
 from numbergrid_tracking import NumberGridTracking, add_tracking_arguments
+from stoix.envs.number_grid_metrics import summarize_campaign
 
 
 def save_json(path, value):
@@ -189,6 +190,7 @@ def run_training(args, tracking):
         raise FileExistsError(f'Output already contains files; choose another --output: {output}')
     output.mkdir(parents=True, exist_ok=True)
     measured_sources = ['benchmark_number_grid.py', 'numbergrid_config.py', 'numbergrid_tracking.py',
+                        'numbergrid_campaign.py', 'stoix/envs/number_grid_metrics.py',
                         'stoix/envs/number_grid_buildings.py', 'stoix/envs/data/buildings.json',
                         'stoix/envs/number_grid_spells.py', 'stoix/envs/number_grid_casting.py', 'stoix/envs/number_grid_unit_swaps.py', 'stoix/envs/number_grid_lords.py', 'stoix/envs/data/spells.json',
                         'stoix/envs/data/units.json', 'stoix/envs/number_grid_effects.py', 'stoix/envs/number_grid_wards.py', 'stoix/envs/number_grid_summoning.py',
@@ -235,6 +237,8 @@ def run_training(args, tracking):
         for name in ('battle_transition', 'player_battle_transition', 'enemy_battle_transition', 'automatic_battle_transition', 'battle_victory', 'building_constructed', 'turn_ended', 'rest_penalty'):
             if name in episodes:
                 losses[name] = jnp.sum(episodes[name])
+        if 'campaign_events' in episodes:
+            losses['campaign'] = summarize_campaign(episodes)
         return result.learner_state, losses
     jax.block_until_ready(state)
     begin_compile = time.perf_counter()
@@ -252,7 +256,11 @@ def run_training(args, tracking):
         jax.block_until_ready((state, metrics))
         elapsed = time.perf_counter() - begin
         training_seconds += elapsed
-        row = {k: float(v) for k, v in jax.device_get(metrics).items()}
+        host_metrics = jax.device_get(metrics)
+        campaign = host_metrics.pop('campaign', None)
+        if campaign is not None:
+            tracking.campaign.add(campaign)
+        row = {k: float(v) for k, v in host_metrics.items()}
         if not row['all_finite']:
             raise FloatingPointError('Non-finite learner metric')
         row.update(training_steps=(i + 1) * step_size, training_seconds=training_seconds)
@@ -349,6 +357,7 @@ def run_training(args, tracking):
         result['rest_penalty_total'] = float(sum(row.get('rest_penalty', 0) for row in rows))
         result['transition_definition'] = 'One agent decision, including all automatic enemy turns, skips and completed retreats up to the next decision. Internal activations spend no additional step budget or per-step penalties.'
     result['source_hashes'] = source_hashes
+    result['campaign_metrics'] = tracking.last_campaign_metrics
     if checkpoints:
         result['best_checkpoint'] = select_best_checkpoint(
             output, checkpoints, actor, params, game_map, result,

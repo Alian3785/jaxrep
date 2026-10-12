@@ -557,6 +557,25 @@
       ctx.font=Math.round(cell*.46)+'px system-ui';ctx.fillText(cleared?'Разграблены':'Стража: '+map.enemy_units[ruin.enemy],x+cell*1.5,y+cell*1.92);
       if(!cleared)ctx.fillRect(x+cell*.2,y+cell*2.25,cell*.55,cell*.55);
     }
+    // Cities occupy one tile. Keep the larger label transparent and below
+    // neighboring units/chests so the annotation cannot hide a selectable target.
+    (territoryInfo()?.cities||[]).forEach((city,i)=>{
+      const tile=displayTile(city.position,map.size),x=(tile.x+.5)*cell,y=(tile.y+.5)*cell;
+      const owned=s.city_owned[i],size=cell*3;
+      ctx.save();
+      roundRect(x-cell/2+1,y-cell/2+1,cell-2,cell-2,cell*.12,owned?'#eadcbb':'#e2d8ec');
+      ctx.strokeStyle=owned?'#a48649':'#9676af';ctx.lineWidth=1;
+      ctx.strokeRect(x-size/2+2,y-size/2+2,size-4,size-4);
+      ctx.fillStyle=owned?'#745522':'#654777';
+      ctx.strokeStyle='#f3f6ef';ctx.lineWidth=Math.max(2,cell*.1);ctx.lineJoin='round';
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.font='650 '+Math.round(cell*.7)+'px system-ui';
+      ctx.strokeText('Город',x,y-cell*.35);ctx.fillText('Город',x,y-cell*.35);
+      const label=(owned?'ваш · ':'')+'ур. '+s.city_levels[i];
+      ctx.font=Math.round(cell*.5)+'px system-ui';
+      ctx.strokeText(label,x,y+cell*.35);ctx.fillText(label,x,y+cell*.35);
+      ctx.restore();
+    });
     const token=(p,n)=>{const {x,y}=displayTile(p,map.size);roundRect(x*cell+cell*.09,y*cell+cell*.09,cell*.82,cell*.82,cell*.2,'#d5c0e8');ctx.fillStyle='#654777';ctx.font='650 '+Math.round(cell*.55)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n,(x+.5)*cell,(y+.52)*cell);};
     map.opponent_positions.forEach((p,i)=>{if(s.alive[i]&&!(ruinInfo()?.ruins||[]).some(r=>r.enemy===i)&&!(territoryInfo()?.cities||[]).some(c=>c.position.every((v,j)=>v===p[j])))token(p,map.enemy_units[i]);});
     (map.chests||[]).forEach((chest,i)=>{
@@ -565,19 +584,6 @@
       roundRect(x+cell*.12,y+cell*.24,cell*.76,cell*.6,cell*.1,'#9b6230');
       roundRect(x+cell*.12,y+cell*.17,cell*.76,cell*.28,cell*.1,'#d8ad64');
       ctx.fillStyle='#f5dfa1';ctx.fillRect(x+cell*.44,y+cell*.35,cell*.12,cell*.24);
-    });
-    (territoryInfo()?.cities||[]).forEach((city,i)=>{
-      const tile=displayTile(city.position,map.size),x=(tile.x+.5)*cell,y=(tile.y+.5)*cell;
-      const owned=s.city_owned[i],size=cell*3;
-      ctx.save();
-      roundRect(x-size/2+1,y-size/2+1,size-2,size-2,cell*.2,owned?'#eadcbb':'#e2d8ec');
-      ctx.strokeStyle=owned?'#a48649':'#9676af';ctx.lineWidth=1;
-      ctx.strokeRect(x-size/2+2,y-size/2+2,size-4,size-4);
-      ctx.fillStyle=owned?'#745522':'#654777';
-      ctx.textAlign='center';ctx.textBaseline='middle';
-      ctx.font='650 '+Math.round(cell*.7)+'px system-ui';ctx.fillText('Город',x,y-cell*.35);
-      ctx.font=Math.round(cell*.5)+'px system-ui';ctx.fillText((owned?'ваш · ':'')+'ур. '+s.city_levels[i],x,y+cell*.35);
-      ctx.restore();
     });
     const capital=capitalInfo()?.position;
     if(capital){

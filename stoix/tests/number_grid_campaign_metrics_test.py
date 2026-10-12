@@ -2,6 +2,7 @@
 import jax
 import jax.numpy as jnp
 import pytest
+import chex
 
 from numbergrid_campaign import CampaignMetrics
 from stoix.envs.number_grid import BUILD_START, DEFEND, REST, CONTINUE
@@ -103,10 +104,19 @@ def test_gpu_reduction_keeps_every_total_and_latest_100_completions():
 
 @pytest.mark.parametrize('training_autoreset', ['contract'], indirect=True)
 def test_episode_counters_reset_with_environment(training_autoreset):
-    env, _, step = training_autoreset
-    state, _ = compiled_method(env, 'reset')(jax.random.split(jax.random.PRNGKey(42), 2))
+    """Keep terminal telemetry/observations while resetting the next episode."""
+    env, eval_env, step = training_autoreset
+    state, reset_ts = compiled_method(env, 'reset')(jax.random.split(jax.random.PRNGKey(42), 2))
+    plain_step = compiled_method(eval_env, 'step', batched=True)
+    actions = jnp.full(2, REST, jnp.int32)
     for _ in range(2):
-        state, ts = step(state, jnp.full(2, REST, jnp.int32))
+        _, terminal_ts = plain_step(state.unwrapped_state, actions)
+        state, ts = step(state, actions)
+        assert jnp.all(ts.truncated()) and not jnp.any(ts.terminated())
+        assert jnp.all(ts.discount == 1)
+        chex.assert_trees_all_equal(ts.observation, reset_ts.observation)
+        chex.assert_trees_all_equal(ts.extras['next_obs'], terminal_ts.observation)
+        assert jnp.any(ts.extras['next_obs']['observation'] != ts.observation['observation'])
         assert jnp.all(ts.extras['episode_metrics']['is_terminal_step'])
         assert jnp.all(ts.extras['episode_metrics']['campaign_episode'][:, CAMPAIGN_FIELDS.index('timeouts')] == 1)
         assert not jnp.any(state.campaign_counts)

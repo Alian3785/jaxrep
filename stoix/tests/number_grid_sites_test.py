@@ -10,6 +10,7 @@ import pytest
 from stoix.envs.number_grid import MAP, ACTIONS, ACTION_NAMES, REST
 from stoix.envs.number_grid_items import ItemRules
 from stoix.envs.number_grid_sites import SiteRules, site_layout, BOUGHT, TRAINED
+from stoix.envs.number_grid_metrics import CAMPAIGN_FIELDS
 from stoix.tests.number_grid_fixtures import compiled_method, hero_roster_state
 
 
@@ -118,7 +119,9 @@ def test_trade_and_training_reject_unavailable_actions(current_game):
     variants += [(battle,buy),(battle,train)]
     for before,action in variants:
         assert not compiled_method(env,'action_mask')(before)[action]
-        unchanged(before,advance(before,jnp.int32(action))[0])
+        after, ts = advance(before,jnp.int32(action))
+        unchanged(before,after)
+        assert ts.extras['campaign_events'][CAMPAIGN_FIELDS.index('trainer_uses')] == 0
 
 
 def test_no_manual_sales_and_retained_inventory(current_game):
@@ -165,7 +168,8 @@ def test_training_partial_full_hero_growth_and_cap(current_game):
     rules=env.site_rules
     state=at_site(env,initial,'trainer').replace(gold=jnp.int32(11),movement_points=jnp.int32(0))
     state=compiled_method(env,'_refresh_equipment')(inventory(env,state,['tome_war']))  # Battle XP bonuses do not apply.
-    result,_=advance(state,jnp.int32(rules.train_start))
+    result,ts=advance(state,jnp.int32(rules.train_start))
+    assert ts.extras['campaign_events'][CAMPAIGN_FIELDS.index('trainer_uses')] == 1
     assert result.last_event==TRAINED and result.unit_xp[0]==2 and result.gold==3
     assert result.last_service_cost==8 and result.last_xp[0]==2
     assert result.day==state.day and result.movement_points==0
@@ -174,10 +178,13 @@ def test_training_partial_full_hero_growth_and_cap(current_game):
     for slot in (0,1):
         before=at_site(env,initial,'trainer')
         cap=int(env.progression.required_xp(before.unit_ids[slot],before.unit_levels[slot]))-1
-        result,_=advance(before,jnp.int32(rules.train_start+slot))
+        result,ts=advance(before,jnp.int32(rules.train_start+slot))
+        assert ts.extras['campaign_events'][CAMPAIGN_FIELDS.index('trainer_uses')] == 1
         assert result.unit_xp[slot]==cap and result.gold==before.gold-4*cap
         assert not compiled_method(env,'action_mask')(result)[rules.train_start+slot]
-        unchanged(result,advance(result,jnp.int32(rules.train_start+slot))[0])
+        after, ts = advance(result,jnp.int32(rules.train_start+slot))
+        unchanged(result,after)
+        assert ts.extras['campaign_events'][CAMPAIGN_FIELDS.index('trainer_uses')] == 0
     hero=at_site(env,initial,'trainer').replace(unit_levels=initial.unit_levels.at[1].set(2))
     result,_=advance(hero,jnp.int32(rules.train_start+1))
     assert result.unit_xp[1]==649 and result.gold==hero.gold-4*649

@@ -51,7 +51,7 @@
     const name=(map.name||'').replace(/^NumberGrid-\d+x\d+-/,'');
     return map.display_name||({
       default:'Default', super_last_stand:'Super Last Stand',
-      siege_train:'Siege Train', wotans_retribution:'Возмездие Вотана'
+      siege_train:'Siege Train', wotans_retribution:'Возмездие Вотана', trade_train:'Торговое обучение'
     })[name]||name;
   }
   function construction(){return mode==='manual'?(manualConstruction||data.construction):data.construction;}
@@ -955,7 +955,12 @@
   document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});
   $('version').textContent=data.map.name;
   $('map-name').textContent=mapTitle(data.map);
-  if(data.result){$('run-card').hidden=false;$('run-info').textContent='Запись: '+data.map.opponent_positions.length+' вражеских отрядов'+' · '+fmt(data.result.training_steps)+' шагов · '+fmt(Math.round(data.result.mean_steps_per_second))+' шагов/с';$('run-evaluation').textContent='Победы argmax на карте записи: '+data.result.final_evaluation.successes+' / '+data.result.final_evaluation.episodes+'.';}
+  if(data.result){
+    $('run-card').hidden=false;
+    $('run-info').textContent='Запись: '+data.map.opponent_positions.length+' вражеских отрядов'+' · '+fmt(data.result.training_steps)+' шагов · '+fmt(Math.round(data.result.mean_steps_per_second))+' шагов/с';
+    const evaluation=data.result.final_evaluation;
+    $('run-evaluation').textContent=evaluation?'Победы argmax на карте записи: '+evaluation.successes+' / '+evaluation.episodes+'.':'Оценка модели не проводилась.';
+  }
   let agentPick=null,agentAuto=false,actionCount=0,autoRun=0;
   function showPick(){
     document.querySelectorAll('.agent-pick').forEach(b=>b.classList.remove('agent-pick'));
@@ -982,7 +987,8 @@
     while(run===autoRun&&agentAuto&&mode==='manual'&&manual&&!manual.state.done){if(busy){await new Promise(r=>setTimeout(r,60));continue;}if(!await agentMove())break;await new Promise(r=>setTimeout(r,120));}
     if(run===autoRun)setAuto(false);};
   fetch('/api/health').then(r=>r.json()).then(h=>{if(!h.agent)return;$('agent-controls').hidden=false;
-    $('agent-info').textContent='Модель: '+fmt(h.agent.training_steps)+' шагов обучения · побед argmax '+h.agent.argmax_wins+' / '+h.agent.argmax_episodes+'.';}).catch(()=>{});
+    const evaluation=h.agent.argmax_episodes==null?'оценка не проводилась':'побед argmax '+h.agent.argmax_wins+' / '+h.agent.argmax_episodes;
+    $('agent-info').textContent='Модель: '+fmt(h.agent.training_steps)+' шагов обучения · '+evaluation+'.';}).catch(()=>{});
   window.numberGridApp={snapshot:()=>JSON.parse(JSON.stringify({mode,frame,...current()}))};
   if(records.length){manual=records[0].frames[0];render();}
   resetGame();

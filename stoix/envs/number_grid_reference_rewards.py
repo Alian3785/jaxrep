@@ -8,7 +8,22 @@ import jax
 import jax.numpy as jnp
 
 from stoix.envs.number_grid_capital import CAPITAL_HEAL, CAPITAL_REVIVE
+from stoix.envs.number_grid_combat import HP
 from stoix.envs.number_grid_unit_swaps import UNITS_SWAPPED
+
+
+def _wave_bonus(env, before, after):
+    multiplier = env.siege_rewards['victory_multiplier'] if env.siege_rewards else 1.
+    return multiplier*env.scenario.wave_bonus(before, after)
+
+
+def _siege_kills(env, state, killed):
+    """Pay for original enemy slots once, including across retreats/revivals."""
+    bits = jnp.left_shift(jnp.uint32(1), jnp.arange(6, dtype=jnp.uint32))
+    mask = jnp.bitwise_or.reduce(jnp.where(killed, bits, jnp.uint32(0)))
+    fresh = mask & ~state.siege_rewarded_kills
+    reward = env.siege_rewards['unit_kill']*jax.lax.population_count(fresh)
+    return state.replace(siege_rewarded_kills=state.siege_rewarded_kills | mask), reward
 
 
 def world(env, before, after, action, rest):
@@ -31,7 +46,22 @@ def world(env, before, after, action, rest):
     reward -= rest*env.rest_penalty(before)
     reward += .25*engage
     if env.scenario.enabled:
-        reward += env.scenario.wave_bonus(before, after)
+        reward += _wave_bonus(env, before, after)
+    if env.siege_rewards:
+        target = env.objective_enemy
+        spawned = after.scenario_spawned[target] & ~before.scenario_spawned[target]
+        # Snapshot the permanent party before battle preparation/automatic enemy
+        # activations. REST neither promotes nor revives units. No healing reward.
+        living = (before.hp[:6] > 0) & (before.unit_ids[:6] != 0)
+        strength = jnp.sum(jnp.where(living, env.max_hp(before)[:6], 0))
+        reward += spawned*env.siege_rewards['spawn_hp']*strength
+        if env.spell_casting_enabled:
+            maximum = env.progression.stats(env.casting.enemy_ids[target],
+                                            after.enemy_progress[target, :, 0])[:, HP].astype(jnp.int32)
+            dead = env.casting.occupied[target] & (after.enemy_wounds[target] >= maximum)
+            dead &= before.alive[target] & before.scenario_spawned[target]
+            after, bonus = _siege_kills(env, after, dead)
+            reward += bonus
     if env.spell_casting_enabled:
         reward += .005*(after.last_cast_spell >= 0)
         reward += .05*engage*before.summon_marks[jnp.maximum(after.enemy, 0)]
@@ -67,7 +97,9 @@ def world(env, before, after, action, rest):
 def battle(env, before, after, hp, victory, lost, withdrawal, item_using):
     summon = before.summon_battle
     ended = victory | lost | withdrawal
-    reward = jnp.where(ended, jnp.where(victory, jnp.where(summon, 0., .5), -.25), .0025)
+    multiplier = (jnp.where(before.enemy == env.objective_enemy,
+                           env.siege_rewards['victory_multiplier'], 1.) if env.siege_rewards else 1.)
+    reward = jnp.where(ended, jnp.where(victory, jnp.where(summon, 0., .5*multiplier), -.25), .0025)
     reward += .05*item_using
     real_victory = victory & ~summon
     ids = before.unit_ids[:6]
@@ -77,7 +109,7 @@ def battle(env, before, after, hp, victory, lost, withdrawal, item_using):
     survival = (.4*jnp.sum(present & (hp[:6] > 0)) +
                 .4*jnp.sum(jnp.where(present, jnp.clip(hp[:6]/jnp.maximum(1, maximum), 0., 1.), 0.)))/denominator
     experience = after.battle_xp[1].astype(jnp.float32)
-    reward += real_victory*(4.+.2*experience/(experience+100.)+survival)
+    reward += real_victory*(4.*multiplier+.2*experience/(experience+100.)+survival)
     hero = env.territory.heroes[after.unit_ids[:6]]
     changed = (after.last_promoted & jnp.left_shift(jnp.uint32(1), jnp.arange(6, dtype=jnp.uint32))) != 0
     levels = after.unit_levels[:6]
@@ -85,7 +117,14 @@ def battle(env, before, after, hp, victory, lost, withdrawal, item_using):
     promoted = changed & jnp.where(hero, (levels >= 2) & (levels <= 4), ids != after.unit_ids[:6])
     reward += (~summon)*jnp.sum(jnp.where(promoted, 3.+.5*levels, 0.))
     if env.scenario.enabled:
-        reward += env.scenario.wave_bonus(before, after)
+        reward += _wave_bonus(env, before, after)
+    if env.siege_rewards:
+        # reward HP precedes victory cleanup and the restoration of a summoned
+        # attacking party. Fleeing units retain HP and are not kills.
+        killed = (hp[6:] <= 0) & (before.enemy_initial_hp > 0)
+        killed &= before.in_battle & (before.enemy == env.objective_enemy)
+        after, bonus = _siege_kills(env, after, killed)
+        reward += bonus
     defeated = before.reference_defeated.at[before.enemy].set(
         before.reference_defeated[before.enemy] | real_victory)
     return after.replace(reference_defeated=defeated), reward.astype(jnp.float32)
@@ -101,7 +140,8 @@ def finish(env, before, after):
         new = jnp.sum(after.city_owned & env.territory.goal_cities)
         reward += 40.*(new-old)-32.*((old == 0) & (new > 0))
     else:
-        reward += 8.*(after.won & ~before.won)
+        multiplier = env.siege_rewards['victory_multiplier'] if env.siege_rewards else 1.
+        reward += 8.*multiplier*(after.won & ~before.won)
     milestones = jnp.max(env.max_hp(after)[:6]) > jnp.array([200, 250])
     # Temporary effects cannot permanently unlock milestone rewards.
     milestones &= ~after.in_battle

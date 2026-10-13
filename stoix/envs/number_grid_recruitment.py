@@ -58,7 +58,13 @@ class RecruitmentRules:
         self.mercenary = jnp.arange(self.offer_count) >= 5
         self.ids = jnp.array([progression.ids[k] for k in self.keys], jnp.int32)
         rows = [progression.rows[progression.ids[k]] for k in self.keys]
-        self.costs = jnp.array([int(r['game_data']['ENROLL_C'].split(':')[0][1:]) for r in rows], jnp.int32)
+        costs = [int(r['game_data']['ENROLL_C'].split(':')[0][1:]) for r in rows]
+        for i, offer in enumerate(roster, start=5):
+            price = offer.get('price', costs[i])
+            if type(price) is not int or price < 1:
+                raise ValueError('Mercenary prices must be positive integer gold amounts')
+            costs[i] = price
+        self.costs = jnp.array(costs, jnp.int32)
         self.sizes = progression.sizes[self.ids]
         self.front = jnp.array([r['role'] == 'melee' for r in rows])
         if any(r.get('hero') or r.get('size', 1) != 1 for r in rows[5:]):

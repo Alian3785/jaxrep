@@ -26,7 +26,7 @@ def validate(name):
     assert env.observation(state).shape == (env.observation_size,)
     assert bool(jnp.all(jnp.isfinite(env.observation(state))))
     assert not bool(state.done)
-    assert int(state.gold) == game_map['starting_gold']
+    assert int(state.gold) == game_map.get('starting_gold', 0)
     assert bool(jnp.all(state.scenario_spawned == ~env.scenario.scheduled))
     for _ in range(3):
         assert bool(env.action_mask(state)[REST])
@@ -52,6 +52,22 @@ def validate(name):
         assert bool(arrived.in_battle) or bool(arrived.done)
         assert int(arrived.enemy) == event['enemy']
         assert bool(jnp.isfinite(ts.reward))
+    if env.objective_enemy is not None and not env.scenario.enabled:
+        # Static dragon objectives: verify a legal approach and real engagement.
+        # This structural preflight does not claim a winning battle trajectory.
+        original, _ = reset(jax.random.PRNGKey(42))
+        target = env.objective_enemy
+        position = game_map['opponent_positions'][target]
+        blocked = env.territory.blocked_grid.reshape(env.size, env.size)
+        direction, offset = next((i, d) for i, d in enumerate(env.directions.tolist())
+            if not bool(blocked[position[0]-d[0], position[1]-d[1]]))
+        near = original.replace(position=jnp.array([position[0]-offset[0], position[1]-offset[1]], jnp.int32))
+        assert bool(env.action_mask(near)[direction])
+        arrived, ts = step(near, jnp.int32(direction))
+        assert bool(arrived.in_battle) or bool(arrived.done)
+        assert int(arrived.enemy) == target and bool(jnp.isfinite(ts.reward))
+        assert bool(env._goals_left(original.alive, original.scenario_spawned))
+        assert not bool(env._goals_left(original.alive.at[target].set(False), original.scenario_spawned))
     result = dict(map=name, gpu=str(jax.devices()[0]), armies=env.num_opponents,
                   scheduled_armies=len(env.scenario.events), actions=env.num_actions,
                   observation_size=env.observation_size, structural_passability=True,
@@ -67,7 +83,7 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     results = [validate(name) for name in args.maps or
-               ('super_last_stand', 'siege_train', 'wotans_retribution')]
+               ('super_last_stand', 'siege_train', 'wotans_retribution', 'trade_train')]
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(results, indent=2)+'\n', encoding='utf-8')
 

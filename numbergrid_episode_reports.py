@@ -1,5 +1,7 @@
 """Readable episode reports from sparse, already transferred GPU batches."""
 from collections import Counter
+import gzip
+import io
 import json
 from pathlib import Path
 
@@ -33,10 +35,14 @@ class EpisodeReports:
         self.completed = self.event_count = self.xp_total = 0
         self.outcomes, self.formations, self.units = Counter(), Counter(), Counter()
         self.defeated, self.killers = Counter(), Counter()
-        self.path = self.output / 'episode_reports.jsonl'
+        self.path = self.output / 'episode_reports.jsonl.gz'
         if self.path.exists():
             raise FileExistsError(f'Episode reports already exist: {self.path}')
         self.path.touch()
+        self._buffer = io.BytesIO()
+        self._gzip = None
+        self._pending_records = 0
+        self.uncompressed_bytes = 0
         self._json('episode_reports.metadata.json', dict(schema_version=SCHEMA_VERSION,
             phase=phase, map=game_map['name'],
             source='Shared JAX environment; sparse events before autoreset',
@@ -44,7 +50,9 @@ class EpisodeReports:
             fighter_identity='Episode-local identity follows swaps, including whole-column swaps',
             event_order='decision order; simultaneous promotions ordered by final slot',
             catalogue=self.catalogue, enemies=combat['enemies'],
-            reference_enemy_ids=game_map.get('reference_enemy_ids'), complete_coverage=True))
+            reference_enemy_ids=game_map.get('reference_enemy_ids'), complete_coverage=True,
+            storage=dict(format='jsonl.gz', compression='gzip', compression_level=6,
+                flush='On summary: every 1,000,000 training transitions and at completion')))
 
     def _json(self, name, data):
         (self.output / name).write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
@@ -173,8 +181,26 @@ class EpisodeReports:
                 self._count(episode)
                 del self.active[stream]
         if lines:
-            with self.path.open('a', encoding='utf-8') as stream:
-                stream.writelines(lines)
+            # Compress already-transferred batches in memory. Only summaries
+            # write to disk; learner/PPO blocks and GPU event collection stay unchanged.
+            if self._gzip is None:
+                self._gzip = gzip.GzipFile(fileobj=self._buffer, mode='wb', compresslevel=6, mtime=0)
+            data = ''.join(lines).encode('utf-8')
+            self._gzip.write(data)
+            self._pending_records += len(lines)
+            self.uncompressed_bytes += len(data)
+
+    def _flush_episodes(self):
+        """Append one complete gzip member; readers can inspect every saved prefix."""
+        if not self._pending_records:
+            return
+        if self._gzip is not None:
+            self._gzip.close()
+            self._gzip = None
+        with self.path.open('ab') as stream:
+            stream.write(self._buffer.getvalue())
+        self._buffer = io.BytesIO()
+        self._pending_records = 0
 
     def _count(self, episode):
         self.completed += 1
@@ -192,6 +218,8 @@ class EpisodeReports:
     def summary(self):
         return dict(schema_version=SCHEMA_VERSION, completed_episodes=self.completed,
             pending_episodes=len(self.active), events=self.event_count, outcomes=dict(self.outcomes),
+            episodes_file=self.path.name, episodes_file_bytes=self.path.stat().st_size,
+            episodes_uncompressed_bytes=self.uncompressed_bytes,
             mean_awarded_xp=self.xp_total/max(1, self.completed),
             final_formations=[dict(formation=k, episodes=v) for k,v in self.formations.most_common()],
             final_units=[dict(unit=k, occurrences=v) for k,v in self.units.most_common()],
@@ -202,6 +230,7 @@ class EpisodeReports:
     def write_summary(self, expected_completed=None, final=False):
         if expected_completed is not None and self.completed != expected_completed:
             raise ValueError(f'Episode report coverage mismatch: {self.completed} != {expected_completed}')
+        self._flush_episodes()
         summary = self.summary()
         self._json('episode_reports.summary.json', summary)
         lines = ['# Отчёты по эпизодам', '',
@@ -217,7 +246,9 @@ class EpisodeReports:
             for entry in entries[:20]:
                 roster = ', '.join(u['name'] for u in self.combat['enemies'][entry['index']] if u)
                 lines.append(f"| №{entry['index']+1}: {roster.replace('|', '/')} | {entry.get('method', 'hero')} | {entry['episodes']} |")
-        lines.extend(['', 'Полные составы, XP, последовательности улучшений и боёв: episode_reports.jsonl.',
+        lines.extend(['', f'Полные составы, XP, последовательности улучшений и боёв: {self.path.name}.',
+            f"Размер сжатого отчёта: {summary['episodes_file_bytes']} байт; "
+            f"исходные JSON-записи: {self.uncompressed_bytes} байт.",
             'Незавершённые эпизоды не входят в статистику; partial-файл содержит состояние на последнем записанном событии.', ''])
         (self.output/'episode_reports.md').write_text('\n'.join(lines), encoding='utf-8')
         if final:

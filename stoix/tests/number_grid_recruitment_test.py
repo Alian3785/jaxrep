@@ -6,6 +6,7 @@ import chex
 from stoix.envs.number_grid import MAP, ACTIONS, ACTION_NAMES, REST, SHOOT
 from stoix.envs.number_grid_buildings import BuildingRules
 from stoix.envs.number_grid_recruitment import RecruitmentRules, OFFERS, HIRED, DISMISSED
+from stoix.envs.number_grid_metrics import CAMPAIGN_FIELDS
 from stoix.tests.number_grid_fixtures import compiled_method, hero_roster_state
 
 
@@ -82,6 +83,8 @@ def test_dismiss_rehire_rewards_and_effect_cleanup(current_game):
     assert not jnp.any(out.potion_doses[0]) and not jnp.any(out.potion_bonus[0]) and out.potion_active[0] == 0
     hired,ts = advance(out,jnp.int32(rules.start))
     assert hired.last_event == HIRED and hired.gold == 950 and hired.hp[0] == initial.hp[0]
+    counts = dict(zip(CAMPAIGN_FIELDS, ts.extras['campaign_events']))
+    assert counts['hired_units'] == 1 and counts['mercenaries_hired'] == 0
     assert float(ts.reward) == pytest.approx(-.001)
     s = hired.replace(unit_levels=hired.unit_levels.at[1].set(3))
     hired,ts = advance(s,jnp.int32(rules.start+1))

@@ -302,7 +302,7 @@ def run_training(args, tracking):
                    episode_success_rate=summary['episode_success_rate'],
                    mean_episode_length=summary['mean_episode_length'],
                    episodes=int(summary['episodes']), episode_wins=int(summary['episode_wins']))
-            if getattr(args, 'select_best', False):
+            if getattr(args, 'save_checkpoints', False) or getattr(args, 'select_best', False):
                 checkpoint_started = time.perf_counter()
                 checkpoints.append(save_checkpoint(output, unreplicate(state.params), (i + 1) * step_size))
                 save_json(output / 'checkpoints.json', checkpoints)
@@ -316,7 +316,7 @@ def run_training(args, tracking):
         writer = csv.DictWriter(f, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
-    status('evaluating', training_seconds=training_seconds)
+    status('saving', training_steps=total, training_seconds=training_seconds)
     params = unreplicate(state.params)
     for leaf in jax.tree.leaves(params):
         if not np.isfinite(np.asarray(leaf)).all():
@@ -337,16 +337,21 @@ def run_training(args, tracking):
     if not all(np.array_equal(a, b) for a, b in zip(jax.tree.leaves(params), jax.tree.leaves(restored))):
         raise AssertionError('Checkpoint roundtrip failed')
     checkpoint_seconds = time.perf_counter()-checkpoint_started
-    final_eval_started = time.perf_counter()
-    final_evaluator = make_evaluator(actor, map_config=game_map)
-    final = final_evaluator(restored.actor_params)
-    final_evaluation_seconds = time.perf_counter()-final_eval_started
-    sample_eval_started = time.perf_counter()
-    sampled_evaluator = make_evaluator(actor, greedy=False, map_config=game_map)
-    sampled = sampled_evaluator(restored.actor_params)
-    sampled_evaluation_seconds = time.perf_counter()-sample_eval_started
-    tracking.evaluation(final, total)
-    tracking.evaluation(sampled, total)
+    evaluate = getattr(args, 'evaluate', False) or getattr(args, 'select_best', False)
+    final = sampled = None
+    final_evaluation_seconds = sampled_evaluation_seconds = 0.0
+    if evaluate:
+        status('evaluating', training_steps=total, training_seconds=training_seconds)
+        final_eval_started = time.perf_counter()
+        final_evaluator = make_evaluator(actor, map_config=game_map)
+        final = final_evaluator(restored.actor_params)
+        final_evaluation_seconds = time.perf_counter()-final_eval_started
+        sample_eval_started = time.perf_counter()
+        sampled_evaluator = make_evaluator(actor, greedy=False, map_config=game_map)
+        sampled = sampled_evaluator(restored.actor_params)
+        sampled_evaluation_seconds = time.perf_counter()-sample_eval_started
+        tracking.evaluation(final, total)
+        tracking.evaluation(sampled, total)
     source = ROOT / 'stoix/systems/ppo/anakin/ff_ppo.py'
     result = dict(
         environment=game_map['name'], algorithm='Stoix Anakin feedforward PPO', recurrent=False,
@@ -363,12 +368,15 @@ def run_training(args, tracking):
         episode_reports=(None if report_summary is None else {
             **{key: report_summary[key] for key in ('schema_version', 'completed_episodes',
                 'pending_episodes', 'events', 'outcomes', 'mean_awarded_xp')},
-            'episodes_file': 'episode_reports.jsonl',
+            'episodes_file': report_summary['episodes_file'],
+            'episodes_file_bytes': report_summary['episodes_file_bytes'],
+            'episodes_uncompressed_bytes': report_summary['episodes_uncompressed_bytes'],
             'summary_file': 'episode_reports.summary.json',
             'readable_summary_file': 'episode_reports.md'}),
         tracking_init_seconds=tracking.metadata['init_seconds'],
         completed_training_episodes=tracking.episodes, won_training_episodes=tracking.wins,
         tracking=tracking.metadata.copy(),
+        evaluation_status='completed' if evaluate else 'not_requested',
         final_evaluation=final, sampled_evaluation=sampled,
         final_evaluation_seconds=final_evaluation_seconds,
         sampled_evaluation_seconds=sampled_evaluation_seconds,
@@ -395,7 +403,8 @@ def run_training(args, tracking):
         result['transition_definition'] = 'One agent decision, including all automatic enemy turns, skips and completed retreats up to the next decision. Internal activations spend no additional step budget or per-step penalties.'
     result['source_hashes'] = source_hashes
     result['campaign_metrics'] = tracking.last_campaign_metrics
-    if checkpoints:
+    save_json(output / 'results.json', result)
+    if getattr(args, 'select_best', False):
         result['best_checkpoint'] = select_best_checkpoint(
             output, checkpoints, actor, params, game_map, result,
             final_evaluator, sampled_evaluator, tracking, status)
@@ -413,9 +422,13 @@ if __name__ == '__main__':
     p.add_argument('--total-timesteps', type=int, help='Default: 1,000,000 in test mode, otherwise 5,000,000')
     p.add_argument('--seed', type=int, help='Training seed; omitted: generate a fresh random seed for each run')
     p.add_argument('--output')
+    p.add_argument('--evaluate', action='store_true',
+                   help='Opt in to final argmax and sampled evaluation after training; disabled by default')
+    p.add_argument('--save-checkpoints', action='store_true',
+                   help='Save checkpoints at 1M summaries without requesting evaluation or best-model selection')
     p.add_argument('--select-best', action='store_true',
-                   help='Save checkpoints at 1M summaries; select by wins on 128 fixed episodes and evaluate the best on 1024 other episodes')
-    p.add_argument('--map', help='current, default, default-green-dragon, default-blue-dragon, super_last_stand, siege_train, wotans_retribution, or a saved map JSON')
+                   help='Opt in to evaluation and checkpoint selection: save at 1M summaries, select on 128 fixed episodes, evaluate final and best on 1024 other episodes')
+    p.add_argument('--map', help='current, default, default-green-dragon, default-blue-dragon, super_last_stand, siege_train, wotans_retribution, trade_train, or a saved map JSON')
     p.add_argument('--no-unit-swaps', action='store_true',
                    help='Remove the party swap actions and features from the map (unit_swaps: false)')
     p.add_argument('--no-episode-reports', action='store_true',

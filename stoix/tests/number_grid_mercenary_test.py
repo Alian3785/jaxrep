@@ -8,6 +8,7 @@ from stoix.envs.number_grid import MAP, REST
 from stoix.envs.number_grid_items import ItemRules
 from stoix.envs.number_grid_sites import SiteRules
 from stoix.envs.number_grid_recruitment import HIRED, RecruitmentRules
+from stoix.envs.number_grid_metrics import CAMPAIGN_FIELDS
 from stoix.tests.number_grid_fixtures import compiled_method, hero_roster_state
 
 
@@ -36,8 +37,11 @@ def test_mercenary_hiring_stock_rewards_and_reset(current_game):
         assert s.hp[slot] == hp and s.unit_levels[slot] == 1 and s.unit_xp[slot] == 0
         assert s.day == before.day and s.movement_points == 0
         assert float(ts.reward) == pytest.approx(reward)
+        counts = dict(zip(CAMPAIGN_FIELDS, ts.extras['campaign_events']))
+        assert counts['mercenaries_hired'] == counts['hired_units'] == 1
         assert not compiled_method(env,'action_mask')(s)[rules.start+offer]
-    s, _ = step(s, jnp.int32(rules.dismiss_start))
+    s, ts = step(s, jnp.int32(rules.dismiss_start))
+    assert ts.extras['campaign_events'][CAMPAIGN_FIELDS.index('mercenaries_hired')] == 0
     assert s.gold == 100 and s.mercenary_stock.tolist() == [0,0]
     s, _ = step(s, jnp.int32(REST))
     assert s.mercenary_stock.tolist() == [0,0]
@@ -64,7 +68,8 @@ def test_mercenary_mask_and_step_reject_all_unavailable_conditions(current_game)
     for before, offer in cases:
         action = jnp.int32(rules.start+offer)
         assert not compiled_method(env,'action_mask')(before)[action]
-        after, _ = step(before, action)
+        after, ts = step(before, action)
+        assert ts.extras['campaign_events'][CAMPAIGN_FIELDS.index('mercenaries_hired')] == 0
         for key in ('unit_ids','native_ids','hp','unit_xp','gold','mercenary_stock','movement_points','day','hire_rewarded_capacity'):
             chex.assert_trees_all_equal(getattr(before,key),getattr(after,key))
     available = jax.jit(rules.available)

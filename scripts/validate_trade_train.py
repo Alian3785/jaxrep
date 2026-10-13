@@ -28,7 +28,7 @@ class Walkthrough:
         self.view = jax.jit(lambda s: (self.env.action_mask(s), self.env.max_hp(s),
                                       jnp.all(jnp.isfinite(self.env.observation(s)))))
         self.state, _ = jax.jit(self.env.reset)(jax.random.PRNGKey(seed))
-        self.actions, self.events = [], []
+        self.actions, self.events, self.level_reward_payments = [], [], []
         self.reward = 0.
         self.sync()
         self.blocked = jax.device_get(self.env.territory.blocked_grid).reshape(self.env.size, self.env.size)
@@ -62,12 +62,27 @@ class Walkthrough:
             action = self.names.index(action)
         assert self.mask[action], f'Illegal action {self.names[action]} at {self.host.position}'
         assert not self.host.done, 'Action after terminal state'
+        before = self.host
         self.state, timestep = self.step(self.state, jnp.int32(action))
         reward = float(timestep.reward)
         assert bool(jnp.isfinite(timestep.reward)), 'Non-finite reward'
         self.reward += reward
         self.actions.append(int(action))
         self.sync()
+        if self.env.army_victory_level_reward:
+            paid = self.host.army_victory_rewarded & ~before.army_victory_rewarded
+            defeated = before.alive & ~self.host.alive
+            assert not bool((paid & ~defeated).any()), 'Army level bonus without victory'
+            for enemy in range(self.env.num_opponents):
+                if paid[enemy]:
+                    strength = int(before.army_battle_level_strength)
+                    if not before.in_battle:
+                        strength = sum(max(int(level)-1, 0) for uid, level, hp in zip(
+                            before.unit_ids[:6], before.unit_levels[:6], before.hp[:6]) if uid and hp > 0)
+                    self.level_reward_payments.append(dict(enemy=enemy+1, decision=len(self.actions),
+                        strength=strength, bonus=self.env.army_victory_level_reward*strength))
+            if not self.host.in_battle or self.host.done:
+                assert int(self.host.army_battle_level_strength) == 0, 'Stale battle strength'
         assert not self.host.lost, f'Lost after {len(self.actions)} actions'
         assert len(self.actions) < self.game_map['max_steps'], 'Planner exceeded episode limit'
 
@@ -212,14 +227,16 @@ class Walkthrough:
                 self.buy_final_preparation()
             self.fight(enemy)
         assert self.host.won and self.host.done and not self.host.alive.any()
-        if self.env.army_engage_level_reward:
-            assert self.host.army_engage_rewarded.tolist() == [True]*6
+        if self.env.army_victory_level_reward:
+            assert self.host.army_victory_rewarded.tolist() == [True]*6
+            assert len(self.level_reward_payments) == 6
         return dict(map='trade_train', seed=self.seed, backend=str(jax.devices()[0]),
                     map_sha256=hashlib.sha256(Path('maps/trade_train.json').read_bytes()).hexdigest(),
                     won=True, decisions=len(self.actions), reward=self.reward,
                     action_names=self.names, actions=self.actions, events=self.events,
                     training_transitions=0, state_injections=0,
-                    army_engage_rewarded=self.host.army_engage_rewarded.tolist())
+                    army_victory_rewarded=self.host.army_victory_rewarded.tolist(),
+                    level_reward_payments=self.level_reward_payments)
 
 
 def main():

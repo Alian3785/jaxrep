@@ -119,8 +119,8 @@ def build(base, name):
         # User-requested JAX training shaping, not an original game mechanic.
         game_map['siege_rewards'] = dict(victory_multiplier=3., unit_kill=5., spawn_hp=.05)
     if name == 'trade_train':
-        # User-requested sum of levels above 1 at each army's first engagement.
-        game_map['army_engage_level_reward'] = 5.
+        # User-requested entry levels above 1, paid only for the hero army's victory.
+        game_map['army_victory_level_reward'] = 5.
     for chest in layout['chests']:
         p, it = loot(chest['items'])
         game_map['chests'].append(dict(position=cell(chest['position']), potions=p, items=it))

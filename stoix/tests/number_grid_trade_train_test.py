@@ -11,7 +11,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from stoix.envs.number_grid import NumberGrid, action_names, load_map
+from stoix.envs.number_grid import DEFEND, NumberGrid, action_names, load_map
 from stoix.envs.number_grid_recruitment import RecruitmentRules
 from stoix.tests.number_grid_fixtures import compiled_method, hero_roster_state
 
@@ -50,7 +50,7 @@ def test_reference_layout_and_objective(trade_game):
     assert not bool(env._goals_left(jnp.zeros_like(state.alive), state.scenario_spawned))
     assert env.num_actions == len(action_names(config)) == 195
     observation = compiled_method(env, 'observation')(state)
-    assert observation.shape == (1307,) and bool(jnp.all(jnp.isfinite(observation)))
+    assert observation.shape == (1308,) and bool(jnp.all(jnp.isfinite(observation)))
 
 
 def test_every_site_approach_is_reachable_without_a_forced_battle(trade_game):
@@ -211,84 +211,139 @@ def test_scenario_price_validation_and_catalogue_fallback(trade_game):
     assert not bool(jnp.all(reset.battle_key == initial.battle_key))
 
 
-def test_level_engagement_reward_is_independent_once_per_enemy(trade_game):
-    """User request 2026-10-13: sum of living fighters' levels above 1, not HP."""
+def finish_trade_battle(env, battle, outcome='victory'):
+    """End an otherwise prepared battle through the actual combat transition."""
+    if outcome == 'victory':
+        battle = battle.replace(hp=battle.hp.at[6:].set(0))
+    elif outcome == 'retreat':
+        battle = battle.replace(escaped=battle.escaped.at[:6].set(True))
+    else:
+        battle = battle.replace(hp=battle.hp.at[:6].set(0))
+    # Complete post-battle healing; no eligible healer may postpone resolution.
+    battle = battle.replace(actor=jnp.int32(1), round=jnp.int32(1),
+                            post_victory=jnp.int32(1 if outcome == 'victory' else 2),
+                            pending_healers=jnp.zeros(12, bool))
+    return compiled_method(env, '_battle_step')(battle, jnp.int32(DEFEND),
+        jax.random.PRNGKey(19), jnp.full(env.random_size, .5))
+
+
+def test_level_bonus_paid_only_on_victory_once_per_enemy(trade_game):
+    """User request 2026-10-14: retain entry strength, pay only after winning."""
     env, initial, _, _ = trade_game
     advance = compiled_method(env, '_world_step')
     base = hero_roster_state(env, initial, ['defender_of_faith', 'duke', None, 'white_mage', None, None])
     base = base.replace(hp=base.hp.at[0].set(1).at[3].set(0),
-                        unit_levels=base.unit_levels.at[2].set(99),  # empty slot contributes nothing
+                        unit_levels=base.unit_levels.at[2].set(99),
                         potion_bonus=base.potion_bonus.at[0, 0].add(100).at[3, 0].add(500))
-    flags = initial.army_engage_rewarded
-    assert flags.tolist() == [False]*6
+    flags = initial.army_victory_rewarded
     key, draws = jax.random.PRNGKey(19), jnp.full(env.random_size, .5)
-    assert env.army_engage_level_reward == 5.
+    assert flags.tolist() == [False]*6 and env.army_victory_level_reward == 5.
     for enemy in range(6):
         before = base.replace(position=initial.enemy_positions[enemy]-jnp.array([0, 1]),
-                              army_engage_rewarded=flags)
-        arrived, reward = advance(before, jnp.int32(2), key, draws)
-        paid = before.replace(army_engage_rewarded=flags.at[enemy].set(True))
-        _, plain = advance(paid, jnp.int32(2), key, draws)
-        assert arrived.in_battle and int(arrived.enemy) == enemy and not arrived.summon_battle
-        # Wounded Defender of Faith (5) + Duke (1); dead White Mage (4) excluded.
+                              army_victory_rewarded=flags)
+        arrived, entry_reward = advance(before, jnp.int32(2), key, draws)
+        claimed, claimed_entry = advance(before.replace(army_victory_rewarded=flags.at[enemy].set(True)),
+                                          jnp.int32(2), key, draws)
+        assert arrived.in_battle and int(arrived.enemy) == enemy
+        assert float(entry_reward) == pytest.approx(float(claimed_entry))
+        assert arrived.army_victory_rewarded.tolist() == flags.tolist()
+        # Wounded Defender of Faith (5) + Duke (1); dead/empty slots contribute zero.
+        assert int(arrived.army_battle_level_strength) == 4
+        won, reward = finish_trade_battle(env, arrived)
+        _, plain = finish_trade_battle(env, claimed)
+        assert not bool(won.alive[enemy])
         assert float(reward-plain) == pytest.approx(20.)
-        expected = flags.at[enemy].set(True)
-        assert bool(jnp.all(arrived.army_engage_rewarded == expected))
-        hp_only = before.replace(potion_bonus=before.potion_bonus.at[0, 0].add(200))
-        _, boosted = advance(hp_only, jnp.int32(2), key, draws)
-        assert float(boosted) == pytest.approx(float(reward))
-        stronger = before.replace(unit_levels=before.unit_levels.at[1].add(3))
-        _, more = advance(stronger, jnp.int32(2), key, draws)
-        assert float(more-reward) == pytest.approx(15.)
-        # Returning after retreat must not repay this enemy, even with more levels.
-        _, repeated = advance(stronger.replace(army_engage_rewarded=expected), jnp.int32(2), key, draws)
+        flags = flags.at[enemy].set(True)
+        assert won.army_victory_rewarded.tolist() == flags.tolist()
+        assert int(won.army_battle_level_strength) == 0
+        # Neither altered HP nor temporary combat levels change the entry snapshot.
+        changed = arrived.replace(potion_bonus=arrived.potion_bonus.at[0, 0].add(200),
+                                  unit_levels=arrived.unit_levels.at[0].add(3))
+        _, boosted = finish_trade_battle(env, changed)
+        _, boosted_plain = finish_trade_battle(env, changed.replace(army_victory_rewarded=flags))
+        assert float(boosted-boosted_plain) == pytest.approx(20.)
+        # Sticky flags also block payment if an already claimed enemy resolves again.
+        _, repeated = finish_trade_battle(env, claimed.replace(army_battle_level_strength=jnp.int32(100)))
         assert float(repeated) == pytest.approx(float(plain))
-        flags = arrived.army_engage_rewarded
-    assert compiled_method(env, 'observation')(arrived)[-6:].tolist() == [1.]*6
+    assert compiled_method(env, 'observation')(won)[-7:].tolist() == [1.]*6+[0.]
     reset, _ = compiled_method(env, 'reset')(jax.random.PRNGKey(44))
-    assert reset.army_engage_rewarded.tolist() == [False]*6
+    assert reset.army_victory_rewarded.tolist() == [False]*6
+    assert int(reset.army_battle_level_strength) == 0
 
 
 @pytest.mark.parametrize('levels,expected', [([1, 1, 1, 1], 0.), ([2, 2, 3, 1], 20.),
                                           ([4, 4, 4, 4], 60.)])
-def test_army_level_reward_uses_level_one_baseline_per_fighter(trade_game, levels, expected):
+def test_army_victory_bonus_uses_entry_levels_above_one(trade_game, levels, expected):
     env, initial, _, _ = trade_game
-    advance = compiled_method(env, '_world_step')
     state = hero_roster_state(env, initial, ['possessed', 'duke', 'possessed', 'cultist', None, None])
     state = state.replace(position=initial.enemy_positions[5]-jnp.array([0, 1]),
                           unit_levels=state.unit_levels.at[:4].set(jnp.array(levels)))
-    key, draws = jax.random.PRNGKey(23), jnp.full(env.random_size, .5)
-    arrived, reward = advance(state, jnp.int32(2), key, draws)
-    claimed = state.replace(army_engage_rewarded=state.army_engage_rewarded.at[5].set(True))
-    _, plain = advance(claimed, jnp.int32(2), key, draws)
-    assert arrived.in_battle and float(reward-plain) == pytest.approx(expected)
-    assert bool(arrived.army_engage_rewarded[5])  # even a zero first bonus consumes the encounter
-    later = claimed.replace(unit_levels=claimed.unit_levels.at[:4].add(1))
-    _, repeated = advance(later, jnp.int32(2), key, draws)
-    assert float(repeated) == pytest.approx(float(plain))
+    arrived, _ = compiled_method(env, '_world_step')(state, jnp.int32(2),
+        jax.random.PRNGKey(23), jnp.full(env.random_size, .5))
+    assert not bool(arrived.army_victory_rewarded[5])
+    observation = compiled_method(env, 'observation')(arrived)
+    assert float(observation[-1]) == pytest.approx(expected/5./100.)
+    won, reward = finish_trade_battle(env, arrived)
+    _, plain = finish_trade_battle(env, arrived.replace(
+        army_victory_rewarded=arrived.army_victory_rewarded.at[5].set(True)))
+    assert float(reward-plain) == pytest.approx(expected)
+    assert bool(won.army_victory_rewarded[5])  # a zero-level bonus still completes this enemy
 
 
-def test_summons_and_invalid_moves_do_not_claim_army_level_bonus(trade_game):
+@pytest.mark.parametrize('outcome', ['retreat', 'defeat'])
+def test_unsuccessful_battle_discards_bonus_without_claiming_enemy(trade_game, outcome):
+    env, initial, _, _ = trade_game
+    base = hero_roster_state(env, initial, ['defender_of_faith', 'duke', None, None, None, None])
+    base = base.replace(position=initial.enemy_positions[5]-jnp.array([0, 1]))
+    advance = compiled_method(env, '_world_step')
+    key, draws = jax.random.PRNGKey(25), jnp.full(env.random_size, .5)
+    arrived, _ = advance(base, jnp.int32(2), key, draws)
+    after, reward = finish_trade_battle(env, arrived, outcome)
+    _, plain = finish_trade_battle(env, arrived.replace(army_battle_level_strength=jnp.int32(0)), outcome)
+    assert float(reward) == pytest.approx(float(plain))
+    assert not bool(jnp.any(after.army_victory_rewarded))
+    assert int(after.army_battle_level_strength) == 0
+    if outcome == 'retreat':
+        # Re-entry earns nothing immediately and snapshots the now stronger army.
+        after = after.replace(movement_points=jnp.int32(100),
+                              unit_levels=after.unit_levels.at[1].add(2))
+        retried, _ = advance(after, jnp.int32(2), key, draws)
+        assert retried.in_battle and int(retried.army_battle_level_strength) == 6
+        won, reward = finish_trade_battle(env, retried)
+        _, plain = finish_trade_battle(env, retried.replace(
+            army_victory_rewarded=retried.army_victory_rewarded.at[5].set(True)))
+        assert float(reward-plain) == pytest.approx(30.)
+        assert bool(won.army_victory_rewarded[5])
+
+
+def test_summons_and_invalid_moves_do_not_claim_victory_level_bonus(trade_game):
     env, initial, step, _ = trade_game
     near = initial.replace(position=initial.enemy_positions[0]-jnp.array([0, 1]))
     spell = next(i for i, row in enumerate(env.casting.rows) if row['id'] == 'g000ss0058')
     prepared = near.replace(learned_spells=jnp.uint32(1 << spell), mana=jnp.full(5, 5000, jnp.int32))
     battle, _ = compiled_method(env, '_world_step')(prepared, jnp.int32(env.casting.start+spell),
         jax.random.PRNGKey(22), jnp.full(env.random_size, .5))
-    assert battle.summon_battle and not bool(jnp.any(battle.army_engage_rewarded))
+    assert battle.summon_battle and int(battle.army_battle_level_strength) == 0
+    # Even a stale snapshot must not reward a summoned army's victory.
+    won, reward = finish_trade_battle(env, battle.replace(army_battle_level_strength=jnp.int32(50)))
+    _, plain = finish_trade_battle(env, battle)
+    assert float(reward) == pytest.approx(float(plain))
+    assert not bool(jnp.any(won.army_victory_rewarded))
     invalid, _ = step(near.replace(movement_points=jnp.int32(0)), jnp.int32(2))
-    assert not invalid.in_battle and not bool(jnp.any(invalid.army_engage_rewarded))
+    assert not invalid.in_battle and not bool(jnp.any(invalid.army_victory_rewarded))
+    assert int(invalid.army_battle_level_strength) == 0
 
 
 @pytest.mark.parametrize('value', [-5., True, float('nan'), float('inf'), '5'])
-def test_invalid_army_level_coefficient_is_rejected(value):
-    with pytest.raises(ValueError, match='army_engage_level_reward'):
-        NumberGrid(map_config={**load_map('trade_train'), 'army_engage_level_reward': value})
+def test_invalid_army_victory_level_coefficient_is_rejected(value):
+    with pytest.raises(ValueError, match='army_victory_level_reward'):
+        NumberGrid(map_config={**load_map('trade_train'), 'army_victory_level_reward': value})
 
 
-def test_obsolete_army_hp_reward_is_not_silently_reinterpreted():
+@pytest.mark.parametrize('old_key', ['army_engage_hp_reward', 'army_engage_level_reward'])
+def test_obsolete_engagement_rewards_are_not_silently_reinterpreted(old_key):
     config = load_map('trade_train')
-    config.pop('army_engage_level_reward')
-    config['army_engage_hp_reward'] = .05
-    with pytest.raises(ValueError, match='army_engage_hp_reward was replaced'):
+    config.pop('army_victory_level_reward')
+    config[old_key] = 5.
+    with pytest.raises(ValueError, match=f'{old_key} was replaced'):
         NumberGrid(map_config=config)

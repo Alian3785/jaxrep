@@ -186,7 +186,9 @@ def test_without_objective_cities_the_capital_guard_is_not_a_goal():
     env = NumberGrid(map_config={**DEFAULT, 'cities': [dict(c, objective=False) for c in DEFAULT['cities']]})
     only_guard = jnp.zeros(len(DEFAULT['opponent_positions']), bool).at[GUARD].set(True)
     assert not env.territory.objective_cities
-    assert not env._goals_left(only_guard) and env._goals_left(only_guard.at[0].set(True))
+    spawned = ~env.scenario.scheduled  # Same initial spawn state as reset().
+    assert not env._goals_left(only_guard, spawned)
+    assert env._goals_left(only_guard.at[0].set(True), spawned)
 
 
 def test_reference_hero_skills(default_game):

@@ -363,7 +363,9 @@ def run_training(args, tracking):
         episode_reports=(None if report_summary is None else {
             **{key: report_summary[key] for key in ('schema_version', 'completed_episodes',
                 'pending_episodes', 'events', 'outcomes', 'mean_awarded_xp')},
-            'episodes_file': 'episode_reports.jsonl',
+            'episodes_file': report_summary['episodes_file'],
+            'episodes_file_bytes': report_summary['episodes_file_bytes'],
+            'episodes_uncompressed_bytes': report_summary['episodes_uncompressed_bytes'],
             'summary_file': 'episode_reports.summary.json',
             'readable_summary_file': 'episode_reports.md'}),
         tracking_init_seconds=tracking.metadata['init_seconds'],

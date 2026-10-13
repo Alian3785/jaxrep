@@ -3,6 +3,7 @@
 Sources: the existing progression, unit-swap, map-summon and autoreset rules.
 """
 import copy
+import gzip
 import json
 
 import chex
@@ -158,7 +159,12 @@ def test_writer_identity_xp_history_hire_and_loss_across_batches(tmp_path):
     dead = [row.copy() for row in hired]
     dead[3] = [0]*6
     writer.consume(packet(5,hired,dead,outcome=2,enemy=0,result=2))
-    episode = json.loads(writer.path.read_text())
+    assert writer.path.stat().st_size == 0  # No writes between interval summaries.
+    summary = writer.write_summary(expected_completed=1,final=True)
+    with gzip.open(writer.path, 'rt', encoding='utf-8') as stream:
+        episode = json.load(stream)
+    assert summary['episodes_file_bytes'] == writer.path.stat().st_size
+    assert summary['episodes_file_bytes'] < summary['episodes_uncompressed_bytes']
     assert [u['fighter_id'] for u in episode['final_party']] == [2,3]
     assert [u['xp_received'] for u in episode['final_party']] == [17,0]
     assert episode['fighters'][0]['xp_received'] == 150
@@ -166,7 +172,25 @@ def test_writer_identity_xp_history_hire_and_loss_across_batches(tmp_path):
     assert len(episode['upgrades']) == 1 and episode['upgrades'][0]['fighter_id'] == 1
     assert episode['defeated_armies'][0]['army']['reference_id'] == 31
     assert episode['defeat']['opponent']['units'][0]['name'] == 'Дракон'
-    writer.write_summary(expected_completed=1,final=True)
+
+
+def test_compressed_report_retains_every_interval_and_final_partial_interval(tmp_path):
+    combat = dict(catalogue=[None,dict(name='Боец',key='fighter')],
+                  enemies=[[dict(name='Дракон')]+[None]*5])
+    writer = EpisodeReports(tmp_path,dict(name='fixture'),combat)
+    party = [[1,0,0,0,0,0],[1,0,0,0,0,0],[0]*6,[1,0,0,0,0,0]]
+    for expected in (1,2,3):
+        previous_size = writer.path.stat().st_size
+        writer.consume(packet(1,party,party,outcome=1,enemy=0,result=1))
+        assert writer.path.stat().st_size == previous_size
+        summary = writer.write_summary(expected_completed=expected,final=expected==3)
+        with gzip.open(writer.path, 'rt', encoding='utf-8') as stream:
+            episodes = [json.loads(line) for line in stream]
+        assert [e['episode'] for e in episodes] == list(range(1,expected+1))
+        assert summary['completed_episodes'] == expected
+    size = writer.path.stat().st_size
+    writer.write_summary(expected_completed=3,final=True)
+    assert writer.path.stat().st_size == size  # Empty final flush cannot duplicate records.
 
 
 def test_autoreset_retains_terminal_report_and_preserves_transition(current_game):

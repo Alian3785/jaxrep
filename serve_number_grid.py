@@ -94,10 +94,11 @@ class Agent:
             torso=hydra.utils.instantiate(config.network.actor_network.pre_torso),
             action_head=hydra.utils.instantiate(config.network.actor_network.action_head,
                                                 action_dim=len(ACTION_NAMES)))
+        evaluation = result.get('final_evaluation') or {}
         self.info = dict(training_steps=result['training_steps'],
                          steps_per_second=result['mean_steps_per_second'],
-                         argmax_wins=result['final_evaluation']['successes'],
-                         argmax_episodes=result['final_evaluation']['episodes'])
+                         argmax_wins=evaluation.get('successes'),
+                         argmax_episodes=evaluation.get('episodes'))
         self.policies = {}
 
     def policy(self, env):

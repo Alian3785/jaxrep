@@ -15,7 +15,8 @@
   $('gpu').textContent = data.result.device.replace('NVIDIA GeForce ', '');
   $('steps').textContent = fmt(data.result.training_steps);
   $('throughput').textContent = fmt(Math.round(data.result.mean_steps_per_second)) + ' / с';
-  $('evaluation').textContent = `${data.result.final_evaluation.successes} / ${data.result.final_evaluation.episodes}`;
+  const evaluation = data.result.final_evaluation;
+  $('evaluation').textContent = evaluation ? `${evaluation.successes} / ${evaluation.episodes}` : 'Не проводилась';
   $('map-size-badge').textContent = map.size;
   $('map-size').textContent = `${map.size} × ${map.size}`;
   $('initial-number').textContent = map.agent_number;

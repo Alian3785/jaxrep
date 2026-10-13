@@ -135,6 +135,7 @@ class BattleState(NumberGridState):
     reference_potion_pending: jax.Array
     siege_rewarded_kills: jax.Array  # six original siege slots, sticky until episode reset
     objective_engage_rewarded: jax.Array  # first hero engagement, sticky until episode reset
+    army_engage_rewarded: jax.Array  # one first-engagement flag per enemy, or empty when disabled
     native_ids: jax.Array
     native_levels: jax.Array
     native_xp: jax.Array
@@ -685,6 +686,14 @@ class NumberGrid(Summoning, NumericNumberGrid):
             raise ValueError('objective_engage_hp_reward must be a finite nonnegative number')
         if self.objective_engage_hp_reward and (self.objective_enemy is None or not self.progression_enabled):
             raise ValueError('objective_engage_hp_reward requires an objective army and unit progression')
+        self.army_engage_hp_reward = game_map.get('army_engage_hp_reward', 0.)
+        if (type(self.army_engage_hp_reward) not in (int, float)
+                or not 0 <= self.army_engage_hp_reward < float('inf')):
+            raise ValueError('army_engage_hp_reward must be a finite nonnegative number')
+        if self.army_engage_hp_reward and not self.progression_enabled:
+            raise ValueError('army_engage_hp_reward requires unit progression')
+        if self.army_engage_hp_reward and self.objective_engage_hp_reward:
+            raise ValueError('army_engage_hp_reward and objective_engage_hp_reward are mutually exclusive')
         self.siege_rewards = game_map.get('siege_rewards')
         if self.siege_rewards is not None:
             if (not self.reference_rewards or game_map.get('campaign_objective') != 'target_enemy'
@@ -738,6 +747,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
                                  else self.observation_size + 2 * self.num_opponents + 12 * 8 + 6)
         self.observation_size += self.scenario.observation_size
         self.observation_size += bool(self.objective_engage_hp_reward)
+        self.observation_size += self.num_opponents if self.army_engage_hp_reward else 0
 
         if self.observation_version in (8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44):
             self.observation_size += 48
@@ -854,6 +864,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             reference_potion_pending=jnp.bool_(False),
             siege_rewarded_kills=jnp.uint32(0),
             objective_engage_rewarded=jnp.bool_(False),
+            army_engage_rewarded=jnp.zeros(self.num_opponents if self.army_engage_hp_reward else 0, bool),
             native_ids=jnp.zeros(12,jnp.int32), native_levels=jnp.zeros(12,jnp.int32),
             native_xp=jnp.zeros(12,jnp.int32), copied=jnp.zeros(12,bool),
             copy_stats=jnp.zeros((12,5),jnp.float32), copy_traits=jnp.zeros((12,4),jnp.uint32),
@@ -1628,6 +1639,8 @@ class NumberGrid(Summoning, NumericNumberGrid):
                 context=jnp.concatenate((context,self.scenario.observation(state)))
             if self.objective_engage_hp_reward:
                 context=jnp.concatenate((context,jnp.asarray([state.objective_engage_rewarded], jnp.float32)))
+            if self.army_engage_hp_reward:
+                context=jnp.concatenate((context,state.army_engage_rewarded.astype(jnp.float32)))
             return jnp.concatenate((state.position / (self.size-1),
                                     jnp.asarray([state.number / self.number_scale,
                                                  state.step_count / self.max_steps],jnp.float32),
@@ -2035,15 +2048,22 @@ class NumberGrid(Summoning, NumericNumberGrid):
             next_state = next_state.replace(last_event=jnp.where(summon, SUMMON_CAST, next_state.last_event))
         if self.reference_rewards:
             next_state, bonus = reference_rewards.world(self, before, next_state, action, resting)
-        if self.objective_engage_hp_reward:
-            first = (engage & next_state.in_battle & ~next_state.summon_battle
-                     & (next_state.enemy == self.objective_enemy) & ~before.objective_engage_rewarded)
+        if self.objective_engage_hp_reward or self.army_engage_hp_reward:
+            contact = engage & next_state.in_battle & ~next_state.summon_battle
             # Battle preparation has applied equipment and spell HP; automatic
             # enemy attacks have not run yet. Wounded living fighters still count.
             living = (next_state.hp[:6] > 0) & (next_state.unit_ids[:6] != 0)
             strength = jnp.sum(jnp.where(living, self.max_hp(next_state)[:6], 0))
-            bonus += first*self.objective_engage_hp_reward*strength
-            next_state = next_state.replace(objective_engage_rewarded=before.objective_engage_rewarded | first)
+            if self.objective_engage_hp_reward:
+                first = contact & (next_state.enemy == self.objective_enemy) & ~before.objective_engage_rewarded
+                bonus += first*self.objective_engage_hp_reward*strength
+                next_state = next_state.replace(objective_engage_rewarded=before.objective_engage_rewarded | first)
+            if self.army_engage_hp_reward:
+                enemy = jnp.clip(next_state.enemy, 0, self.num_opponents-1)
+                first = contact & (next_state.enemy >= 0) & ~before.army_engage_rewarded[enemy]
+                bonus += first*self.army_engage_hp_reward*strength
+                next_state = next_state.replace(army_engage_rewarded=before.army_engage_rewarded.at[enemy].set(
+                    before.army_engage_rewarded[enemy] | first))
         return next_state, bonus
 
     def _enemy_action(self, state, random_values):

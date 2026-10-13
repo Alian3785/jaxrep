@@ -212,11 +212,14 @@ class Walkthrough:
                 self.buy_final_preparation()
             self.fight(enemy)
         assert self.host.won and self.host.done and not self.host.alive.any()
+        if self.env.army_engage_hp_reward:
+            assert self.host.army_engage_rewarded.tolist() == [True]*6
         return dict(map='trade_train', seed=self.seed, backend=str(jax.devices()[0]),
                     map_sha256=hashlib.sha256(Path('maps/trade_train.json').read_bytes()).hexdigest(),
                     won=True, decisions=len(self.actions), reward=self.reward,
                     action_names=self.names, actions=self.actions, events=self.events,
-                    training_transitions=0, state_injections=0)
+                    training_transitions=0, state_injections=0,
+                    army_engage_rewarded=self.host.army_engage_rewarded.tolist())
 
 
 def main():

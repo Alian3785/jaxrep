@@ -118,6 +118,9 @@ def build(base, name):
     if name == 'siege_train':
         # User-requested JAX training shaping, not an original game mechanic.
         game_map['siege_rewards'] = dict(victory_multiplier=3., unit_kill=5., spawn_hp=.05)
+    if name == 'trade_train':
+        # User-requested first engagement bonus for each of the six armies.
+        game_map['army_engage_hp_reward'] = .05
     for chest in layout['chests']:
         p, it = loot(chest['items'])
         game_map['chests'].append(dict(position=cell(chest['position']), potions=p, items=it))

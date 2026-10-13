@@ -88,6 +88,7 @@
   "mines": [],
   "campaign_objective": "all_enemies",
   "reward_profile": "python_reference",
+  "army_engage_hp_reward": 0.05,
   "reference_enemy_ids": [1, 2, 3, 4, 5, 6],
   "reference_source": "Big_map/maps/trade_train.py; maps/trade_train/layout.json",
   "scheduled_enemies": [],

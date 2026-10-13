@@ -13,7 +13,7 @@ import pytest
 
 from stoix.envs.number_grid import NumberGrid, action_names, load_map
 from stoix.envs.number_grid_recruitment import RecruitmentRules
-from stoix.tests.number_grid_fixtures import compiled_method
+from stoix.tests.number_grid_fixtures import compiled_method, hero_roster_state
 
 
 @pytest.fixture(scope='module')
@@ -50,7 +50,7 @@ def test_reference_layout_and_objective(trade_game):
     assert not bool(env._goals_left(jnp.zeros_like(state.alive), state.scenario_spawned))
     assert env.num_actions == len(action_names(config)) == 195
     observation = compiled_method(env, 'observation')(state)
-    assert observation.shape == (1301,) and bool(jnp.all(jnp.isfinite(observation)))
+    assert observation.shape == (1307,) and bool(jnp.all(jnp.isfinite(observation)))
 
 
 def test_every_site_approach_is_reachable_without_a_forced_battle(trade_game):
@@ -209,3 +209,55 @@ def test_scenario_price_validation_and_catalogue_fallback(trade_game):
     assert reset.mercenary_stock.tolist() == [1]*8
     assert bool(jnp.all(reset.merchant_stock == initial.merchant_stock))
     assert not bool(jnp.all(reset.battle_key == initial.battle_key))
+
+
+def test_hp_engagement_reward_is_independent_once_per_enemy(trade_game):
+    """User request 2026-10-13: the blue-dragon HP formula for all six armies."""
+    env, initial, _, _ = trade_game
+    advance = compiled_method(env, '_world_step')
+    base = hero_roster_state(env, initial, ['defender_of_faith', 'duke', None, 'white_mage', None, None])
+    base = base.replace(hp=base.hp.at[0].set(1).at[3].set(0),
+                        potion_bonus=base.potion_bonus.at[0, 0].add(100).at[3, 0].add(500))
+    flags = initial.army_engage_rewarded
+    assert flags.tolist() == [False]*6
+    key, draws = jax.random.PRNGKey(19), jnp.full(env.random_size, .5)
+    assert env.army_engage_hp_reward == .05
+    for enemy in range(6):
+        before = base.replace(position=initial.enemy_positions[enemy]-jnp.array([0, 1]),
+                              army_engage_rewarded=flags)
+        arrived, reward = advance(before, jnp.int32(2), key, draws)
+        paid = before.replace(army_engage_rewarded=flags.at[enemy].set(True))
+        _, plain = advance(paid, jnp.int32(2), key, draws)
+        assert arrived.in_battle and int(arrived.enemy) == enemy and not arrived.summon_battle
+        maximum = env.max_hp(arrived)
+        assert float(reward-plain) == pytest.approx(.05*float(maximum[0]+maximum[1]))
+        expected = flags.at[enemy].set(True)
+        assert bool(jnp.all(arrived.army_engage_rewarded == expected))
+        stronger = before.replace(potion_bonus=before.potion_bonus.at[0, 0].add(200))
+        _, more = advance(stronger, jnp.int32(2), key, draws)
+        assert float(more-reward) == pytest.approx(10.)
+        # Returning after retreat must not repay this enemy, even with more HP.
+        _, repeated = advance(stronger.replace(army_engage_rewarded=expected), jnp.int32(2), key, draws)
+        assert float(repeated) == pytest.approx(float(plain))
+        flags = arrived.army_engage_rewarded
+    assert compiled_method(env, 'observation')(arrived)[-6:].tolist() == [1.]*6
+    reset, _ = compiled_method(env, 'reset')(jax.random.PRNGKey(44))
+    assert reset.army_engage_rewarded.tolist() == [False]*6
+
+
+def test_summons_and_invalid_moves_do_not_claim_army_hp_bonus(trade_game):
+    env, initial, step, _ = trade_game
+    near = initial.replace(position=initial.enemy_positions[0]-jnp.array([0, 1]))
+    spell = next(i for i, row in enumerate(env.casting.rows) if row['id'] == 'g000ss0058')
+    prepared = near.replace(learned_spells=jnp.uint32(1 << spell), mana=jnp.full(5, 5000, jnp.int32))
+    battle, _ = compiled_method(env, '_world_step')(prepared, jnp.int32(env.casting.start+spell),
+        jax.random.PRNGKey(22), jnp.full(env.random_size, .5))
+    assert battle.summon_battle and not bool(jnp.any(battle.army_engage_rewarded))
+    invalid, _ = step(near.replace(movement_points=jnp.int32(0)), jnp.int32(2))
+    assert not invalid.in_battle and not bool(jnp.any(invalid.army_engage_rewarded))
+
+
+@pytest.mark.parametrize('value', [-.05, True, float('nan'), float('inf'), '0.05'])
+def test_invalid_army_hp_coefficient_is_rejected(value):
+    with pytest.raises(ValueError, match='army_engage_hp_reward'):
+        NumberGrid(map_config={**load_map('trade_train'), 'army_engage_hp_reward': value})

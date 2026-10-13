@@ -1,7 +1,7 @@
 {
   "method": "Static JSON geometry analysis; no environment execution or gameplay simulation",
   "map": "NumberGrid-26x26-small",
-  "map_sha256": "9ba332f244c7ecd9f275bb2c4fc2a8ab5e31e51676f84819576760c676bfe4a5",
+  "map_sha256": "3749f2f677c929d225b84c27fd035ad428f9799c3f64894e16841108ba7bbe7a",
   "source_layout_sha256": "3eea06b85ea0fafe4d04ff520eede48e2dd29c8aedb8dad42e609f02bf8d9c78",
   "armies": 37,
   "overlappingObjects": [

@@ -75,7 +75,7 @@ def build(layout):
         opponent_positions=[cell(RUIN_ENTRANCES.get(e['id'], e['position'])) for e in stacks],
         opponent_numbers=[1]*len(stacks), **{k: CURRENT[k] for k in RULES},
         battle_items=True, hero_skills=True, faction='empire', hero_hp=150,
-        starting_gold=layout['starting_gold'], campaign_objective='cities',
+        starting_gold=int(layout['starting_gold']), campaign_objective='cities',
         enemy_rosters=rosters, enemy_units=[sum(k is not None for k in r) for r in rosters],
         enemy_hp=[max(UNITS[k]['max_hp'] for k in r if k) for r in rosters],
         enemy_initial_levels=[[max(UNITS[k]['level'], next(u['Level'] for u in e['units']

@@ -30,6 +30,7 @@ def test_small_reference_armies_and_independent_variants(tmp_path):
                        | {31, 34, 35, 68, 69, 70, 74, 75}) - {55})
     assert base['reference_enemy_ids'] == expected and len(expected) == 37
     assert base['size'] == 26 and base['agent_position'] == [14, 3]
+    assert type(base['starting_gold']) is int and base['starting_gold'] == 0
     assert len(base['chests']) == 9 and len(base['ruins']) == 2 and len(base['mines']) == 8
     assert [c['name'] for c in base['cities']] == ['Порт Полонис', 'Соругирилла']
     assert [base['city_defender_roles'][str(expected.index(i))] for i in (34, 35, 68, 69, 75)] == [

@@ -73,7 +73,7 @@
   "hero_skills": true,
   "faction": "empire",
   "hero_hp": 150,
-  "starting_gold": 0.0,
+  "starting_gold": 0,
   "campaign_objective": "cities",
   "enemy_rosters": [
     [null, "g000uu5039", null, null, null, null],

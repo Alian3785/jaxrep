@@ -47,6 +47,13 @@
   const blockText=s=>{const parts=[];for(const [key,label] of [['last_immune','Иммунитет'],['last_ward','Защита поглотила удар']]){const names=Array.from({length:12},(_,i)=>i).filter(i=>s[key]&(1<<i)).map(unitName);if(names.length)parts.push(label+': '+names.join(', ')+'.');}return parts.length?' '+parts.join(' '):'';};
   function current(){return mode==='manual'?manual:records[recordIndex]?.frames[frame];}
   function currentMap(){return mode==='manual'?(manualMap||data.map):data.map;}
+  function mapTitle(map){
+    const name=(map.name||'').replace(/^NumberGrid-\d+x\d+-/,'');
+    return map.display_name||({
+      default:'Default', super_last_stand:'Super Last Stand',
+      siege_train:'Siege Train', wotans_retribution:'Возмездие Вотана'
+    })[name]||name;
+  }
   function construction(){return mode==='manual'?(manualConstruction||data.construction):data.construction;}
   function turnRules(){return mode==='manual'?(manualTurnRules||data.turn_rules):data.turn_rules;}
   const potionInfo=()=>mode==='manual'?(manualPotions||data.potions):data.potions;
@@ -759,6 +766,7 @@
   function render(){
     const snap=current();if(!snap)return;const s=snap.state,mask=snap.action_mask,map=currentMap();
     $('version').textContent=map.name;
+    $('map-name').textContent=mapTitle(map);
     $('map-panel').hidden=s.in_battle||capitalOpen||potionsOpen||spellsOpen;$('battle-panel').hidden=!s.in_battle||capitalOpen||potionsOpen||spellsOpen;
     $('capital-panel').hidden=!capitalOpen;$('potions-panel').hidden=!potionsOpen;$('spells-panel').hidden=!spellsOpen;
     $('spells-view').setAttribute('aria-pressed',String(spellsOpen));
@@ -946,6 +954,7 @@
   window.addEventListener('resize',()=>{const snap=current();if(snap&&!snap.state.in_battle)drawMap(snap.state);});
   document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});
   $('version').textContent=data.map.name;
+  $('map-name').textContent=mapTitle(data.map);
   if(data.result){$('run-card').hidden=false;$('run-info').textContent='Запись: '+data.map.opponent_positions.length+' вражеских отрядов'+' · '+fmt(data.result.training_steps)+' шагов · '+fmt(Math.round(data.result.mean_steps_per_second))+' шагов/с';$('run-evaluation').textContent='Победы argmax на карте записи: '+data.result.final_evaluation.successes+' / '+data.result.final_evaluation.episodes+'.';}
   let agentPick=null,agentAuto=false,actionCount=0,autoRun=0;
   function showPick(){

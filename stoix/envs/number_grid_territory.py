@@ -49,6 +49,7 @@ def growth_ranks(size, sources, blocked):
 class TerritoryRules:
     def __init__(self, game_map, progression, start, site_rules=None, ruin_rules=None):
         self.size = int(game_map['size'])
+        self.moving_enemies = bool(game_map.get('scheduled_enemies'))
         self.capital = tuple(game_map['agent_position'])
         self.cities = list(game_map.get('cities', []))
         self.count = len(self.cities)
@@ -132,6 +133,10 @@ class TerritoryRules:
         self.objective_cities = any(c.get('objective',False) for c in self.cities)
         if self.objective_cities:
             self.goal_cities = jnp.array([c.get('objective',False) for c in self.cities])
+        if game_map.get('objective_enemy') is not None or game_map.get('campaign_objective') == 'waves':
+            # Hunting scenarios finish when the target falls; cities remain usable.
+            self.objective_cities = False
+            self.goal_cities = jnp.zeros(self.count, bool)
         self.enemy_city = jnp.array([next((i for i,c in enumerate(self.cities) if tuple(p)==tuple(c['position'])),-1) for p in enemy_positions],jnp.int32)
         # Enemy capitals: an obstacle footprint and one guard stack on its open tile.
         # The guard is never a victory goal and has no scripted bot or land spread.
@@ -176,6 +181,10 @@ class TerritoryRules:
         return (indices<self.enemy_count) & state.alive[jnp.minimum(indices,self.enemy_count-1)]
 
     def enemy_at(self, state, positions):
+        if self.moving_enemies:
+            present = jnp.all(positions[..., None, :] == state.enemy_positions, axis=-1) & state.alive
+            first = jnp.min(jnp.where(present, jnp.arange(self.enemy_count), self.enemy_count), axis=-1)
+            return jnp.where(first < self.enemy_count, first, -1)
         indices = self.armies_by_cell[self._cells(jnp.clip(positions,0,self.size-1))]
         first = jnp.min(jnp.where(self._living(state,indices),indices,self.enemy_count),axis=-1)
         return jnp.where(first<self.enemy_count,first,-1)

@@ -20,6 +20,10 @@ def _item(key, name, gid, category, price, label, **effects):
 
 
 ITEMS = (
+    # GItem G000IG5092. Its invisibility spell is unavailable in both campaign
+    # catalogues; preserve the Wotan trophy and its 20% resale value.
+    _item('illudere_terra_scroll', 'Illudere terra scroll', '5092', VALUABLE, 2000,
+          'Свиток невидимости: трофей, продажа за 400 золота', sell_price=400),
     _item('runestone','Runestone','2001',ARTIFACT,500,'Герою: +10 брони',armor=10),
     _item('holy_chalice','Holy Chalice','2002',ARTIFACT,1000,'Герою: +15 брони',armor=15),
     _item('skull_bracers','Skull Bracers','2003',ARTIFACT,1500,'Герою: +20 брони',armor=20),

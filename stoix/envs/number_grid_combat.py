@@ -113,16 +113,18 @@ def build_combat_tables(game_map):
                     attack_type='fire' if mage else 'weapon', immunities=[], protections=[])
             override = overrides[index]
             index += 1
-            if not isinstance(override, dict) or set(override) - PROFILE_FIELDS:
+            if not isinstance(override, dict) or set(override) - (PROFILE_FIELDS | {'exp_increment', 'name'}):
                 raise ValueError('Unknown combat profile fields')
             values = {**defaults, **override}
+            if not isinstance(values['name'], str) or not values['name'].strip():
+                raise ValueError('Combat name must be a nonempty string')
             if type(values.get('hero', False)) is not bool:
                 raise ValueError('Combat hero flag must be boolean')
             if values.get('upgrade_unavailable_reason'):
                 raise ValueError(values['upgrade_unavailable_reason'])
             if not isinstance(values['role'], str) or values['role'] not in ROLES:
                 raise ValueError('Unknown combat role')
-            for field in ('exp_kill', 'exp_required', 'exp_current'):
+            for field in ('exp_kill', 'exp_required', 'exp_current', 'exp_increment'):
                 value = values.get(field, 0)
                 if type(value) is not int or not 0 <= value <= 1_000_000:
                     raise ValueError('Invalid combat '+field)

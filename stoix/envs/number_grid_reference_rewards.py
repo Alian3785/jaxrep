@@ -1,0 +1,109 @@
+"""Training reward profile from Big_map/train_campaign.py REWARD_CONFIG.
+
+Campaign mechanics remain JAX mechanics. The reference's internal battle-step
+reward is summed over automatic activations inside one JAX player decision.
+See docs/REFERENCE_CAMPAIGNS.md for source functions and map-specific rewards.
+"""
+import jax
+import jax.numpy as jnp
+
+from stoix.envs.number_grid_capital import CAPITAL_HEAL, CAPITAL_REVIVE
+from stoix.envs.number_grid_unit_swaps import UNITS_SWAPPED
+
+
+def world(env, before, after, action, rest):
+    moved = jnp.any(before.position != after.position)
+    engage = after.in_battle & ~after.summon_battle
+    directional = (action >= 0) & (action < 8)
+    cell = after.position[0]*env.size+after.position[1]
+    visits = before.reference_visits[cell]
+    fresh = visits == 0
+    nonempty = env.territory.service_at(after) | jnp.any(jnp.all(
+        env.territory.mine_positions == after.position, axis=1))
+    if env.chests_enabled:
+        positions = jnp.array([c['position'] for c in env.map_config['chests']], jnp.int32).reshape(-1, 2)
+        nonempty |= jnp.any(before.chest_alive & jnp.all(positions == after.position, axis=1))
+    if env.sites_enabled:
+        nonempty |= jnp.any(jnp.all(env.site_rules.approach_tiles == after.position, axis=-1))
+    reward = -.002*directional + moved*(.01+.081*fresh+nonempty*(.05+.10*fresh))
+    penalty = jnp.minimum(.08, .015*visits)+.03*jnp.all(after.position == before.reference_previous)
+    reward -= moved*penalty
+    reward -= rest*env.rest_penalty(before)
+    reward += .25*engage
+    if env.scenario.enabled:
+        reward += env.scenario.wave_bonus(before, after)
+    if env.spell_casting_enabled:
+        reward += .005*(after.last_cast_spell >= 0)
+        reward += .05*engage*before.summon_marks[jnp.maximum(after.enemy, 0)]
+    reward += (jax.lax.population_count(after.learned_spells & ~before.learned_spells)).astype(jnp.float32)
+    reward += 12.*(after.hire_rewarded_capacity > before.hire_rewarded_capacity)
+    healing = jnp.maximum(0, jnp.sum(after.hp[:6]-before.hp[:6]))
+    reward += jnp.where(after.last_event == CAPITAL_HEAL,
+        .01*jnp.minimum(healing, jnp.maximum(0, before.recovery_balance[0])), 0.)
+    reward += .5*((after.last_event == CAPITAL_REVIVE) & (before.recovery_balance[1] > 0))
+    reward += .05*after.last_sold_count
+    reward -= .004*(after.last_event == UNITS_SWAPPED)
+    if env.battle_items_enabled:
+        reward += .02*(after.battle_item_equipped_today & ~before.battle_item_equipped_today)
+    temporary = jnp.array([p['duration'] == 'temporary' for p in env.potion_rules.items], bool)
+    used = jnp.any((after.potions < before.potions) & temporary)
+    # Only chest pickups grant this bonus; merchant purchases/ruin rewards do not.
+    reward += 2.*used + 4.*jnp.sum(after.last_loot*temporary)*moved
+    pending = before.reference_potion_pending | used
+    reward += .05*pending*engage
+    reached = jnp.zeros_like(before.reference_city_reached)
+    if env.territory.count:
+        reached = engage & env.territory.goal_cities & (
+            jnp.arange(env.territory.count) == env.territory.enemy_city[jnp.maximum(after.enemy, 0)])
+        reward += 6.*jnp.sum(reached & ~before.reference_city_reached)
+    after = after.replace(
+        reference_visits=before.reference_visits.at[cell].set(jnp.where(moved, jnp.minimum(visits+1, 7), visits)),
+        reference_previous=jnp.where(moved, before.position, before.reference_previous),
+        reference_city_reached=before.reference_city_reached | reached,
+        reference_potion_pending=pending & ~engage)
+    return after, reward.astype(jnp.float32)
+
+
+def battle(env, before, after, hp, victory, lost, withdrawal, item_using):
+    summon = before.summon_battle
+    ended = victory | lost | withdrawal
+    reward = jnp.where(ended, jnp.where(victory, jnp.where(summon, 0., .5), -.25), .0025)
+    reward += .05*item_using
+    real_victory = victory & ~summon
+    ids = before.unit_ids[:6]
+    present = ids != 0
+    denominator = jnp.maximum(1, jnp.sum(present))
+    maximum = env.max_hp(before)[:6]
+    survival = (.4*jnp.sum(present & (hp[:6] > 0)) +
+                .4*jnp.sum(jnp.where(present, jnp.clip(hp[:6]/jnp.maximum(1, maximum), 0., 1.), 0.)))/denominator
+    experience = after.battle_xp[1].astype(jnp.float32)
+    reward += real_victory*(4.+.2*experience/(experience+100.)+survival)
+    hero = env.territory.heroes[after.unit_ids[:6]]
+    changed = (after.last_promoted & jnp.left_shift(jnp.uint32(1), jnp.arange(6, dtype=jnp.uint32))) != 0
+    levels = after.unit_levels[:6]
+    # Ordinary numerical growth after the last form has no promotion reward.
+    promoted = changed & jnp.where(hero, (levels >= 2) & (levels <= 4), ids != after.unit_ids[:6])
+    reward += (~summon)*jnp.sum(jnp.where(promoted, 3.+.5*levels, 0.))
+    if env.scenario.enabled:
+        reward += env.scenario.wave_bonus(before, after)
+    defeated = before.reference_defeated.at[before.enemy].set(
+        before.reference_defeated[before.enemy] | real_victory)
+    return after.replace(reference_defeated=defeated), reward.astype(jnp.float32)
+
+
+def finish(env, before, after):
+    """Once per decision: city/episode completion and permanent HP milestones."""
+    terminal = after.done & ~before.done
+    reward = -6.*(after.lost & ~before.lost) - 8.*(terminal & ~after.won & ~after.lost)
+    reward += terminal*5.*jnp.mean(after.reference_defeated.astype(jnp.float32))
+    if env.territory.objective_cities:
+        old = jnp.sum(before.city_owned & env.territory.goal_cities)
+        new = jnp.sum(after.city_owned & env.territory.goal_cities)
+        reward += 40.*(new-old)-32.*((old == 0) & (new > 0))
+    else:
+        reward += 8.*(after.won & ~before.won)
+    milestones = jnp.max(env.max_hp(after)[:6]) > jnp.array([200, 250])
+    # Temporary effects cannot permanently unlock milestone rewards.
+    milestones &= ~after.in_battle
+    reward += 3.*jnp.sum(milestones & ~before.reference_hp_milestones)
+    return after.replace(reference_hp_milestones=before.reference_hp_milestones | milestones), reward

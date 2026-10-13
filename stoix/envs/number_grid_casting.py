@@ -209,7 +209,7 @@ class SpellCastRules:
     # Targeting -----------------------------------------------------------
     def targets(self, state):
         """Nearest living stack and nearest field stack with their distances."""
-        distance = jnp.max(jnp.abs(self.positions - state.position), axis=1)
+        distance = jnp.max(jnp.abs(state.enemy_positions - state.position), axis=1)
         # One lexicographic key: distance, then the lower stack index.
         key = distance * self.enemy_count + jnp.arange(self.enemy_count)
         worst = jnp.iinfo(jnp.int32).max
@@ -411,7 +411,7 @@ class SpellCastRules:
         """New day: limits/effects expire; living wounded enemies regenerate."""
         maximum, wounds = self.enemy_max_hp(state), state.enemy_wounds
         current = jnp.maximum(maximum - wounds, 0)
-        owned = self.territory.owned(state, self.positions)
+        owned = self.territory.owned(state, state.enemy_positions)
         city = jnp.maximum(self.enemy_city, 0)
         # Inside a fort only the fort bonus counts; the land bonus applies outside.
         place = jnp.where(self.enemy_city >= 0, self.city_bonus[state.city_levels[city]] if self.territory.count else 0,

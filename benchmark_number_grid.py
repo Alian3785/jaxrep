@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import secrets
 import shutil
 import time
 
@@ -60,10 +61,6 @@ def make_evaluator(actor, episodes=1024, seed=1042, greedy=True, map_config=None
                     min_length=int(lengths.min()), max_length=int(lengths.max()),
                     action_selection='argmax' if greedy else 'sample', seed=seed)
     return evaluate_params
-
-
-def evaluate(actor, params, episodes=1024, seed=1042, greedy=True, map_config=None):
-    return make_evaluator(actor, episodes, seed, greedy, map_config)(params)
 
 
 def save_checkpoint(output, params, steps):
@@ -169,14 +166,18 @@ def training_budget(args):
 def run_training(args, tracking):
     started = time.perf_counter()
     total = training_budget(args)
+    seed = secrets.randbits(31) if args.seed is None else args.seed
+    print(f'Training seed: {seed}', flush=True)
     if os.environ.get('NUMBERGRID_ALLOW_CPU') != '1' and (len(jax.devices()) != 1 or jax.devices()[0].platform != 'gpu'):
         raise RuntimeError('This measured profile requires exactly one CUDA GPU.')
     game_map = load_map(args.map) if args.map else MAP
     if args.no_unit_swaps:
         # Training without party swaps: the map then has no swap actions at all (docs/UNIT_SWAPS.md).
         game_map = {**game_map, 'unit_swaps': False}
-    config = make_config(total, args.seed, map_config=game_map)
+    config = make_config(total, seed, map_config=game_map)
     run_name = f"number_grid-{game_map['size']}x{game_map['size']}" + ('-step-cost' if game_map.get('step_cost', 0) else '') + ('-smoke' if args.smoke else '')
+    if game_map.get('objective_enemy') is not None:
+        run_name += '-'+game_map.get('campaign_objective', 'target-enemy')
     if game_map.get('exploration_bonus', 0):
         run_name += '-exploration'
     if game_map.get('mask_walls', False):
@@ -190,7 +191,9 @@ def run_training(args, tracking):
         raise FileExistsError(f'Output already contains files; choose another --output: {output}')
     output.mkdir(parents=True, exist_ok=True)
     measured_sources = ['benchmark_number_grid.py', 'numbergrid_config.py', 'numbergrid_tracking.py',
-                        'numbergrid_campaign.py', 'stoix/envs/number_grid_metrics.py',
+                        'stoix/envs/number_grid_scenarios.py', 'stoix/envs/number_grid_reference_rewards.py',
+                        'stoix/envs/number_grid_hero_skills.py',
+                        'numbergrid_campaign.py', 'numbergrid_comet_dashboard.py', 'stoix/envs/number_grid_metrics.py',
                         'stoix/envs/number_grid_buildings.py', 'stoix/envs/data/buildings.json',
                         'stoix/envs/number_grid_spells.py', 'stoix/envs/number_grid_casting.py', 'stoix/envs/number_grid_unit_swaps.py', 'stoix/envs/number_grid_lords.py', 'stoix/envs/data/spells.json',
                         'stoix/envs/data/units.json', 'stoix/envs/number_grid_effects.py', 'stoix/envs/number_grid_wards.py', 'stoix/envs/number_grid_summoning.py',
@@ -211,14 +214,10 @@ def run_training(args, tracking):
         print(json.dumps(record), flush=True)
     status('initializing', device=str(jax.devices()[0]), total_timesteps=total)
     env, _ = make(config)
-    keys = tuple(jax.random.split(jax.random.PRNGKey(args.seed), 3))
+    keys = tuple(jax.random.split(jax.random.PRNGKey(seed), 3))
     learner, actor, state = learner_setup(env, keys, config)
     initial_params = jax.device_get(unreplicate(state.params))
-    initial_eval_started = time.perf_counter()
-    initial = evaluate(actor, unreplicate(state.params.actor_params), episodes=64, map_config=game_map)
-    tracking.evaluation(initial, 0)
-    initial_evaluation_seconds = time.perf_counter()-initial_eval_started
-    status('compiling', initial_evaluation=initial)
+    status('compiling')
     def chunk(s):
         result = learner(s)
         losses = {k: jnp.mean(v) for k, v in result.train_metrics.items()}
@@ -249,6 +248,7 @@ def run_training(args, tracking):
     training_seconds = 0.0
     checkpoints = []
     intermediate_checkpoint_seconds = 0.0
+    status('training', training_steps=0, total_timesteps=total)
     loop_started = time.perf_counter()
     for i in range(total // step_size):
         begin = time.perf_counter()
@@ -323,7 +323,7 @@ def run_training(args, tracking):
         cuda_runtime=(importlib.metadata.version('nvidia-cuda-runtime') if jax.default_backend() == 'gpu' else None), python=platform.python_version(),
         training_steps=total, ppo_updates=config.arch.num_updates,
         actor_optimizer_updates=actual_actor_updates, critic_optimizer_updates=actual_critic_updates,
-        seed=args.seed, training_seconds=training_seconds,
+        seed=seed, training_seconds=training_seconds,
         mean_steps_per_second=total/training_seconds, ppo_compile_seconds=compile_seconds,
         training_loop_seconds=training_loop_seconds,
         training_loop_steps_per_second=total/training_loop_seconds,
@@ -331,8 +331,7 @@ def run_training(args, tracking):
         tracking_init_seconds=tracking.metadata['init_seconds'],
         completed_training_episodes=tracking.episodes, won_training_episodes=tracking.wins,
         tracking=tracking.metadata.copy(),
-        initial_evaluation=initial, final_evaluation=final, sampled_evaluation=sampled,
-        initial_evaluation_seconds=initial_evaluation_seconds,
+        final_evaluation=final, sampled_evaluation=sampled,
         final_evaluation_seconds=final_evaluation_seconds,
         sampled_evaluation_seconds=sampled_evaluation_seconds,
         checkpoint_seconds=checkpoint_seconds,
@@ -374,11 +373,11 @@ if __name__ == '__main__':
     p.add_argument('--smoke', action='store_true', help='250,000 transitions, separate output')
     p.add_argument('--test-run', action='store_true', help='Test/benchmark mode: at most 1,000,000 total transitions')
     p.add_argument('--total-timesteps', type=int, help='Default: 1,000,000 in test mode, otherwise 5,000,000')
-    p.add_argument('--seed', type=int, default=42)
+    p.add_argument('--seed', type=int, help='Training seed; omitted: generate a fresh random seed for each run')
     p.add_argument('--output')
     p.add_argument('--select-best', action='store_true',
                    help='Save checkpoints at 1M summaries; select by wins on 128 fixed episodes and evaluate the best on 1024 other episodes')
-    p.add_argument('--map', help='current (number_grid_map.json, default), default (reference Default map) or a saved map JSON')
+    p.add_argument('--map', help='current, default, default-green-dragon, default-blue-dragon, super_last_stand, siege_train, wotans_retribution, or a saved map JSON')
     p.add_argument('--no-unit-swaps', action='store_true',
                    help='Remove the party swap actions and features from the map (unit_swaps: false)')
     add_tracking_arguments(p)

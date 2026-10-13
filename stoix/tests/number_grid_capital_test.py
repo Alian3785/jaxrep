@@ -72,7 +72,7 @@ def test_integer_partial_healing_change_cap_and_no_turn_cost(game):
         movement_points=jnp.int32(0), built_today=jnp.bool_(True))
     healed, ts = advance(wounded, jnp.int32(HEAL_START))
     assert healed.hp[0] == 152 and healed.gold == 1 and healed.last_service_cost == 4
-    assert float(ts.reward) == pytest.approx(.02-env.step_cost)
+    assert float(ts.reward) == pytest.approx(.0002-env.step_cost)
     assert not compiled_method(env,'action_mask')(healed)[HEAL_START]  # change cannot buy another HP
     for field in ('movement_points','day','built_today','buildings','map_steps','battle_key'):
         chex.assert_trees_all_equal(getattr(healed,field), getattr(wounded,field))
@@ -104,7 +104,7 @@ def test_reward_allowances_are_separate_and_keep_reference_debt(game):
                               recovery_balance=jnp.array([3,0]))
     healed, ts = advance(wounded, jnp.int32(HEAL_START))
     assert healed.recovery_balance.tolist() == [-7,0]
-    assert float(ts.reward) == pytest.approx(.03-env.step_cost)
+    assert float(ts.reward) == pytest.approx(.0003-env.step_cost)
     revived, ts = advance(healed, jnp.int32(REVIVE_START+1))
     assert revived.recovery_balance.tolist() == [-7,-1] and revived.hp[1] == 1
     assert float(ts.reward) == pytest.approx(-env.step_cost)

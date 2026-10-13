@@ -40,7 +40,7 @@ class TerrainRules:
                 cell = tuple(point)
                 if cell in occupied or cell in obstacles:
                     raise ValueError('Terrain cells overlap terrain or an obstacle')
-                if kind == 'water' and cell in objects:
+                if kind == 'water' and cell in objects and not game_map.get('allow_water_objects', False):
                     raise ValueError('Water overlaps a map object or army')
                 occupied.add(cell)
                 grid[cell[0]*self.size+cell[1]] = KINDS.index(kind)

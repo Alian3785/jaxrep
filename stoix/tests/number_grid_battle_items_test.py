@@ -14,6 +14,7 @@ from stoix.envs.number_grid_battle_items import (BATTLE_ITEM, ITEM_EQUIPPED, MAG
                                                  ORBS, TALISMANS, BattleItemRules)
 from stoix.envs.number_grid_items import ITEMS, USABLE, ItemRules
 from stoix.envs.number_grid_potions import POTION_START
+from stoix.envs.number_grid_metrics import CAMPAIGN_FIELDS
 from stoix.tests.number_grid_fixtures import compiled_method, enemy_roster_state
 
 
@@ -80,7 +81,8 @@ def test_equip_needs_access_and_happens_once_per_day(default_game):
     # Default needs book lore (level 11) to read a book: rest unequips it and the orb's access.
     unread, _ = step(step(book, jnp.int32(equip['vampire_orb']))[0], jnp.int32(REST))
     assert unread.equipped[3] == -1 and unread.battle_items.tolist() == [-1, -1]
-    first, _ = step(lore, jnp.int32(equip['vampire_orb']))
+    first, ts = step(lore, jnp.int32(equip['vampire_orb']))
+    assert ts.extras['campaign_events'][CAMPAIGN_FIELDS.index('potions_used')] == 0
     assert first.battle_items.tolist() == [rules.keys.index('vampire_orb'), -1]
     assert first.last_event == ITEM_EQUIPPED and first.battle_item_equipped_today
     assert not jnp.any(mask(first)[rules.equip_start:rules.use_start])  # once per day
@@ -118,7 +120,8 @@ def test_hero_revives_and_summons_on_its_turn(default_game, item_battle):
         'item1_ally_0', 'item2_ally_0', 'item2_ally_3', 'item2_ally_5']
     assert not jnp.any(mask(battle.replace(actor=jnp.int32(0)))[rules.use_start:rules.end])  # hero only
     # Orb of Life: 50% HP, the orb leaves the inventory, the turn is spent.
-    revived, _ = step(battle, jnp.int32(NAMES.index('item1_ally_0')))
+    revived, ts = step(battle, jnp.int32(NAMES.index('item1_ally_0')))
+    assert ts.extras['campaign_events'][CAMPAIGN_FIELDS.index('potions_used')] == 0  # an orb, not Life Potion
     assert revived.hp[0] == 50 and revived.last_event == BATTLE_ITEM and revived.actor != 1
     assert revived.battle_items.tolist() == [-1, rules.keys.index('zombie_talisman')]
     assert env.item_rules.keys.index('orb_of_life') not in revived.item_inventory.tolist()
@@ -149,7 +152,8 @@ def test_battle_potion_heals_and_is_drunk(default_game, item_battle):
     battle = battle.replace(potions=battle.potions.at[healing].set(2), hp=battle.hp.at[0].set(40))
     assert allowed(mask(battle), env.battle_item_rules.use_start, env.battle_item_rules.end) == [
         f'item1_ally_{t}' for t in (0, 1, 2, 4)]
-    healed, _ = step(battle, jnp.int32(NAMES.index('item1_ally_0')))
+    healed, ts = step(battle, jnp.int32(NAMES.index('item1_ally_0')))
+    assert ts.extras['campaign_events'][CAMPAIGN_FIELDS.index('potions_used')] == 1
     assert healed.hp[0] == 90 and healed.potions[healing] == 1 and healed.battle_items.tolist() == [-1, -1]
 
 

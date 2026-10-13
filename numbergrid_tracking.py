@@ -4,7 +4,9 @@ import json
 import os
 from pathlib import Path
 import time
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from numbergrid_campaign import CampaignMetrics
+from numbergrid_comet_dashboard import compact_comet_metrics, configure_comet_dashboard
 
 SUMMARY_INTERVAL = 1_000_000
 CHART_GROUPS = ('episodes', 'battles', 'construction', 'turns', 'ppo', 'performance', 'eval_argmax', 'eval_sample', 'campaign', 'eval', 'rollout', 'train')
@@ -43,7 +45,7 @@ class CometRun:
         self.experiment = experiment
 
     def log(self, data):
-        data = dict(data)
+        data = compact_comet_metrics(data)
         step = data.pop('training_steps')
         self.experiment.log_metrics(data, step=step)
 
@@ -100,7 +102,10 @@ class NumberGridTracking:
         self.metadata['campaign_metrics'] = {
             'source': 'Python reference Big_map/train_campaign.py::CampaignMetricsCallback',
             'episode_window': 100,
-            'window_rates': 'whole logging interval; recent means: last 100 completed episodes',
+            'window_rates': ('victory/defeat/timeout/battle win: whole logging interval; '
+                             'dragon reached rate and recent means: last 100 completed episodes'),
+            'potions_used': 'successful doses on the map and in hero battle slots; completed-episode mean',
+            'dragon_reached': 'hero army entered the objective dragon battle at least once in an episode',
             'unavailable': {'scripted_bot': 'Scripted capital bot is not implemented in the JAX environment'},
             'local_series': 'charts.jsonl',
         }
@@ -190,6 +195,19 @@ class NumberGridTracking:
         self.metadata.update(service='comet', mode='online', id=experiment.get_key(),
                              project=experiment.project_name, url=experiment.url,
                              version=comet_ml.__version__)
+        try:
+            api_experiment = comet_ml.API().get_experiment_by_key(experiment.get_key())
+            self.metadata['dashboard'] = configure_comet_dashboard(api_experiment)
+            parts = urlsplit(experiment.url)
+            query = dict(parse_qsl(parts.query))
+            query['viewId'] = self.metadata['dashboard']['view_id']
+            self.metadata['experiment_url'] = experiment.url
+            self.metadata['url'] = urlunsplit(parts._replace(query=urlencode(query)))
+        except Exception as exc:
+            # Dashboard permissions or API availability must not discard a
+            # successfully created experiment or interrupt training.
+            self.metadata['dashboard'] = {'status': 'failed', 'reason': describe(exc)}
+            print('Comet dashboard: ' + describe(exc), flush=True)
 
     def log_training(self, row, step_size, elapsed, loop_seconds, final=False):
         """Combine existing host summaries; leave learner chunk sizes unchanged."""

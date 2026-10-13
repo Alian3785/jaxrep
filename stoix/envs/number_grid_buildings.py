@@ -80,6 +80,21 @@ class BuildingRules:
         self.initial_blocked = jnp.uint32(descendants(initial))
         starting = names.get(self.lord['starting_building'])
         self.initial_built = jnp.uint32(0 if starting is None else 1 << starting)
+        built = 0 if starting is None else 1 << starting
+        for name in game_map.get('starting_built_buildings', []):
+            index = ids.get(name, names.get(name))
+            if index is None:
+                raise ValueError('Unknown starting building: '+str(name))
+            built |= 1 << index
+        if built & descendants(initial) or any(built & (1 << i) and
+                (ancestors[i] & built != ancestors[i] or blocks[i] & built) for i in range(count)):
+            raise ValueError('Starting buildings violate dependencies or exclusions')
+        self.initial_built = jnp.uint32(built)
+        blocked_by_start = 0
+        for i in range(count):
+            if built & (1 << i):
+                blocked_by_start |= blocks[i]
+        self.initial_blocked |= jnp.uint32(descendants(blocked_by_start))
         self.lord_observation = jnp.array([kind == self.lord['id'] for kind in LORDS], jnp.float32)
         self.bits = jnp.left_shift(jnp.uint32(1), jnp.arange(BUILD_SLOTS, dtype=jnp.uint32))
         self.present = jnp.arange(BUILD_SLOTS) < count

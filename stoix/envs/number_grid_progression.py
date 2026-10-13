@@ -70,15 +70,20 @@ class ProgressionRules:
 
             def with_skills(key, override):
                 row = {**UNITS[key], **override}
+                bonuses = row.get('level_bonuses', [])
+                if not UNITS[key].get('hero') and row.get('hero'):
+                    # Scenario-promoted heroes (Betrezen) take the same stat ladder.
+                    bonuses = next(r['level_bonuses'] for r in UNITS.values()
+                                   if r.get('game_id') == 'g000uu0044')
                 result = dict(override, hero_skills=skills, level_bonuses=sorted(
-                    row.get('level_bonuses', [])+[might], key=lambda b: b['level']))
+                    bonuses+[might], key=lambda b: b['level']))
                 if row['level'] >= might['level']:
                     # Growth starts above the row's level, so a hero starting past Might gets it now.
                     result['damage'] = round(row['damage']*might['multiplier'])
                 return result
 
             keys = [key for key in game_map['hero_roster'] if key is not None]
-            hero_overrides = [with_skills(key, o) if UNITS[key].get('hero') else o
+            hero_overrides = [with_skills(key, o) if o.get('hero', UNITS[key].get('hero')) else o
                               for key, o in zip(keys, hero_overrides)]
         hero = roster_ids(game_map['hero_roster'], hero_overrides)
         enemy_overrides = game_map.get('enemy_combat_stats',
@@ -206,6 +211,14 @@ class ProgressionRules:
         # Opponents have no capital, so their forms are immutable scenario data.
         self.enemy_ids = enemy_ids
         self.initial_enemies = jnp.stack((self.base_levels[enemy_ids], initial_xp[enemy_ids]), axis=-1)
+        if 'enemy_initial_levels' in game_map:
+            starting_levels = game_map['enemy_initial_levels']
+            if (len(starting_levels) != len(enemies) or any(len(row) != 6 for row in starting_levels)
+                    or any(type(level) is not int or level < levels[unit] or level > 99
+                           or (unit == 0 and level != 0)
+                           for squad, row in zip(enemies, starting_levels) for unit, level in zip(squad, row))):
+                raise ValueError('Enemy starting levels must match the roster and be at least the base level')
+            self.initial_enemies = self.initial_enemies.at[:, :, 0].set(jnp.array(starting_levels, jnp.int32))
         self.base_stats = jnp.array([[0]*5]+[_validated_stats(r) for r in rows[1:]], jnp.float32)
         self.traits = jnp.array([[0]*4]+[[ROLES[r['role']], _source(r['attack_type'])+1,
             _protection_mask(r['immunities']), _protection_mask(r['protections'])] for r in rows[1:]], jnp.uint32)

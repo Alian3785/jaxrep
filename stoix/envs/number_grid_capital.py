@@ -9,7 +9,8 @@ import jax.numpy as jnp
 from stoix.envs.number_grid_combat import can_revive
 
 HEAL_START, REVIVE_START, CAPITAL_ACTIONS = 44, 50, 56
-HEAL_REWARD, REVIVE_REWARD = .01, .5
+# User-requested RL shaping: 100x below the reference healing bonus.
+HEAL_REWARD, REVIVE_REWARD = .0001, .5
 CAPITAL_HEAL, CAPITAL_REVIVE = 17, 18
 
 

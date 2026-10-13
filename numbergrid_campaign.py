@@ -10,6 +10,7 @@ PARTICIPATION_NAMES = {
     'summoned_units': 'summon', 'hired_units': 'hire',
     'battle_items_equipped': 'battle_item_equip', 'battle_items_used': 'battle_item_use',
     'unit_swaps': 'unit_swap',
+    'potions_used': 'potion_use', 'dragon_battles': 'dragon_reached',
 }
 
 
@@ -72,6 +73,9 @@ class CampaignMetrics:
             data['campaign/window/enemy_squads_defeated_mean_100'] = data['campaign/window/enemy_squads_defeated_mean']
             data['campaign/window/episode_return_mean'] = sum(record[-2] for record in self.recent) / len(self.recent)
             data['campaign/window/episode_length_mean'] = sum(record[-1] for record in self.recent) / len(self.recent)
+            dragon = CAMPAIGN_FIELDS.index('dragon_battles')
+            data['campaign/window/dragon_reached_episodes_rate'] = sum(
+                record[dragon] > 0 for record in self.recent) / len(self.recent)
         if reset_window:
             self.window = dict.fromkeys(CAMPAIGN_FIELDS, 0.)
         return data

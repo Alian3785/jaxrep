@@ -4,6 +4,8 @@ import jax.numpy as jnp
 
 from stoix.envs.number_grid_capital import HEAL_START, REVIVE_START
 from stoix.envs.number_grid_casting import SUMMON
+from stoix.envs.number_grid_potions import POTION_START
+from stoix.envs.number_grid_battle_items import SLOTS, TARGETS, ACTIONS as ITEM_ACTIONS
 
 # Fixed layout keeps telemetry a single small array in the rollout/state tree.
 CAMPAIGN_FIELDS = (
@@ -14,6 +16,7 @@ CAMPAIGN_FIELDS = (
     'sold_items', 'merchant_sale_gold', 'spells_learned', 'spell_casts',
     'summoned_units', 'hired_units', 'battle_items_equipped', 'battle_items_used',
     'unit_swaps', 'enemy_squads_defeated', 'cities_captured',
+    'potions_used', 'dragon_battles',
 )
 EPISODE_WINDOW = 100
 
@@ -46,6 +49,14 @@ def campaign_events(env, before, world, after, action, valid, battle_counts):
         healed = jnp.sum(jnp.maximum(world.hp[:6] - before.hp[:6], 0))
         values['castle_heal_uses'] = healing & (healed > 0)
         values['castle_healed_hp'] = jnp.where(healing, healed, 0)
+    if env.potions_enabled:
+        values['potions_used'] = (world_action & (action >= POTION_START)
+                                  & (action < POTION_START + env.potion_rules.action_count)).astype(jnp.int32)
+    if env.map_config.get('campaign_objective') in ('dragon', 'blue_dragon'):
+        # Use the map result *before* automatic combat: arrival still counts when
+        # the dragon kills the party on its first automatic activation.
+        values['dragon_battles'] = (world_action & world.in_battle & ~world.summon_battle
+                                    & (world.enemy == env.objective_enemy))
     if env.chests_enabled:
         values['chests_collected'] = jnp.sum(before.chest_alive & ~world.chest_alive)
     if env.ruins_enabled:
@@ -65,6 +76,12 @@ def campaign_events(env, before, world, after, action, valid, battle_counts):
         rules = env.battle_item_rules
         values['battle_items_equipped'] = world_action & (action >= rules.equip_start) & (action < rules.use_start)
         values['battle_items_used'] = valid & before.in_battle & (action >= rules.use_start) & (action < rules.end)
+        index = jnp.clip(action - rules.use_start, 0, ITEM_ACTIONS - 1)
+        kind = before.battle_items[(index // TARGETS) % SLOTS]
+        potion = (kind >= 0) & (rules.potion_index[jnp.maximum(kind, 0)] >= 0)
+        # Count the consumed dose, not an inventory delta: victory loot in the
+        # same step can replenish that potion; subsequent turns clear last_*.
+        values['potions_used'] += (values['battle_items_used'] & potion).astype(jnp.int32)
     if env.unit_swaps_enabled:
         values['unit_swaps'] = world_action & (action >= env.unit_swaps.start) & (action < env.unit_swaps.end)
     if env.territory_enabled:

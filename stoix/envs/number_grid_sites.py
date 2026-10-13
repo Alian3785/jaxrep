@@ -153,7 +153,11 @@ class SiteRules:
         self.buy_items = jnp.array([item for *_, item in offers], bool)
         self.buy_ids = jnp.array([(items.keys if item else potions.keys).index(k) for _, k, _, item in offers], jnp.int32)
         self.initial_stock = jnp.array([n for _, _, n, _ in offers], jnp.int32)
-        self.buy_base = jnp.array([p['price'] for p in catalogue], jnp.int32)
+        prices = [definitions[i].get('prices', {}).get(key, p['price'])
+                  for (i, key, _, _), p in zip(offers, catalogue)]
+        if any(type(p) is not int or p <= 0 for p in prices):
+            raise ValueError('Merchant prices must be positive integer gold amounts')
+        self.buy_base = jnp.array(prices, jnp.int32)
         self.buy_groups = [shop_group(p) for p in catalogue]
         spell_offers = [(i, o) for i, (kind, d) in enumerate(zip(kinds, definitions)) if kind == 'spell_shop'
                         for o in d.get('spells', [])]

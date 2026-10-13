@@ -15,9 +15,14 @@ def ruin_geometry(game_map):
                 or any(type(n) is not int or not 0 < n < game_map['size']-4 for n in anchor)):
             raise ValueError('Ruins need an interior 3x3 position and space for the entrance')
         r,c = anchor
+        entrance = ruin.get('entrance', [r+2,c+2])
+        if entrance not in ([r+2,c], [r+2,c+1], [r+2,c+2]):
+            raise ValueError('Ruin entrance must be on its south edge')
+        approaches = [(r+i,c+j) for i,j in APPROACH_OFFSETS] if entrance == [r+2,c+2] else [
+            (r+3, entrance[1]+dc) for dc in (-1,0,1)]
         result.append(dict(ruin, name=ruin.get('name','Руины'), size=[3,3],
-            entrance=[r+2,c+2], footprint=[(r+i,c+j) for i in range(3) for j in range(3)],
-            interaction_tiles=[(r+i,c+j) for i,j in APPROACH_OFFSETS]))
+            entrance=entrance, footprint=[(r+i,c+j) for i in range(3) for j in range(3)],
+            interaction_tiles=approaches))
     return result
 
 

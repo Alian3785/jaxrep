@@ -41,7 +41,10 @@ def enabled(game_map):
 def lore_levels(game_map):
     """Hero level that unlocks each equipment slot; 1 for the lord's own lore."""
     lore = LORD_LORE[lord_settings(game_map)['id']]
-    return tuple(1 if key == lore else LEVELS[key] for key in EQUIPMENT_LORE)
+    starting = set(game_map.get('starting_hero_abilities', [])) | {lore}
+    if starting - set(LEVELS):
+        raise ValueError('Unknown starting hero ability')
+    return tuple(1 if key in starting else LEVELS[key] for key in EQUIPMENT_LORE)
 
 
 def might_bonus(game_map):
@@ -59,6 +62,8 @@ def skill_list(game_map):
     lore = LORD_LORE[lord_settings(game_map)['id']]
     names = dict((key, name) for _, key, name in LADDER)
     skills = [dict(level=1, key=lore, name=names[lore]+' (класс лорда)')]
+    skills += [dict(level=1, key=key, name=names[key]+' (сценарий)')
+               for key in game_map.get('starting_hero_abilities', []) if key != lore]
     for level, key, name in LADDER:
         skills.append(dict(level=level, key='might', name=MIGHT_NAME) if key == lore
                       else dict(level=level, key=key, name=name))

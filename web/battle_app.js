@@ -189,7 +189,7 @@
     $('city-list').replaceChildren(...info.cities.map((city,i)=>{
       const card=document.createElement('article');card.className='city-card';
       const heading=document.createElement('b');heading.textContent=city.name+' · уровень '+s.city_levels[i];
-      const count=currentMap().opponent_positions.filter((p,j)=>s.alive[j]&&p.every((v,k)=>v===city.position[k])).length;
+      const count=(s.enemy_positions||currentMap().opponent_positions).filter((p,j)=>s.alive[j]&&p.every((v,k)=>v===city.position[k])).length;
       const status=document.createElement('p');status.textContent='Клетка '+city.position.join(', ')+' · '+(s.city_owned[i]?'Ваш город':count?'Защитников: '+count+' отряда':'Для захвата войдите с живым героем');
       const detail=document.createElement('small');detail.textContent='Рост земли +'+info.city_growth[s.city_levels[i]]+' клеток/ход · регенерация и броня +'+info.city_bonus[s.city_levels[i]]+'%';
       const button=document.createElement('button');button.dataset.action=city.action;button.onclick=()=>sendAction(city.action);
@@ -577,7 +577,7 @@
       ctx.restore();
     });
     const token=(p,n)=>{const {x,y}=displayTile(p,map.size);roundRect(x*cell+cell*.09,y*cell+cell*.09,cell*.82,cell*.82,cell*.2,'#d5c0e8');ctx.fillStyle='#654777';ctx.font='650 '+Math.round(cell*.55)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n,(x+.5)*cell,(y+.52)*cell);};
-    map.opponent_positions.forEach((p,i)=>{if(s.alive[i]&&!(ruinInfo()?.ruins||[]).some(r=>r.enemy===i)&&!(territoryInfo()?.cities||[]).some(c=>c.position.every((v,j)=>v===p[j])))token(p,map.enemy_units[i]);});
+    (s.enemy_positions||map.opponent_positions).forEach((p,i)=>{if(s.alive[i]&&!(ruinInfo()?.ruins||[]).some(r=>r.enemy===i)&&!(territoryInfo()?.cities||[]).some(c=>c.position.every((v,j)=>v===p[j])))token(p,map.enemy_units[i]);});
     (map.chests||[]).forEach((chest,i)=>{
       if(!s.chest_alive?.[i])return;
       const tile=displayTile(chest.position,map.size),x=tile.x*cell,y=tile.y*cell;
@@ -778,12 +778,16 @@
     // A capital guard is not a victory goal; count only the stacks that must fall.
     // With objective cities (reference "cities" goal) count those cities instead.
     const guards=new Set((territoryInfo()?.enemy_capitals||[]).map(c=>c.guard));
-    const goalCities=(territoryInfo()?.cities||[]).map((c,i)=>c.objective?i:-1).filter(i=>i>=0);
-    $('remaining').textContent=goalCities.length?goalCities.filter(i=>!s.city_owned?.[i]).length:s.alive.filter((a,i)=>a&&!guards.has(i)).length;
-    $('remaining-label').textContent=goalCities.length?'целевых городов осталось ('+goalCities.map(i=>territoryInfo().cities[i].name).join(', ')+')':'отрядов осталось';
+    const targetEnemy=Number.isInteger(map.objective_enemy)?map.objective_enemy:null;
+    const targetName=targetEnemy===null?'':partyText(combatInfo()?.enemies[targetEnemy]);
+    const goalCities=targetEnemy===null?(territoryInfo()?.cities||[]).map((c,i)=>c.objective?i:-1).filter(i=>i>=0):[];
+    const remainingEnemy=i=>s.alive[i]||s.scenario_spawned?.[i]===false;
+    const waves=map.campaign_objective==='waves';
+    $('remaining').textContent=targetEnemy!==null?Number(remainingEnemy(targetEnemy)):waves?(map.scheduled_enemies||[]).filter(e=>remainingEnemy(e.enemy)).length:goalCities.length?goalCities.filter(i=>!s.city_owned?.[i]).length:s.alive.filter((a,i)=>a&&!guards.has(i)).length;
+    $('remaining-label').textContent=targetEnemy!==null?'цель: '+targetName+' · отряд № '+(targetEnemy+1):waves?'армий волн осталось, включая ещё не появившиеся':goalCities.length?'целевых городов осталось ('+goalCities.map(i=>territoryInfo().cities[i].name).join(', ')+')':'отрядов осталось';
     $('chest-status').hidden=!(map.chests||[]).length;
     $('chest-status').textContent=(s.last_event===21?eventText(snap)+' ':'')+'Сундуков осталось: '+(s.chest_alive||[]).filter(Boolean).length+' / '+(map.chests||[]).length+'. Подойдите на соседнюю клетку, включая диагональ: всё содержимое попадёт в инвентарь.';
-    $('wins').textContent=s.alive.filter(v=>!v).length;
+    $('wins').textContent=s.alive.filter((v,i)=>!v&&s.scenario_spawned?.[i]!==false).length;
     $('steps').textContent=fmt(s.step_count);$('reward').textContent=fmt(snap.total_reward);
     $('gold').textContent=fmt(s.gold);
     const turns=turnRules(),points=s.movement_points;
@@ -811,10 +815,11 @@
     $('attack-hint').textContent=profile(s.actor)?.unit_type==='Succub'?'Массовое превращение в бесов без урона: выберите любого доступного живого противника.':profile(s.actor)?.unit_type==='Witch'?'Превращение: выберите живого противника.':profile(s.actor)?.unit_type==='Alchemist'?'Дополнительный ход: выберите живого союзника, кроме алхимика и отступающего.':profile(s.actor)?.unit_type==='Patriach'?'Выберите союзника: лечение живого или однократное воскрешение погибшего с 50% HP.':isPowerSupport(s.actor)?(['Dwarfdruid','Arhidruid'].includes(profile(s.actor)?.unit_type)?'Выберите союзника для усиления и очищения; себя — только для очищения.':'Усиление: выберите другого живого союзника.'):isMassHealer(s.actor)?'Массовое лечение всех живых союзников, кроме самого лекаря. Выберите любую доступную карточку.':isHealer(s.actor)?'Лечение: выберите живого союзника.':isMage(s.actor)?'Массовая атака: выберите любого живого врага.':isWarrior(s.actor)?(mask.slice(8,14).some(Boolean)?'Ход воина: выберите подсвеченного врага для удара мечом.':'Воин не достаёт до врагов. Можно защищаться, ждать или отступить.'):'Нажмите на живого противника, чтобы выстрелить.';
     if(isCopier(s.actor))$('attack-hint').textContent='Копирование: выберите доступного бойца любой стороны. Большие юниты и стражи недоступны.';
     if(isSummoner(s.actor))$('attack-hint').textContent='Призыв: выберите свободную клетку своего отряда. Большое существо занимает переднюю и заднюю клетки линии.';
-    const message=s.won?(goalCities.length?'Победа! Целевые города захвачены.':'Победа! Карта очищена.'):s.lost?'Ваш отряд погиб. Начните новую игру.':s.done?'Достигнут лимит. Начните новую игру.':s.in_battle?'Выбирайте цели и берегите свой отряд.':!s.movement_points?'Очки перемещения закончились. Можно использовать зелья, строить или отдохнуть.':'Шаг на клетку врага — атака. Рядом с отрядом можно пройти без боя.';
+    const message=s.won?(targetEnemy!==null?'Победа! Цель повержена: '+targetName+'.':goalCities.length?'Победа! Целевые города захвачены.':'Победа! Карта очищена.'):s.lost?'Ваш отряд погиб. Начните новую игру.':s.done?'Достигнут лимит. Начните новую игру.':s.in_battle?'Выбирайте цели и берегите свой отряд.':!s.movement_points?'Очки перемещения закончились. Можно использовать зелья, строить или отдохнуть.':'Шаг на клетку врага — атака. Рядом с отрядом можно пройти без боя.';
     $('message').textContent=message;
     $('map-controls').hidden=s.in_battle||capitalOpen||potionsOpen||spellsOpen;$('battle-controls').hidden=!s.in_battle||capitalOpen||potionsOpen||spellsOpen;
     $('continue').hidden=!s.in_battle||!mask[17];
+    $('wave-continue').hidden=s.in_battle||!mask[17]||s.done;
     document.querySelectorAll('[data-action]').forEach(b=>b.disabled=mode!=='manual'||busy||s.done||!session||!mask[Number(b.dataset.action)]);
     $('reset').disabled=busy;
     if(s.in_battle){
@@ -902,7 +907,7 @@
     const ruinIndex=ruinInfo()?.ruins.findIndex(r=>r.footprint.some(p=>p[0]===row&&p[1]===col))??-1;
     if(ruinIndex>=0){const ruin=ruinInfo().ruins[ruinIndex];canvas.title=ruin.name+' · '+(snap.state.ruin_looted[ruinIndex]?'Разграблены · непроходимы':partyText(combatInfo()?.enemies[ruin.enemy])+' · награда: '+lootText(ruin));return;}
     if(cityIndex>=0){
-      const city=territory.cities[cityIndex],defenders=map.opponent_positions.map((p,i)=>snap.state.alive[i]&&p[0]===row&&p[1]===col?enemyParty(map,i):null).filter(Boolean);
+      const city=territory.cities[cityIndex],defenders=(snap.state.enemy_positions||map.opponent_positions).map((p,i)=>snap.state.alive[i]&&p[0]===row&&p[1]===col?enemyParty(map,i):null).filter(Boolean);
       canvas.title=city.name+' · уровень '+snap.state.city_levels[cityIndex]+' · '+(snap.state.city_owned[cityIndex]?'Ваш город':defenders.join('; ')||'Войдите с живым героем для захвата');return;
     }
     if(mineIndex>=0){
@@ -917,7 +922,7 @@
     const snap=current();if(mode!=='manual'||!snap||snap.state.in_battle||busy||snap.state.done)return;
     const map=currentMap(),[row,col]=mapTileAtPointer(event);
     const ruin=ruinInfo()?.ruins.find((r,i)=>!snap.state.ruin_looted[i]&&r.footprint.some(p=>p[0]===row&&p[1]===col));
-    const enemy=ruin?.enemy??map.opponent_positions.findIndex((p,i)=>snap.state.alive[i]&&p[0]===row&&p[1]===col);
+    const enemy=ruin?.enemy??(snap.state.enemy_positions||map.opponent_positions).findIndex((p,i)=>snap.state.alive[i]&&p[0]===row&&p[1]===col);
     if(enemy<0)return;
     const action=(snap.map_commands||[]).findIndex(command=>command[0]===enemy);
     if(action>=0&&snap.action_mask[action])sendAction(action);

@@ -131,6 +131,7 @@ class BattleState(NumberGridState):
     reference_defeated: jax.Array
     reference_hp_milestones: jax.Array
     reference_potion_pending: jax.Array
+    siege_rewarded_kills: jax.Array  # six original siege slots, sticky until episode reset
     native_ids: jax.Array
     native_levels: jax.Array
     native_xp: jax.Array
@@ -675,6 +676,16 @@ class NumberGrid(Summoning, NumericNumberGrid):
             self.goal_enemies = jnp.zeros(self.territory.enemy_count, bool)
         elif self.territory_enabled and self.territory.has_capital_guards:
             self.goal_enemies = ~self.territory.capital_guards
+        self.siege_rewards = game_map.get('siege_rewards')
+        if self.siege_rewards is not None:
+            if (not self.reference_rewards or game_map.get('campaign_objective') != 'target_enemy'
+                    or len(self.scenario.events) != 1
+                    or self.scenario.events[0]['enemy'] != self.objective_enemy):
+                raise ValueError('Siege rewards require one scheduled objective army and reference rewards')
+            for key in ('victory_multiplier', 'unit_kill', 'spawn_hp'):
+                value = self.siege_rewards.get(key)
+                if type(value) not in (int, float) or not 0 <= value < float('inf'):
+                    raise ValueError(f'siege_rewards.{key} must be a finite nonnegative number')
         self.spell_research_enabled = bool(game_map.get('spell_research', False))
         if self.spell_research_enabled:
             if not self.territory_enabled:
@@ -831,6 +842,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             reference_defeated=jnp.zeros(self.num_opponents, bool),
             reference_hp_milestones=jnp.array([False, False]),
             reference_potion_pending=jnp.bool_(False),
+            siege_rewarded_kills=jnp.uint32(0),
             native_ids=jnp.zeros(12,jnp.int32), native_levels=jnp.zeros(12,jnp.int32),
             native_xp=jnp.zeros(12,jnp.int32), copied=jnp.zeros(12,bool),
             copy_stats=jnp.zeros((12,5),jnp.float32), copy_traits=jnp.zeros((12,4),jnp.uint32),

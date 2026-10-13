@@ -114,6 +114,9 @@ def build(base, name):
     game_map.update(step_cost=0., exploration_bonus=.08, building_reward=0., battle_observation_version=44)
     if layout.get('objective_enemy_id') is not None:
         game_map['objective_enemy'] = index[layout['objective_enemy_id']]
+    if name == 'siege_train':
+        # User-requested JAX training shaping, not an original game mechanic.
+        game_map['siege_rewards'] = dict(victory_multiplier=3., unit_kill=5., spawn_hp=.05)
     for chest in layout['chests']:
         p, it = loot(chest['items'])
         game_map['chests'].append(dict(position=cell(chest['position']), potions=p, items=it))

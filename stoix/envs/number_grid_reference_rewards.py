@@ -49,12 +49,6 @@ def world(env, before, after, action, rest):
         reward += _wave_bonus(env, before, after)
     if env.siege_rewards:
         target = env.objective_enemy
-        spawned = after.scenario_spawned[target] & ~before.scenario_spawned[target]
-        # Snapshot the permanent party before battle preparation/automatic enemy
-        # activations. REST neither promotes nor revives units. No healing reward.
-        living = (before.hp[:6] > 0) & (before.unit_ids[:6] != 0)
-        strength = jnp.sum(jnp.where(living, env.max_hp(before)[:6], 0))
-        reward += spawned*env.siege_rewards['spawn_hp']*strength
         if env.spell_casting_enabled:
             maximum = env.progression.stats(env.casting.enemy_ids[target],
                                             after.enemy_progress[target, :, 0])[:, HP].astype(jnp.int32)

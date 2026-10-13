@@ -76,7 +76,7 @@ def load_map(name=None):
         game_map.update(name='NumberGrid-50x50-'+name, campaign_objective=DRAGON_MAPS[name],
                         objective_enemy=target, objective_reward_hero_only=blue)
         if blue:
-            game_map['objective_engage_hp_reward'] = .05
+            game_map.update(army_victory_level_reward=5., army_victory_level_objective_only=True)
         for city in game_map['cities']:
             city['objective'] = False
         return game_map
@@ -134,7 +134,6 @@ class BattleState(NumberGridState):
     reference_hp_milestones: jax.Array
     reference_potion_pending: jax.Array
     siege_rewarded_kills: jax.Array  # six original siege slots, sticky until episode reset
-    objective_engage_rewarded: jax.Array  # first hero engagement, sticky until episode reset
     army_victory_rewarded: jax.Array  # one victory payment per enemy, or empty when disabled
     army_battle_level_strength: jax.Array  # living permanent party's levels above 1 at battle entry
     native_ids: jax.Array
@@ -681,13 +680,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             self.goal_enemies = jnp.zeros(self.territory.enemy_count, bool)
         elif self.territory_enabled and self.territory.has_capital_guards:
             self.goal_enemies = ~self.territory.capital_guards
-        self.objective_engage_hp_reward = game_map.get('objective_engage_hp_reward', 0.)
-        if (type(self.objective_engage_hp_reward) not in (int, float)
-                or not 0 <= self.objective_engage_hp_reward < float('inf')):
-            raise ValueError('objective_engage_hp_reward must be a finite nonnegative number')
-        if self.objective_engage_hp_reward and (self.objective_enemy is None or not self.progression_enabled):
-            raise ValueError('objective_engage_hp_reward requires an objective army and unit progression')
-        for obsolete in ('army_engage_hp_reward', 'army_engage_level_reward'):
+        for obsolete in ('army_engage_hp_reward', 'army_engage_level_reward', 'objective_engage_hp_reward'):
             if obsolete in game_map:
                 raise ValueError(f'{obsolete} was replaced by army_victory_level_reward; '
                                  'old engagement-reward maps must not silently use victory rewards')
@@ -697,15 +690,24 @@ class NumberGrid(Summoning, NumericNumberGrid):
             raise ValueError('army_victory_level_reward must be a finite nonnegative number')
         if self.army_victory_level_reward and not self.progression_enabled:
             raise ValueError('army_victory_level_reward requires unit progression')
-        if self.army_victory_level_reward and self.objective_engage_hp_reward:
-            raise ValueError('army_victory_level_reward and objective_engage_hp_reward are mutually exclusive')
+        self.army_victory_level_objective_only = game_map.get('army_victory_level_objective_only', False)
+        if type(self.army_victory_level_objective_only) is not bool:
+            raise ValueError('army_victory_level_objective_only must be true or false')
+        if self.army_victory_level_objective_only and (
+                self.objective_enemy is None or not self.army_victory_level_reward):
+            raise ValueError('army_victory_level_objective_only requires objective_enemy and a positive level reward')
+        self.army_victory_level_targets = (jnp.arange(self.num_opponents) == self.objective_enemy
+            if self.army_victory_level_objective_only else jnp.ones(self.num_opponents, bool))
         self.siege_rewards = game_map.get('siege_rewards')
         if self.siege_rewards is not None:
             if (not self.reference_rewards or game_map.get('campaign_objective') != 'target_enemy'
                     or len(self.scenario.events) != 1
                     or self.scenario.events[0]['enemy'] != self.objective_enemy):
                 raise ValueError('Siege rewards require one scheduled objective army and reference rewards')
-            for key in ('victory_multiplier', 'unit_kill', 'spawn_hp'):
+            if 'spawn_hp' in self.siege_rewards:
+                raise ValueError('siege_rewards.spawn_hp was replaced by army_victory_level_reward; '
+                                 'old spawn-reward maps must not silently use victory rewards')
+            for key in ('victory_multiplier', 'unit_kill'):
                 value = self.siege_rewards.get(key)
                 if type(value) not in (int, float) or not 0 <= value < float('inf'):
                     raise ValueError(f'siege_rewards.{key} must be a finite nonnegative number')
@@ -751,7 +753,6 @@ class NumberGrid(Summoning, NumericNumberGrid):
         self.observation_size = (4 + 5 * self.num_opponents + (141 if self.basic_combat else 48) + 6 if self.observation_version in (2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44)
                                  else self.observation_size + 2 * self.num_opponents + 12 * 8 + 6)
         self.observation_size += self.scenario.observation_size
-        self.observation_size += bool(self.objective_engage_hp_reward)
         self.observation_size += self.num_opponents+1 if self.army_victory_level_reward else 0
 
         if self.observation_version in (8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44):
@@ -868,7 +869,6 @@ class NumberGrid(Summoning, NumericNumberGrid):
             reference_hp_milestones=jnp.array([False, False]),
             reference_potion_pending=jnp.bool_(False),
             siege_rewarded_kills=jnp.uint32(0),
-            objective_engage_rewarded=jnp.bool_(False),
             army_victory_rewarded=jnp.zeros(self.num_opponents if self.army_victory_level_reward else 0, bool),
             army_battle_level_strength=jnp.int32(0),
             native_ids=jnp.zeros(12,jnp.int32), native_levels=jnp.zeros(12,jnp.int32),
@@ -1643,8 +1643,6 @@ class NumberGrid(Summoning, NumericNumberGrid):
                 context=jnp.concatenate((context,self.unit_swaps.observation(state)))
             if self.scenario.enabled:
                 context=jnp.concatenate((context,self.scenario.observation(state)))
-            if self.objective_engage_hp_reward:
-                context=jnp.concatenate((context,jnp.asarray([state.objective_engage_rewarded], jnp.float32)))
             if self.army_victory_level_reward:
                 context=jnp.concatenate((context,state.army_victory_rewarded.astype(jnp.float32),
                                          jnp.asarray([state.army_battle_level_strength/100.], jnp.float32)))
@@ -2055,24 +2053,20 @@ class NumberGrid(Summoning, NumericNumberGrid):
             next_state = next_state.replace(last_event=jnp.where(summon, SUMMON_CAST, next_state.last_event))
         if self.reference_rewards:
             next_state, bonus = reference_rewards.world(self, before, next_state, action, resting)
-        if self.objective_engage_hp_reward or self.army_victory_level_reward:
-            contact = engage & next_state.in_battle & ~next_state.summon_battle
+        if self.army_victory_level_reward:
+            enemy = jnp.clip(next_state.enemy, 0, self.num_opponents-1)
+            contact = (engage & next_state.in_battle & ~next_state.summon_battle
+                       & (next_state.enemy >= 0) & self.army_victory_level_targets[enemy])
             # Snapshot before automatic enemy attacks. Wounded living fighters
             # still count; empty/dead slots and separate summoned armies do not.
             living = (next_state.hp[:6] > 0) & (next_state.unit_ids[:6] != 0)
-            if self.objective_engage_hp_reward:
-                strength = jnp.sum(jnp.where(living, self.max_hp(next_state)[:6], 0))
-                first = contact & (next_state.enemy == self.objective_enemy) & ~before.objective_engage_rewarded
-                bonus += first*self.objective_engage_hp_reward*strength
-                next_state = next_state.replace(objective_engage_rewarded=before.objective_engage_rewarded | first)
-            if self.army_victory_level_reward:
-                # Compare each fighter to level 1, including hired elites.
-                # Filling slots with level-1 recruits adds no victory reward.
-                developed = jnp.maximum(next_state.unit_levels[:6] - 1, 0)
-                strength = jnp.sum(jnp.where(living, developed, 0))
-                # No payment on entry. Every new attempt gets its own snapshot;
-                # temporary transformations, battle losses and XP cannot change it.
-                next_state = next_state.replace(army_battle_level_strength=jnp.where(contact, strength, 0))
+            # Compare each fighter to level 1, including hired elites.
+            # Filling slots with level-1 recruits adds no victory reward.
+            developed = jnp.maximum(next_state.unit_levels[:6] - 1, 0)
+            strength = jnp.sum(jnp.where(living, developed, 0))
+            # No payment on entry. Every new attempt gets its own snapshot;
+            # temporary transformations, battle losses and XP cannot change it.
+            next_state = next_state.replace(army_battle_level_strength=jnp.where(contact, strength, 0))
         return next_state, bonus
 
     def _enemy_action(self, state, random_values):
@@ -2859,7 +2853,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         if self.army_victory_level_reward:
             enemy = jnp.clip(state.enemy, 0, self.num_opponents-1)
             first = (victory & ~summon_battle & (state.enemy >= 0)
-                     & ~state.army_victory_rewarded[enemy])
+                     & self.army_victory_level_targets[enemy] & ~state.army_victory_rewarded[enemy])
             reward += first*self.army_victory_level_reward*state.army_battle_level_strength
             next_state = next_state.replace(
                 army_victory_rewarded=state.army_victory_rewarded.at[enemy].set(

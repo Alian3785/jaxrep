@@ -340,7 +340,8 @@ def test_invalid_army_victory_level_coefficient_is_rejected(value):
         NumberGrid(map_config={**load_map('trade_train'), 'army_victory_level_reward': value})
 
 
-@pytest.mark.parametrize('old_key', ['army_engage_hp_reward', 'army_engage_level_reward'])
+@pytest.mark.parametrize('old_key', ['army_engage_hp_reward', 'army_engage_level_reward',
+                                     'objective_engage_hp_reward'])
 def test_obsolete_engagement_rewards_are_not_silently_reinterpreted(old_key):
     config = load_map('trade_train')
     config.pop('army_victory_level_reward')

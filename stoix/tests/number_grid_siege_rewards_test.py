@@ -36,22 +36,16 @@ def battle_reward(env, before, after, hp, victory=False, lost=False, withdrawal=
                           jnp.bool_(lost), jnp.bool_(withdrawal), jnp.bool_(False))
 
 
-def test_preparation_counts_living_max_hp_once_before_enemy_attacks(siege):
+def test_siege_appearance_no_longer_pays_for_party_hp(siege):
     env, baseline, initial = siege
-    # A wounded fighter keeps its development value; a dead fighter contributes zero.
     before = initial.replace(hp=initial.hp.at[0].set(1).at[2].set(0),
         potion_bonus=initial.potion_bonus.at[0, HP].add(100).at[2, HP].add(500),
         day=jnp.int32(27))
     after = env.scenario.advance(before.replace(day=jnp.int32(28)))
+    assert after.scenario_spawned[env.objective_enemy]
     _, shaped = rewards.world(env, before, after, REST, jnp.bool_(True))
     _, plain = rewards.world(baseline, before, after, REST, jnp.bool_(True))
-    maximum = env.max_hp(before)
-    expected = .05*float(maximum[0]+maximum[1]+maximum[4])
-    assert float(shaped-plain) == pytest.approx(expected)
-    # Further RESTs cannot pay again, even with additional HP growth.
-    later = after.replace(day=after.day+1, potion_bonus=after.potion_bonus.at[0, HP].add(200))
-    assert float(rewards.world(env, after, later, REST, jnp.bool_(True))[1]) == pytest.approx(
-        float(rewards.world(baseline, after, later, REST, jnp.bool_(True))[1]))
+    assert float(shaped) == pytest.approx(float(plain))
 
 
 @pytest.mark.parametrize('summon', [False, True])

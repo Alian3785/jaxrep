@@ -34,8 +34,9 @@ def test_default_variants_keep_layout_and_original_dragon_profiles(dragon_game, 
         assert config[key] == base[key]
     assert config['opponent_positions'][DRAGON] == [47, 31]
     assert action_names(config) == action_names(base)
-    assert env.observation_size == 2598+int(blue)
-    assert config.get('objective_engage_hp_reward', 0.) == (.05 if blue else 0.)
+    assert env.observation_size == 2598+(env.num_opponents+1 if blue else 0)
+    assert config.get('army_victory_level_reward', 0.) == (5. if blue else 0.)
+    assert config.get('army_victory_level_objective_only', False) == blue
     uid = env.progression.enemy_ids[DRAGON, 1]
     row = env.progression.rows[int(uid)]
     assert row['game_id'] == ('g000uu5021' if blue else 'g000uu5023')
@@ -97,7 +98,7 @@ def test_map_spell_kill_finishes_without_cities_and_obeys_bonus_rule(dragon_game
     after, ts = step(state, action)
     assert after.last_spell_target == DRAGON and after.last_event == SPELL_KILL
     assert after.won and after.done and not after.alive[DRAGON]
-    assert not after.objective_engage_rewarded
+    assert not jnp.any(after.army_victory_rewarded)
     assert jnp.sum(after.alive) == len(initial.alive)-1 and not jnp.any(after.city_owned)
     bonus = 0 if env.objective_reward_hero_only else 3
     penalty = .05*float(env.recruitment.composition(after)[2])
@@ -148,66 +149,3 @@ def test_losing_to_the_target_is_defeat(dragon_game):
 def test_invalid_objective_enemy_is_rejected(target):
     with pytest.raises(ValueError, match='objective_enemy'):
         NumberGrid(map_config={**load_map('default'), 'objective_enemy': target})
-
-
-@pytest.mark.parametrize('coefficient', [-.05, True, float('inf'), float('nan'), '0.05'])
-def test_invalid_engage_hp_reward_is_rejected(coefficient):
-    with pytest.raises(ValueError, match='objective_engage_hp_reward'):
-        NumberGrid(map_config={**load_map('default-blue-dragon'),
-                              'objective_engage_hp_reward': coefficient})
-
-
-def test_first_hero_engagement_rewards_living_max_hp_and_is_observable(dragon_game):
-    """User request 2026-10-13: blue only, linear army strength, no retreat farming."""
-    env, initial, _, _ = dragon_game
-    # Deterministic world transition stops before automatic enemy attacks.
-    # One wounded fighter counts fully, a fallen fighter does not count.
-    before = initial.replace(position=jnp.array([46, 31], jnp.int32),
-        hp=initial.hp.at[0].set(1).at[2].set(0),
-        potion_bonus=initial.potion_bonus.at[0, HP].add(100).at[2, HP].add(500))
-    advance = compiled_method(env, '_world_step')
-    action = jnp.int32(4)  # south into the dragon at [47, 31]
-    key, draws = jax.random.PRNGKey(19), jnp.full(env.random_size, .5)
-    arrived, reward = advance(before, action, key, draws)
-    already_paid, plain = advance(before.replace(objective_engage_rewarded=jnp.bool_(True)), action, key, draws)
-    assert arrived.in_battle and arrived.enemy == DRAGON and not arrived.summon_battle
-    blue = env.map_config['campaign_objective'] == 'blue_dragon'
-    maximum = env.max_hp(arrived)
-    expected = .05*float(maximum[0]+maximum[1]+maximum[4]) if blue else 0.
-    assert float(reward-plain) == pytest.approx(expected)
-    assert bool(arrived.objective_engage_rewarded) == blue
-    if blue:
-        assert float(env.observation(initial)[-1]) == 0.
-        assert float(env.observation(arrived)[-1]) == 1.
-        # More HP increases the *first* reward; it cannot repay a repeat entry.
-        stronger = before.replace(potion_bonus=before.potion_bonus.at[0, HP].add(200))
-        _, more = advance(stronger, action, key, draws)
-        assert float(more-reward) == pytest.approx(10.)
-        _, repeat = advance(stronger.replace(objective_engage_rewarded=already_paid.objective_engage_rewarded),
-                            action, key, draws)
-        assert float(repeat) == pytest.approx(float(plain))
-        reset, _ = compiled_method(env, 'reset')(jax.random.PRNGKey(20))
-        assert not reset.objective_engage_rewarded
-
-
-def test_summon_other_enemy_and_invalid_action_cannot_consume_engage_reward(dragon_game):
-    env, initial, step, _ = dragon_game
-    spell = next(i for i, row in enumerate(env.casting.rows) if row['id'] == 'g000ss0117')
-    near = initial.replace(position=jnp.array([46, 31], jnp.int32))
-    # A separate summon may fight the dragon without claiming the hero's bonus.
-    prepared = near.replace(learned_spells=jnp.uint32(1 << spell), mana=jnp.full(5, 5000, jnp.int32))
-    battle, _ = compiled_method(env, '_world_step')(prepared, jnp.int32(env.casting.start+spell),
-        jax.random.PRNGKey(22), jnp.full(env.random_size, .5))
-    assert battle.summon_battle and not battle.objective_engage_rewarded
-    invalid, _ = step(near.replace(movement_points=jnp.int32(0)), jnp.int32(4))
-    assert not invalid.in_battle and not invalid.objective_engage_rewarded
-    # A legal approach to enemy zero at [8,10] must not claim the objective bonus.
-    target = jnp.int32(0)
-    position = env.opponent_positions[target]
-    blocked = env.territory.blocked_grid.reshape(env.size, env.size)
-    direction, offset = next((i, d) for i, d in enumerate(env.directions.tolist())
-        if not bool(blocked[position[0]-d[0], position[1]-d[1]]))
-    other = initial.replace(position=position-jnp.array(offset, jnp.int32))
-    arrived, _ = compiled_method(env, '_world_step')(other, jnp.int32(direction),
-        jax.random.PRNGKey(21), jnp.full(env.random_size, .5))
-    assert arrived.enemy == target and not arrived.objective_engage_rewarded

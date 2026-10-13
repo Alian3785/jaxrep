@@ -28,6 +28,8 @@ class NumberGridEpisodeMetrics(RecordEpisodeMetrics):
         for name in ('battle_transition', 'player_battle_transition', 'enemy_battle_transition', 'automatic_battle_transition', 'battle_victory', 'building_constructed', 'turn_ended', 'rest_penalty'):
             if name in timestep.extras:
                 metrics[name] = timestep.extras[name]
+        if 'episode_event' in timestep.extras:
+            metrics['episode_event'] = timestep.extras['episode_event']
         return timestep.replace(extras={**timestep.extras, 'episode_metrics': metrics})
 
     def reset(self, rng_key, env_params=None):

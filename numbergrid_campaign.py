@@ -7,7 +7,7 @@ PARTICIPATION_NAMES = {
     'castle_heal_uses': 'castle_heal', 'chests_collected': 'chest_collection',
     'buildings_built': 'building', 'ruins_cleared': 'ruin_clear',
     'sold_items': 'sale', 'spells_learned': 'spell_learning', 'spell_casts': 'spell_cast',
-    'summoned_units': 'summon', 'hired_units': 'hire',
+    'summoned_units': 'summon', 'hired_units': 'hire', 'mercenaries_hired': 'mercenary_hire',
     'battle_items_equipped': 'battle_item_equip', 'battle_items_used': 'battle_item_use',
     'unit_swaps': 'unit_swap',
     'potions_used': 'potion_use', 'dragon_battles': 'dragon_reached',

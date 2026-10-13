@@ -126,6 +126,8 @@ def test_gpu_reduction_keeps_every_total_and_latest_100_completions():
     counts = counts.at[:30, 0, dragon].set(1).at[110:, 0, dragon].set(3)
     counts = counts.at[:, 0, CAMPAIGN_FIELDS.index('battle_victories')].set(jnp.arange(n))
     counts = counts.at[:, 0, CAMPAIGN_FIELDS.index('unit_upgrades')].set(jnp.arange(n) % 4)
+    mercenary = CAMPAIGN_FIELDS.index('mercenaries_hired')
+    counts = counts.at[:10, 0, mercenary].set(2).at[:, 1, mercenary].set(5)
     terminal = jnp.zeros((n, 2), bool).at[:, 0].set(True)
     events = jnp.zeros_like(counts).at[:, 0].set(counts[:, 0])
     summary = jax.jit(summarize_campaign)({'is_terminal_step': terminal,
@@ -136,6 +138,10 @@ def test_gpu_reduction_keeps_every_total_and_latest_100_completions():
     data = tracker.metrics(reset_window=True)
     assert data['campaign/episodes_total'] == 130
     assert data['campaign/hired_units_total'] == sum(range(130))
+    assert data['campaign/mercenaries_hired_total'] == 20
+    assert data['campaign/completed/mercenaries_hired_mean'] == pytest.approx(20 / 130)
+    assert data['campaign/mercenary_hire_episodes_rate'] == pytest.approx(10 / 130)
+    assert data['campaign/window/mercenaries_hired_mean'] == 0
     assert data['campaign/hire_episodes_rate'] == pytest.approx(129 / 130)
     assert data['campaign/window/hired_units_mean'] == pytest.approx(sum(range(30, 130)) / 100)
     assert data['campaign/window/enemy_squads_defeated_sample_count'] == 100

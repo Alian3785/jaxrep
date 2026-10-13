@@ -265,7 +265,7 @@ def test_reference_campaign_charts_reach_both_backends_and_local_series(tmp_path
     tracking = start(tmp_path, '--tracking', backend)
     values = dict.fromkeys(CAMPAIGN_FIELDS, 0.)
     values.update(victories=1, timeouts=1, battle_victories=4, battle_retreats=1,
-                  hired_units=3, spell_casts=5, enemy_squads_defeated=4,
+                  hired_units=3, mercenaries_hired=2, spell_casts=5, enemy_squads_defeated=4,
                   potions_used=6, dragon_battles=3, unit_upgrades=2, sold_items=4)
     ordered = [values[name] for name in CAMPAIGN_FIELDS]
     tracking.campaign.add({'events': ordered, 'completed': ordered,
@@ -277,6 +277,7 @@ def test_reference_campaign_charts_reach_both_backends_and_local_series(tmp_path
     assert data['campaign/timeout_rate'] == .5
     assert data['campaign/battle_win_rate'] == .8
     assert data['campaign/completed/potions_used_mean'] == 3
+    assert data['campaign/completed/mercenaries_hired_mean'] == 1
     assert data['campaign/window/battle_victories_mean'] == 2
     assert data['campaign/window/unit_upgrades_mean'] == 1
     assert data['campaign/window/dragon_reached_episodes_rate'] == .5  # three battles, one reached episode
@@ -287,6 +288,7 @@ def test_reference_campaign_charts_reach_both_backends_and_local_series(tmp_path
     saved = json.loads((tmp_path / 'charts.jsonl').read_text())
     assert set(reference_keys['supported']) <= saved.keys()
     assert saved['campaign/hired_units_total'] == 3
+    assert saved['campaign/mercenaries_hired_total'] == 2
     assert saved['campaign/window/spell_casts_mean'] == 2.5
     assert saved['campaign/window/enemy_squads_defeated_mean_100'] == 2
     assert 'campaign/scripted_bot_victories_per_episode_mean' not in data
@@ -327,13 +329,13 @@ def test_comet_view_shows_requested_progress_and_omits_sold_item_count():
     assert sections[-1] == old['panels']['sections'][-1]  # preserve technical charts
     campaign = next(s for s in sections if s['title'] == 'campaign')
     names = [p['metricName'] for p in campaign['panels']]
-    assert len(names) == len(set(names)) == 30
+    assert len(names) == len(set(names)) == 31
     assert set(names) == set(CAMPAIGN_CHARTS)
     assert not any('sold_items' in name for name in names)
     assert 'campaign/completed/merchant_sale_gold_mean' in names
     for name in ('campaign/completed/potions_used_mean', 'campaign/window/battle_victories_mean',
                  'campaign/window/unit_upgrades_mean', 'campaign/window/dragon_reached_episodes_rate',
-                 'campaign/victories_total'):
+                 'campaign/victories_total', 'campaign/completed/mercenaries_hired_mean'):
         panel = next(p for p in campaign['panels'] if p['metricName'] == name)
         assert panel['selectedXAxis'] == 'step' and panel['chartName'] != name
 

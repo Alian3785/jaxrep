@@ -2,6 +2,8 @@
 import jax
 import jax.numpy as jnp
 
+from stoix.envs.number_grid_combat import can_revive
+
 POTION_START, POTION_TARGETS = 63, 6
 POTION_HEAL, POTION_REVIVE, POTION_BUFF = 19, 20, 37
 HP, DAMAGE, ACCURACY, ARMOR, INITIATIVE = range(5)
@@ -153,7 +155,7 @@ class PotionRules:
             potion = jnp.arange(self.count)[:,None]
             slot = jnp.arange(POTION_TARGETS)[None,:]
         hp, maximum = state.hp[slot], max_hp[slot]
-        target = jnp.where(self.reviving[potion], hp == 0,
+        target = jnp.where(self.reviving[potion], can_revive(state, slot),
             (hp > 0) & (~self.healing[potion] | (hp < maximum)))
         unused = ~self.temporary[potion] | ((state.potion_active[slot] & self.bits[potion]) == 0)
         return (~state.done & ~state.in_battle & (state.potions[potion] > 0)

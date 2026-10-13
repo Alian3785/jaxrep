@@ -16,6 +16,7 @@ from stoix.envs.number_grid_buildings import CATALOG
 from stoix.envs.number_grid_effects import CAPITAL_GUARDS
 from stoix.envs.number_grid_casting import cast_summon_keys
 from stoix.envs.number_grid_battle_items import battle_item_unit_keys
+from stoix.envs.number_grid_recruitment import OFFERS, mercenary_offers
 from stoix.envs import number_grid_hero_skills as hero_skills
 
 
@@ -129,9 +130,14 @@ class ProgressionRules:
         self.cached_poisoners = jnp.array([(r['name'] == 'Ниддог' or r.get('unit_type') in ('Dregazul','Spider')) for r in rows])
         self.poisoners = jnp.array([(r['name'] == 'Ниддог' or r.get('unit_type') in ('Dregazul','Spider')) or r.get('unit_type') in ('Death','Dead dragon') for r in rows])
         used_ids = set(hero) | {i for squad in enemies for i in squad}
-        # Player promotions can introduce a poisoner absent from the initial
-        # roster; follow supported forms before eliminating the effect at jit.
-        pending, reached = list(hero), set(hero)
+        # Feature pruning must include every recruit and its later promotions.
+        # This host-only closure runs at construction, never in the JAX step.
+        reached = set(hero)
+        if game_map.get('faction_recruitment'):
+            recruits = OFFERS[construction.faction] + tuple(
+                row['unit'] for _, row, _ in mercenary_offers(game_map))
+            reached.update(self.ids[key] for key in recruits)
+        pending = list(reached)
         while pending:
             row = rows[pending.pop()]
             for target in row['upgrades']:
@@ -357,7 +363,8 @@ class ProgressionRules:
         ended = victory | lost | withdrawal
         winners = (jnp.arange(12) < 6) == victory
         recipients = (hp > 0) & ~escaped & winners & ended & (state.unit_ids != 0)
-        recipients &= self.required[state.unit_ids] > 0
+        # Capital guardians take no battle XP share; trainer rules stay separate.
+        recipients &= (self.required[state.unit_ids] > 0) & ~self.capital_guards[state.unit_ids]
         count = jnp.maximum(jnp.sum(recipients), 1)
         total = jnp.where(victory, bank[1], bank[0])
         # floor(total/count + .5), exact integer arithmetic, not bankers' round.

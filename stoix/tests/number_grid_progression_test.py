@@ -145,6 +145,44 @@ def test_enemy_winners_keep_experience_after_hero_withdrawal(env):
     assert not jnp.any(begun.battle_xp)
 
 
+@pytest.mark.core
+def test_capital_guards_receive_no_battle_xp_on_either_side(current_game):
+    env, initial, _, _ = current_game
+    rules = env.progression
+    # Installed GUnits.dbf UNIT_CAT=8 identifies the five faction guardians.
+    keys = [key for key, row in UNITS.items() if row.get('game_data', {}).get('UNIT_CAT') == '8']
+    assert len(keys) == 5
+    ids = jnp.tile(jnp.array([rules.ids[key] for key in keys] + [rules.ids['duke']], jnp.int32), 2)
+    guards = rules.capital_guards[ids]
+    state = initial.replace(enemy=jnp.int32(0), unit_ids=ids, unit_levels=rules.base_levels[ids],
+        unit_xp=jnp.where(guards, 7, 0).astype(jnp.int32), hp=jnp.ones(12,jnp.int32))
+    finish = compiled_method(rules, 'finish')
+    for victory, lost, withdrawal in ((True,False,False), (False,True,False), (False,False,True)):
+        out_ids, levels, xp, enemies, hp, gains, promoted = finish(
+            state, state.hp, state.escaped, jnp.bool_(victory), jnp.bool_(lost),
+            jnp.bool_(withdrawal), jnp.full(2,1000000,jnp.int32))
+        for actual, expected in ((out_ids,state.unit_ids), (levels,state.unit_levels),
+                                 (xp,state.unit_xp), (hp,state.hp)):
+            chex.assert_trees_all_equal(actual[guards], expected[guards])
+        assert not jnp.any(gains[guards])
+        winner = 5 if victory else 11
+        assert gains[winner] == 1000000  # Guardians do not dilute their ally's share.
+        assert promoted == jnp.uint32(1 << winner)
+        assert levels[winner] == state.unit_levels[winner]+1
+        chex.assert_trees_all_equal(enemies[0,:5,0], state.unit_levels[6:11])
+        chex.assert_trees_all_equal(enemies[0,:5,1], state.unit_xp[6:11])
+    alone = state.replace(hp=state.hp.at[5].set(0).at[11].set(0))
+    result = finish(alone, alone.hp, alone.escaped, jnp.bool_(False), jnp.bool_(False),
+                    jnp.bool_(True), jnp.full(2,1000000,jnp.int32))
+    chex.assert_trees_all_equal(result[1], alone.unit_levels)
+    chex.assert_trees_all_equal(result[2], alone.unit_xp)
+    assert not jnp.any(result[5]) and result[6] == 0
+    # Keep the original XP thresholds (used by trainers) and kill rewards.
+    experience = compiled_method(rules, 'experience')(ids, state.unit_levels, state.unit_xp)
+    chex.assert_trees_all_equal(experience[:,2], rules.required[ids])
+    assert jnp.all(experience[guards,1] > 0)
+
+
 def test_terminal_form_growth_and_regeneration_use_new_maximum(env):
     s = battle(env).replace(actor=jnp.int32(0))
     key = 'infernal_knight'

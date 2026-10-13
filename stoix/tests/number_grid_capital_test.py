@@ -48,6 +48,8 @@ def test_services_require_exact_capital_temple_money_and_correct_target(game):
                (wounded.replace(gold=jnp.int32(199)), REVIVE_START+1),
                (wounded, HEAL_START+1), (wounded, REVIVE_START),
                (wounded, HEAL_START+2), (wounded, REVIVE_START+5),
+               (wounded.replace(summon_owner=wounded.summon_owner.at[1].set(1)), REVIVE_START+1),
+               (wounded.replace(summon_battle=jnp.bool_(True)), REVIVE_START+1),
                (wounded.replace(done=jnp.bool_(True)), REVIVE_START+1),
                (compiled_method(env,'_begin_battle')(wounded.replace(enemy=jnp.int32(0))), HEAL_START)]
     for before, action in invalid:

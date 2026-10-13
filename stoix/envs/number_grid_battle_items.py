@@ -5,7 +5,7 @@ and battle_env hero-item actions. Item IDs and prices: installed GItem.dbf.
 """
 import jax.numpy as jnp
 
-from stoix.envs.number_grid_combat import HP, DAMAGE, ARMOR, INITIATIVE, UNITS, accuracy_hits
+from stoix.envs.number_grid_combat import HP, DAMAGE, ARMOR, INITIATIVE, UNITS, accuracy_hits, can_revive
 from stoix.envs.number_grid_effects import source_protection, vampiric_heal
 
 SLOTS, TALISMAN_USES, TARGETS = 2, 5, 6
@@ -306,7 +306,10 @@ class BattleItemRules:
         kind = jnp.maximum(items, 0)
         hero = env._equipment_hero(state)
         fallen = (hero < 0) | (state.hp[jnp.maximum(hero, 0)] <= 0)
-        held = (items >= 0) & jnp.where(fallen, state.in_battle, self.access(env, state)[kind])
+        # Map summons temporarily replace the roster before in_battle is set.
+        # Their absent hero is still with the stashed party and keeps its equipment.
+        held = (items >= 0) & (state.summon_battle
+                              | jnp.where(fallen, state.in_battle, self.access(env, state)[kind]))
         first = held[0] & (self.stock(state)[kind[0]] >= 1)
         second = held[1] & (self.stock(state)[kind[1]] >= 1+(first & (items[0] == items[1])).astype(jnp.int32))
         keep = jnp.stack((first, second))
@@ -337,7 +340,7 @@ class BattleItemRules:
             pair = jnp.where(env.slots % 6 < 3, env.slots+3, env.slots-3)
             covered = (env.slots % 6 >= 3) & alive[pair] & (sizes[pair] == 2)
             free = ~covered & ~((natural == 2) & alive[pair])
-            dead = (state.unit_ids != 0) & (state.hp <= 0) & ~state.escaped & free
+            dead = (state.unit_ids != 0) & can_revive(state, env.slots) & ~state.escaped & free
             valid = jnp.where(code == REVIVE, dead, valid)
         if SUMMON in self.kinds:
             valid = jnp.where(code == SUMMON, env._summon_targets(state), valid)
@@ -383,6 +386,7 @@ class BattleItemRules:
         target = index % TARGETS+jnp.where(enemy, 6, 0)
         kind = jnp.maximum(state.battle_items[slot], 0)
         code, amount, party = self.kind[kind], self.amount[kind], self.party[kind]
+        using &= (code != REVIVE) | can_revive(state, target)
         alive = (hp > 0) & ~state.escaped
         side = (slots >= 6) == enemy
         chosen = jnp.where(party, side & alive, slots == target) & using
@@ -426,11 +430,10 @@ class BattleItemRules:
             for dot in DOT_FIELDS:
                 source = updates[dot+'_source']
                 updates[dot+'_source'] = jnp.where((source >= 0) & spawned[jnp.maximum(source, 0)], -1, source)
-            save = spawned & (state.summon_owner < 0) & ~state.copied
-            for backup, current in (('native_ids', 'unit_ids'), ('native_levels', 'unit_levels'), ('native_xp', 'unit_xp')):
-                updates[backup] = jnp.where(save, getattr(state, current), getattr(state, backup))
+            updates.update(env._summon_backups(state, spawned))
             # Independent summon (summon_owner = own slot): acts this round at its
-            # template initiative and leaves with the battle; the corpse stays dead.
+            # template initiative and leaves with the battle. The original fighter
+            # keeps its saved HP (zero for a corpse, positive for an escapee).
             updates.update(unit_ids=jnp.where(spawned, uid, state.unit_ids),
                 unit_levels=jnp.where(spawned, level, state.unit_levels),
                 unit_xp=jnp.where(spawned, 0, state.unit_xp), summon_owner=jnp.where(spawned, slots, state.summon_owner),

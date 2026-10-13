@@ -10,14 +10,25 @@ COPIED, SUMMONED = 33, 34
 SHOOT, DEFEND, CONTINUE = 8, 14, 17
 
 
+def linked_summon_hp(hp, escaped, summon_owner):
+    """Follow every owner chain with four unrolled ancestor-doubling passes."""
+    parent = jnp.where(summon_owner >= 0, summon_owner, jnp.arange(12))
+    blocked = (hp <= 0) | escaped
+    for _ in range(4):
+        blocked |= blocked[parent]
+        parent = parent[parent]
+    # A retreating root keeps its own HP; only its descendants disappear.
+    return jnp.where((summon_owner >= 0) & blocked[jnp.maximum(summon_owner, 0)], 0, hp)
+
+
 def advance_linked_queue(hp, escaped, phases, priority, round_number, activated,
                          turns, damage, source, immunities, extra_priority,
                          next_actor, hold, max_rounds, immunity_masks, fallback_damage,
                          applied_rounds, removal_rolls, summon_owner):
     """Bounded device queue: a DOT-killed caster removes dependents immediately.
 
-    The ordinary vectorized queue remains the fast path for maps without summons.
-    At most twelve deaths and one wrap can precede the next surviving actor.
+    Process the first candidate inline and continue only after a death. Keep
+    the 24-candidate bound; stopped lanes remain inert under batched execution.
     """
     slots = jnp.arange(12)
     def alive(health):
@@ -49,9 +60,7 @@ def advance_linked_queue(hp, escaped, phases, priority, round_number, activated,
             removal_rolls[jnp.minimum(round_no-round_number,1),candidate]))
         remaining = jnp.where((first & immune & (before > 0)) | expires,0,left[candidate])
         left = left.at[candidate].set(remaining)
-        def kill(_, values):
-            return jnp.where((summon_owner >= 0) & ((values[jnp.maximum(summon_owner,0)] <= 0) | escaped[jnp.maximum(summon_owner,0)]),0,values)
-        health = jax.lax.fori_loop(0,12,kill,health)
+        health = linked_summon_hp(health, escaped, summon_owner)
         dead = health <= 0
         phase = jnp.where(dead,2,phase)
         done |= dead
@@ -63,8 +72,17 @@ def advance_linked_queue(hp, escaped, phases, priority, round_number, activated,
         stopped |= ~enabled | ~alive(health) | (health[candidate] > 0)
         return health,phase,order,round_no,done,left,amounts,owners,actor,losses,visited,stopped
 
-    result = jax.lax.fori_loop(0,24,advance,(hp,phases,priority,round_number,activated,
+    initial = advance(0, (hp,phases,priority,round_number,activated,
         turns,damage,source,next_actor,jnp.zeros_like(damage),jnp.zeros(12,bool),hold | ~alive(hp)))
+    def pending(carry):
+        count, current = carry
+        return (count < 24) & ~current[-1]
+
+    def following(carry):
+        count, current = carry
+        return count + 1, advance(count, current)
+
+    _, result = jax.lax.while_loop(pending, following, (jnp.int32(1), initial))
     return result[:-1]
 
 
@@ -86,8 +104,8 @@ class Summoning:
         same = (self.slots < 6) == (state.actor < 6)
         # A living large fighter occupies both cells of its formation column.
         partner = self.slots + jnp.where(self.slots % 6 < 3, 3, -3)
-        blocked = (state.hp[partner] > 0) & (self.unit_sizes(state)[partner] == 2)
-        return same & (state.hp <= 0) & ~blocked & ~state.escaped
+        blocked = (state.hp[partner] > 0) & ~state.escaped[partner] & (self.unit_sizes(state)[partner] == 2)
+        return same & ((state.hp <= 0) | state.escaped) & ~blocked
 
     def _actor_summons(self, state):
         if not self.has_summons:
@@ -202,11 +220,43 @@ class Summoning:
             turn_phase=jnp.where(selected,jnp.where(immediate,0,2),state.turn_phase),
             activation_done=jnp.where(selected,~immediate,state.activation_done),
             priority=jnp.where(selected,jnp.where(immediate,rules.base_stats[ids,INITIATIVE],0.),state.priority))
-        # Preserve the corpse's own identity; repeated summons must not replace that snapshot.
-        for backup, current in (('native_ids','unit_ids'),('native_levels','unit_levels'),('native_xp','unit_xp')):
-            save = selected & (state.summon_owner < 0) & ~state.copied
-            updates[backup] = jnp.where(save,getattr(state,current),getattr(state,backup))
+        updates.update(self._summon_backups(state, selected))
         return state.replace(**updates), selected
+
+    def _summon_backups(self, state, selected):
+        """Keep the permanent fighter once, even across repeated summons.
+
+        Reference _mark_unit_escaped stores a separate snapshot and clears the
+        cell. Save its HP in the native form using the current battle-end rules.
+        """
+        first = selected & (state.summon_owner < 0)
+        save_identity = first & ~state.copied
+        updates = {backup: jnp.where(save_identity, getattr(state, current), getattr(state, backup))
+                   for backup, current in (('native_ids','unit_ids'), ('native_levels','unit_levels'),
+                                            ('native_xp','unit_xp'))}
+        hp = state.hp
+        if self.has_wights or self.has_wolf_lord:
+            natural = self._natural_stats(state)[:, HP]
+            if self.has_copies:
+                natural = jnp.where(state.copied, state.copy_stats[:,HP], natural)
+            if self.has_wights:
+                maximum = jnp.where(state.fenrir, 275., natural)
+                previous = self.progression.base_stats[state.decay_form, HP]
+                restored = jnp.rint(hp / jnp.maximum(previous, 1) * maximum).astype(jnp.int32)
+                restored = jnp.where(hp > 0, jnp.maximum(1, restored), 0)
+                hp = jnp.where(state.decay_form > 0, restored, hp)
+            if self.has_wolf_lord:
+                restored = jnp.rint(hp / 275. * natural).astype(jnp.int32)
+                restored = jnp.where(hp > 0, jnp.maximum(1, restored), 0)
+                hp = jnp.where(state.fenrir, restored, hp)
+        if self.has_copies:
+            own_stats = self.progression.stats(state.native_ids,state.native_levels)
+            own_hp = self._potion_stats(state,own_stats,temporary=False)[:,HP]
+            restored = jnp.rint(hp*own_hp/jnp.maximum(state.copy_stats[:,HP],1)).astype(jnp.int32)
+            restored = jnp.where(hp > 0, jnp.maximum(1, restored), 0)
+            hp = jnp.where(state.copied, restored, hp)
+        updates['summon_saved_hp'] = jnp.where(first, jnp.where(state.escaped, hp, 0), state.summon_saved_hp)
+        return updates
 
     def _empty_summon_fields(self, state):
         zero = ('effect_rounds','transform_long','powerup_long','saved_powerup_long','defended','retreating','escaped','copied','fenrir','imp','imp_wards','decay_form',
@@ -261,11 +311,7 @@ class Summoning:
     def _linked_summon_hp(self, state, hp):
         if not self.has_summons:
             return hp
-        def kill(_, values):
-            owner = jnp.maximum(state.summon_owner,0)
-            dead_owner = (values[owner] <= 0) | state.escaped[owner]
-            return jnp.where((state.summon_owner >= 0) & dead_owner,0,values)
-        return jax.lax.fori_loop(0,12,kill,hp)
+        return linked_summon_hp(hp, state.escaped, state.summon_owner)
 
     def _restore_roster(self, state, hp, ended):
         own_stats = self.progression.stats(state.native_ids,state.native_levels)
@@ -273,11 +319,14 @@ class Summoning:
         restored = jnp.rint(hp*own_hp/jnp.maximum(state.copy_stats[:,HP],1)).astype(jnp.int32)
         restored = jnp.where(hp > 0,jnp.maximum(1,restored),0)
         hp = jnp.where(ended & state.copied,restored,hp)
-        hp = jnp.where(ended & (state.summon_owner >= 0),0,hp)
+        summoned = ended & (state.summon_owner >= 0)
+        hp = jnp.where(summoned,state.summon_saved_hp,hp)
         restore = ended & (state.copied | (state.summon_owner >= 0))
         state = state.replace(unit_ids=jnp.where(restore,state.native_ids,state.unit_ids),
             unit_levels=jnp.where(restore,state.native_levels,state.unit_levels),
             unit_xp=jnp.where(restore,state.native_xp,state.unit_xp),
+            escaped=jnp.where(summoned,state.summon_saved_hp > 0,state.escaped),
+            summon_saved_hp=jnp.where(ended,0,state.summon_saved_hp),
             copied=state.copied & ~ended,
             summon_owner=jnp.where(ended,-1,state.summon_owner))
         return state,hp

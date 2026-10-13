@@ -9,7 +9,7 @@ CAMPAIGN_MECHANICS = (
     'castle_heal_uses', 'castle_healed_hp', 'chests_collected', 'buildings_built',
     'ruins_cleared', 'potions_used', 'merchant_sale_gold', 'spells_learned',
     'spell_casts', 'summoned_units', 'hired_units', 'mercenaries_hired', 'battle_items_equipped',
-    'battle_items_used', 'unit_swaps', 'enemy_squads_defeated', 'cities_captured',
+    'battle_items_used', 'unit_swaps', 'enemy_squads_defeated', 'cities_captured', 'trainer_uses',
 )
 CAMPAIGN_CHARTS = (
     'campaign/victory_rate', 'campaign/defeat_rate', 'campaign/timeout_rate',
@@ -40,6 +40,7 @@ CHART_TITLES = {
     'campaign/completed/summoned_units_mean': 'Призвано существ на карте — в среднем на эпизод',
     'campaign/completed/hired_units_mean': 'Нанято бойцов — в среднем на эпизод',
     'campaign/completed/mercenaries_hired_mean': 'Нанято наёмников — в среднем на эпизод',
+    'campaign/completed/trainer_uses_mean': 'Обучений у тренера — в среднем на эпизод',
     'campaign/completed/battle_items_equipped_mean': 'Экипировано боевых предметов — в среднем на эпизод',
     'campaign/completed/battle_items_used_mean': 'Использовано боевых предметов — в среднем на эпизод',
     'campaign/completed/unit_swaps_mean': 'Перестановок бойцов — в среднем на эпизод',

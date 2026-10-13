@@ -16,7 +16,7 @@ CAMPAIGN_FIELDS = (
     'sold_items', 'merchant_sale_gold', 'spells_learned', 'spell_casts',
     'summoned_units', 'hired_units', 'battle_items_equipped', 'battle_items_used',
     'unit_swaps', 'enemy_squads_defeated', 'cities_captured',
-    'potions_used', 'dragon_battles', 'mercenaries_hired',
+    'potions_used', 'dragon_battles', 'mercenaries_hired', 'trainer_uses',
 )
 EPISODE_WINDOW = 100
 
@@ -64,6 +64,10 @@ def campaign_events(env, before, world, after, action, valid, battle_counts):
     if env.sites_enabled:
         values['sold_items'] = jnp.where(world_action, world.last_sold_count, 0)
         values['merchant_sale_gold'] = jnp.where(world_action, world.last_sale_gold, 0)
+        if env.site_rules.has_trainer:
+            start = env.site_rules.train_start
+            # One successful purchase for one fighter, regardless of XP bought.
+            values['trainer_uses'] = world_action & (action >= start) & (action < start + 6)
     if env.spell_research_enabled:
         values['spells_learned'] = jax.lax.population_count(world.learned_spells & ~before.learned_spells)
     if env.spell_casting_enabled:

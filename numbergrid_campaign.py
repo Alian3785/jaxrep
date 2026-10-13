@@ -9,7 +9,7 @@ PARTICIPATION_NAMES = {
     'sold_items': 'sale', 'spells_learned': 'spell_learning', 'spell_casts': 'spell_cast',
     'summoned_units': 'summon', 'hired_units': 'hire', 'mercenaries_hired': 'mercenary_hire',
     'battle_items_equipped': 'battle_item_equip', 'battle_items_used': 'battle_item_use',
-    'unit_swaps': 'unit_swap',
+    'unit_swaps': 'unit_swap', 'trainer_uses': 'trainer_use',
     'potions_used': 'potion_use', 'dragon_battles': 'dragon_reached',
 }
 

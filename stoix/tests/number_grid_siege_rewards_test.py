@@ -1,6 +1,6 @@
 """Siege reward regressions; CUDA-only, run only on an explicit request.
 
-Source: user reward-design request, 2026-10-13; docs/REFERENCE_CAMPAIGNS.md.
+Source: user reward-design requests, 2026-10-13/14; docs/REFERENCE_CAMPAIGNS.md.
 These rewards are not claims about original Disciples II mechanics.
 """
 from copy import copy
@@ -12,6 +12,7 @@ import pytest
 from stoix.envs.number_grid import NumberGrid, REST, load_map
 from stoix.envs import number_grid_reference_rewards as rewards
 from stoix.envs.number_grid_combat import HP
+from stoix.tests.number_grid_fixtures import compiled_method
 
 
 @pytest.fixture(scope='module')
@@ -36,16 +37,99 @@ def battle_reward(env, before, after, hp, victory=False, lost=False, withdrawal=
                           jnp.bool_(lost), jnp.bool_(withdrawal), jnp.bool_(False))
 
 
-def test_siege_appearance_no_longer_pays_for_party_hp(siege):
+def test_spawn_rewards_living_levels_above_one_and_ignores_hp(siege):
     env, baseline, initial = siege
+    # Wounded level-4 fighter + level-3 hero + level-2 cultist = six extra levels.
+    # The dead level-7 fighter and an empty level-99 slot do not contribute.
     before = initial.replace(hp=initial.hp.at[0].set(1).at[2].set(0),
+        unit_levels=initial.unit_levels.at[0].set(4).at[1].set(3).at[2].set(7).at[3].set(99).at[4].set(2),
         potion_bonus=initial.potion_bonus.at[0, HP].add(100).at[2, HP].add(500),
         day=jnp.int32(27))
     after = env.scenario.advance(before.replace(day=jnp.int32(28)))
-    assert after.scenario_spawned[env.objective_enemy]
+    assert after.scenario_spawned[env.objective_enemy] and not after.in_battle
     _, shaped = rewards.world(env, before, after, REST, jnp.bool_(True))
     _, plain = rewards.world(baseline, before, after, REST, jnp.bool_(True))
-    assert float(shaped) == pytest.approx(float(plain))
+    assert float(shaped-plain) == pytest.approx(30.)
+    # More HP gives no extra reward; one extra hero level gives exactly five.
+    for stronger, expected in [(before.replace(potion_bonus=before.potion_bonus+1000), 30.),
+                              (before.replace(unit_levels=before.unit_levels.at[1].add(1)), 35.)]:
+        born = env.scenario.advance(stronger.replace(day=jnp.int32(28)))
+        _, shaped = rewards.world(env, stronger, born, REST, jnp.bool_(True))
+        _, plain = rewards.world(baseline, stronger, born, REST, jnp.bool_(True))
+        assert float(shaped-plain) == pytest.approx(expected)
+
+
+def test_spawn_bonus_is_once_per_episode_and_not_deferred_to_contact(siege):
+    env, baseline, initial = siege
+    before = initial.replace(day=jnp.int32(27), unit_levels=initial.unit_levels.at[1].set(4))
+    after = env.scenario.advance(before.replace(day=jnp.int32(28)))
+    _, shaped = rewards.world(env, before, after, REST, jnp.bool_(True))
+    _, plain = rewards.world(baseline, before, after, REST, jnp.bool_(True))
+    assert float(shaped-plain) == pytest.approx(15.)
+    # Later development, rests, and the eventual engagement cannot repay it.
+    later = after.replace(day=jnp.int32(29), unit_levels=after.unit_levels.at[1].set(9))
+    contacted = active_battle(env, later)
+    for old, new, action in [(after, later, REST), (later, contacted, 0)]:
+        _, shaped = rewards.world(env, old, new, action, jnp.bool_(action == REST))
+        _, plain = rewards.world(baseline, old, new, action, jnp.bool_(action == REST))
+        assert float(shaped) == pytest.approx(float(plain))
+    assert env.army_victory_level_reward == 0. and initial.army_victory_rewarded.shape == (0,)
+    reset, _ = env.reset(jax.random.PRNGKey(19))
+    assert not reset.scenario_spawned[env.objective_enemy]
+    fresh = reset.replace(day=jnp.int32(27), unit_levels=reset.unit_levels.at[1].set(4))
+    born = env.scenario.advance(fresh.replace(day=jnp.int32(28)))
+    _, shaped = rewards.world(env, fresh, born, REST, jnp.bool_(True))
+    _, plain = rewards.world(baseline, fresh, born, REST, jnp.bool_(True))
+    assert float(shaped-plain) == pytest.approx(15.)
+
+
+def test_no_spawn_bonus_before_due_turn_or_for_level_one_party(siege):
+    env, baseline, initial = siege
+    for before in (initial.replace(day=jnp.int32(26), unit_levels=initial.unit_levels.at[1].set(4)),
+                   initial.replace(day=jnp.int32(27))):
+        after = env.scenario.advance(before.replace(day=before.day+1))
+        _, shaped = rewards.world(env, before, after, REST, jnp.bool_(True))
+        _, plain = rewards.world(baseline, before, after, REST, jnp.bool_(True))
+        assert float(shaped) == pytest.approx(float(plain))
+
+
+def test_spawn_reward_precedes_attacks_and_is_not_conditional_on_battle_outcome(siege):
+    env, baseline, initial = siege
+    target = env.objective_enemy
+    before = initial.replace(day=jnp.int32(27), unit_levels=initial.unit_levels.at[1].set(3),
+        enemy_positions=initial.enemy_positions.at[target].set(initial.position+jnp.array([0, 1])))
+    key, draws = jax.random.PRNGKey(23), jnp.full(env.random_size, .5)
+    arrived, reward = compiled_method(env, '_world_step')(before, jnp.int32(REST), key, draws)
+    _, plain = compiled_method(baseline, '_world_step')(before, jnp.int32(REST), key, draws)
+    assert arrived.in_battle and arrived.enemy == target and not arrived.won
+    assert float(reward-plain) == pytest.approx(10.)
+    assert int(arrived.army_battle_level_strength) == 0
+    # The paid preparation bonus is independent of loss or retreat rewards.
+    for outcome in ('lost', 'withdrawal'):
+        _, shaped_end = battle_reward(env, arrived, arrived, arrived.hp, **{outcome: True})
+        _, plain_end = battle_reward(baseline, arrived, arrived, arrived.hp, **{outcome: True})
+        assert float((reward+shaped_end)-(plain+plain_end)) == pytest.approx(10.)
+
+
+@pytest.mark.parametrize('value', [-1., True, float('inf'), float('nan'), '5', None])
+def test_invalid_spawn_level_coefficient_is_rejected(value):
+    config = load_map('siege_train')
+    config['siege_rewards']['spawn_level'] = value
+    with pytest.raises(ValueError, match='siege_rewards.spawn_level'):
+        NumberGrid(map_config=config)
+
+
+def test_spawn_reward_cannot_be_combined_with_victory_level_reward():
+    config = {**load_map('siege_train'), 'army_victory_level_reward': 5.}
+    with pytest.raises(ValueError, match='mutually exclusive'):
+        NumberGrid(map_config=config)
+
+
+def test_obsolete_siege_hp_reward_is_rejected():
+    config = load_map('siege_train')
+    config['siege_rewards']['spawn_hp'] = .05
+    with pytest.raises(ValueError, match='siege_rewards.spawn_hp was replaced'):
+        NumberGrid(map_config=config)
 
 
 @pytest.mark.parametrize('summon', [False, True])

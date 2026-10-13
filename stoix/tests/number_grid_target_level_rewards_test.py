@@ -7,13 +7,13 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from stoix.envs.number_grid import DEFEND, REST, NumberGrid, load_map
+from stoix.envs.number_grid import DEFEND, NumberGrid, load_map
 from stoix.tests.number_grid_fixtures import compiled_method, hero_roster_state
 
 
-@pytest.fixture(scope='module', params=['default-blue-dragon', 'siege_train'])
-def target_game(request):
-    env = NumberGrid(map_config=load_map(request.param))
+@pytest.fixture(scope='module')
+def target_game():
+    env = NumberGrid(map_config=load_map('default-blue-dragon'))
     state, _ = compiled_method(env, 'reset')(jax.random.PRNGKey(42))
     return env, state
 
@@ -134,7 +134,7 @@ def test_other_armies_and_invalid_moves_cannot_earn_target_bonus(target_game):
 def test_summoned_army_cannot_earn_target_level_bonus(target_game):
     env, initial = target_game
     near, _ = near_enemy(env, initial, env.objective_enemy)
-    spell_id = 'g000ss0058' if env.scenario.enabled else 'g000ss0117'
+    spell_id = 'g000ss0117'
     spell = next(i for i, row in enumerate(env.casting.rows) if row['id'] == spell_id)
     near = near.replace(learned_spells=jnp.uint32(1 << spell), mana=jnp.full(5, 5000, jnp.int32))
     battle, _ = enter(env, near, jnp.int32(env.casting.start+spell))
@@ -146,31 +146,10 @@ def test_summoned_army_cannot_earn_target_level_bonus(target_game):
     assert not jnp.any(after.army_victory_rewarded)
 
 
-def test_siege_attack_after_rest_snapshots_levels_without_paying(target_game):
-    env, initial = target_game
-    if not env.scenario.enabled:
-        pytest.skip('Scheduled siege attack only')
-    base = developed_party(env, initial)
-    target = env.objective_enemy
-    base = base.replace(day=jnp.int32(27), enemy_positions=base.enemy_positions.at[target].set(
-        base.position+jnp.array([0, 1], jnp.int32)))
-    arrived, reward = enter(env, base, jnp.int32(REST))
-    _, plain = enter(env, base.replace(
-        army_victory_rewarded=base.army_victory_rewarded.at[target].set(True)), jnp.int32(REST))
-    assert arrived.in_battle and arrived.scenario_spawned[target] and int(arrived.enemy) == target
-    expected = int(jnp.sum(jnp.where(base.hp[:6] > 0, jnp.maximum(base.unit_levels[:6]-1, 0), 0)))
-    assert int(arrived.army_battle_level_strength) == expected
-    assert float(reward) == pytest.approx(float(plain))
-    assert not jnp.any(arrived.army_victory_rewarded)
-    _, reward = finish(env, arrived)
-    _, plain = finish(env, arrived.replace(army_battle_level_strength=jnp.int32(0)))
-    assert float(reward-plain) == pytest.approx(5.*expected)
-
-
 @pytest.mark.parametrize('value', [1, 'true', None])
 def test_invalid_target_scope_is_rejected(value):
     with pytest.raises(ValueError, match='army_victory_level_objective_only'):
-        NumberGrid(map_config={**load_map('siege_train'), 'army_victory_level_objective_only': value})
+        NumberGrid(map_config={**load_map('default-blue-dragon'), 'army_victory_level_objective_only': value})
 
 
 def test_target_scope_requires_an_objective_and_enabled_reward():
@@ -180,15 +159,8 @@ def test_target_scope_requires_an_objective_and_enabled_reward():
         NumberGrid(map_config={**load_map('default-blue-dragon'), 'army_victory_level_reward': 0.})
 
 
-def test_obsolete_siege_hp_reward_is_rejected():
-    config = load_map('siege_train')
-    config['siege_rewards']['spawn_hp'] = .05
-    with pytest.raises(ValueError, match='siege_rewards.spawn_hp was replaced'):
-        NumberGrid(map_config=config)
-
-
 def test_unrelated_maps_keep_level_rewards_disabled():
-    for name in ('default', 'default-green-dragon', 'super_last_stand', 'wotans_retribution'):
+    for name in ('default', 'default-green-dragon', 'super_last_stand', 'wotans_retribution', 'siege_train'):
         assert not load_map(name).get('army_victory_level_reward', 0.)
     assert not load_map('trade_train').get('army_victory_level_objective_only', False)
 

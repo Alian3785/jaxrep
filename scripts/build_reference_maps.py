@@ -117,8 +117,7 @@ def build(base, name):
         game_map['objective_enemy'] = index[layout['objective_enemy_id']]
     if name == 'siege_train':
         # User-requested JAX training shaping, not an original game mechanic.
-        game_map['siege_rewards'] = dict(victory_multiplier=3., unit_kill=5.)
-        game_map.update(army_victory_level_reward=5., army_victory_level_objective_only=True)
+        game_map['siege_rewards'] = dict(victory_multiplier=3., unit_kill=5., spawn_level=5.)
     if name == 'trade_train':
         # User-requested entry levels above 1, paid only for the hero army's victory.
         game_map['army_victory_level_reward'] = 5.

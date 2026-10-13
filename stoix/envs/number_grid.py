@@ -705,12 +705,14 @@ class NumberGrid(Summoning, NumericNumberGrid):
                     or self.scenario.events[0]['enemy'] != self.objective_enemy):
                 raise ValueError('Siege rewards require one scheduled objective army and reference rewards')
             if 'spawn_hp' in self.siege_rewards:
-                raise ValueError('siege_rewards.spawn_hp was replaced by army_victory_level_reward; '
-                                 'old spawn-reward maps must not silently use victory rewards')
-            for key in ('victory_multiplier', 'unit_kill'):
+                raise ValueError('siege_rewards.spawn_hp was replaced by siege_rewards.spawn_level; '
+                                 'old HP-reward maps must not silently use level rewards')
+            for key in ('victory_multiplier', 'unit_kill', 'spawn_level'):
                 value = self.siege_rewards.get(key)
                 if type(value) not in (int, float) or not 0 <= value < float('inf'):
                     raise ValueError(f'siege_rewards.{key} must be a finite nonnegative number')
+            if self.siege_rewards['spawn_level'] and self.army_victory_level_reward:
+                raise ValueError('siege_rewards.spawn_level and army_victory_level_reward are mutually exclusive')
         self.spell_research_enabled = bool(game_map.get('spell_research', False))
         if self.spell_research_enabled:
             if not self.territory_enabled:

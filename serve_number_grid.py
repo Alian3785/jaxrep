@@ -296,7 +296,7 @@ def make_handler(service, port):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', type=int, default=8769)
-    parser.add_argument('--map', help='current, default, default-green-dragon, default-blue-dragon, super_last_stand, siege_train, wotans_retribution, trade_train, or a map JSON path')
+    parser.add_argument('--map', help='current, default, default-green-dragon, default-blue-dragon, small, small-green-dragon, small-blue-dragon, super_last_stand, siege_train, wotans_retribution, trade_train, or a map JSON path')
     parser.add_argument('--model', help='Results folder with params.msgpack: enables agent hints and moves')
     parser.add_argument('--allow-cpu', action='store_true', help='Run human mode on the JAX CPU backend')
     args = parser.parse_args()

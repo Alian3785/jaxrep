@@ -53,28 +53,35 @@ _ROOT = Path(__file__).resolve().parents[2]
 # Named maps for training and human mode; anything else is a JSON path.
 MAP_FILES = {'current': _ROOT / 'number_grid_map.json', 'default': _ROOT / 'maps/default.json'}
 MAP_FILES.update({name: _ROOT / 'maps' / (name+'.json')
-                 for name in ('super_last_stand', 'siege_train', 'wotans_retribution', 'trade_train')})
-DRAGON_MAPS = {'default-green-dragon': 'dragon', 'default-blue-dragon': 'blue_dragon'}
+                 for name in ('small', 'super_last_stand', 'siege_train', 'wotans_retribution', 'trade_train')})
+DRAGON_MAPS = {base+'-'+color+'-dragon': (base, objective)
+               for base in ('default', 'small')
+               for color, objective in (('green', 'dragon'), ('blue', 'blue_dragon'))}
 
 
 def load_map(name=None):
-    """Current, Default (cities/green dragon/blue dragon), or a standalone JSON map."""
+    """Named campaign (including Default/Small goals), or a standalone JSON map."""
     if name in DRAGON_MAPS:
         # Reference maps/default.py and enemy_configs.build_blue_dragon_enemy_configs:
-        # enemy 31 (zero-based 30) keeps its position and formation slot.
-        game_map = load_map('default')
-        target = 30
+        # enemy 31 keeps its position and formation slot; Small has sparse source IDs.
+        base, objective = DRAGON_MAPS[name]
+        game_map = load_map(base)
+        source_ids = game_map.get('reference_enemy_ids', list(range(1, len(game_map['enemy_rosters'])+1)))
+        target = source_ids.index(31)
         if game_map['enemy_rosters'][target] != [None, 'g000uu5023', None, None, None, None]:
-            raise ValueError('Default objective enemy 31 must be the Green Dragon')
-        blue = DRAGON_MAPS[name] == 'blue_dragon'
+            raise ValueError(f'{base} objective enemy 31 must be the Green Dragon')
+        blue = objective == 'blue_dragon'
         if blue:
             units = json.loads((_ROOT / 'stoix/envs/data/units.json').read_text(encoding='utf-8'))
             for i, roster in enumerate(game_map['enemy_rosters']):
                 if 'g000uu5023' in roster:
                     roster[:] = ['g000uu5021' if unit == 'g000uu5023' else unit for unit in roster]
                     game_map['enemy_hp'][i] = max(units[unit]['max_hp'] for unit in roster if unit)
-        game_map.update(name='NumberGrid-50x50-'+name, campaign_objective=DRAGON_MAPS[name],
+        size = game_map['size']
+        game_map.update(name=f'NumberGrid-{size}x{size}-'+name, campaign_objective=objective,
                         objective_enemy=target, objective_reward_hero_only=blue)
+        if base == 'small':
+            game_map['display_name'] = 'Small — '+('синий дракон' if blue else 'зелёный дракон')
         if blue:
             game_map.update(army_victory_level_reward=5., army_victory_level_objective_only=True)
         for city in game_map['cities']:

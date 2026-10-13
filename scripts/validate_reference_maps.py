@@ -60,7 +60,8 @@ def validate(name):
         position = game_map['opponent_positions'][target]
         blocked = env.territory.blocked_grid.reshape(env.size, env.size)
         direction, offset = next((i, d) for i, d in enumerate(env.directions.tolist())
-            if not bool(blocked[position[0]-d[0], position[1]-d[1]]))
+            if 0 < position[0]-d[0] < env.size-1 and 0 < position[1]-d[1] < env.size-1
+            and not bool(blocked[position[0]-d[0], position[1]-d[1]]))
         near = original.replace(position=jnp.array([position[0]-offset[0], position[1]-offset[1]], jnp.int32))
         assert bool(env.action_mask(near)[direction])
         arrived, ts = step(near, jnp.int32(direction))

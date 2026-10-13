@@ -1,5 +1,7 @@
 # Карта Default из Python-референса
 
+Уменьшенная версия с теми же тремя целями: [Small](SMALL_MAP.md).
+
 Вторая карта для обучения и ручной игры: «A Return to Simpler Times» (`default`) из Python-референса `C:/Disciples 2 python reference/Big_map/maps/default.py`. Текущая карта `number_grid_map.json` не изменилась: её случайные прогоны совпадают побитно с версией до доработки.
 
 ## Выбор карты

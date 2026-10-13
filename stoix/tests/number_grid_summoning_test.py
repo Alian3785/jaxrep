@@ -8,17 +8,17 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from stoix.envs.number_grid import NumberGrid, MAP, SHOOT, DEFEND, WAIT, CONTINUE
+from stoix.envs.number_grid import NumberGrid, MAP, SHOOT, DEFEND, WAIT, CONTINUE, load_map
 from stoix.envs.number_grid_combat import UNITS
-from stoix.envs.number_grid_summoning import COPY_ALLY, COPIED, SUMMONED
+from stoix.envs.number_grid_summoning import COPY_ALLY, COPIED, SUMMONED, linked_summon_hp
+from stoix.envs.number_grid_recruitment import OFFERS, mercenary_offers
 from stoix.tests.number_grid_fixtures import compiled_method, hero_roster_state, enemy_roster_state
 
 
 @pytest.fixture(scope='module')
 def summon_game():
     config = deepcopy(MAP)
-    # The current map has no unit summoners and prunes that branch. Keep the
-    # full summoner scenarios on a dedicated environment for targeted checks.
+    # Keep all named summoners together for targeted mechanic checks.
     config['enemy_rosters'] = [['squire',None,None,None,None,None] for _ in config['enemy_rosters']]
     config['enemy_units'] = [1]*len(config['enemy_rosters'])
     config['enemy_rosters'][0] = ['elementalist','sage','occultist','occultmaster','lyf','laclaan']
@@ -31,6 +31,70 @@ def summon_game():
     env = NumberGrid(map_config=config)
     state,_ = compiled_method(env,'reset')(jax.random.PRNGKey(42))
     return env,state
+
+
+@pytest.mark.parametrize('faction', tuple(OFFERS))
+def test_features_include_all_recruits_promotions_and_summon_pools(faction):
+    config = load_map('default')
+    config['faction'] = faction
+    env = NumberGrid(map_config=config)
+    pending = list(OFFERS[faction]) + [r['unit'] for _, r, _ in mercenary_offers(config)]
+    seen = set()
+    while pending:
+        key = pending.pop()
+        if key in seen:
+            continue
+        seen.add(key)
+        assert env.progression.ids[key] in env.progression.used_ids, key
+        pending.extend(UNITS[key]['upgrades'] + UNITS[key].get('summon_pool', []))
+
+
+def test_default_hired_apprentice_promotes_and_summons():
+    env = NumberGrid(map_config=load_map('default'))
+    rules = env.progression
+    assert env.has_summons
+    state, _ = compiled_method(env, 'reset')(jax.random.PRNGKey(42))
+    state = state.replace(gold=jnp.int32(10000))
+    # The starting army already fills leadership: dismiss one Squire first.
+    dismiss = jnp.int32(env.recruitment.dismiss_start + 2)
+    assert compiled_method(env, 'action_mask')(state)[dismiss]
+    state, _ = compiled_method(env, 'step')(state, dismiss)
+    offer = env.recruitment.keys.index('apprentice')
+    action = jnp.int32(env.recruitment.start + offer)
+    assert compiled_method(env, 'action_mask')(state)[action]
+    state, _ = compiled_method(env, 'step')(state, action)
+    slot = int(jnp.argmax(state.unit_ids[:6] == rules.ids['apprentice']))
+    finish = jax.jit(rules.finish)
+    for current, promoted in [('apprentice', 'mage'), ('mage', 'elementalist')]:
+        uid = rules.ids[current]
+        choice = UNITS[current]['upgrades'].index(promoted)
+        state = state.replace(buildings=rules.building_bits[uid, choice])
+        ids, levels, xp, enemies, hp, _, _ = finish(
+            state, state.hp, state.escaped, jnp.bool_(True), jnp.bool_(False),
+            jnp.bool_(False), jnp.array([0, 100000], jnp.int32))
+        state = state.replace(unit_ids=ids, unit_levels=levels, unit_xp=xp,
+                              enemy_progress=enemies, hp=hp)
+        assert state.unit_ids[slot] == rules.ids[promoted]
+    state = compiled_method(env, '_begin_battle')(state.replace(enemy=jnp.int32(0)))
+    state = state.replace(actor=jnp.int32(slot), round=jnp.int32(1), preparation=jnp.zeros(12, bool))
+    mask = compiled_method(env, 'action_mask')(state)
+    assert mask[SHOOT + 5] and not mask[SHOOT + slot]
+    summoned = act(env, state, SHOOT + 5)
+    assert summoned.last_event == SUMMONED
+    assert summoned.summon_owner[5] == slot
+    assert summoned.unit_ids[5] == rules.ids['g000uu6103'] and summoned.hp[5] == 100
+
+
+def test_linked_summon_ancestors_preserve_roots_and_remove_descendants():
+    # Eleven links exercise the whole fixed roster; escaped roots keep their HP.
+    owners = jnp.arange(12, dtype=jnp.int32) - 1
+    hp = jnp.full(12, 100, jnp.int32)
+    escaped = jnp.zeros(12, bool)
+    resolve = jax.jit(linked_summon_hp)
+    chex.assert_trees_all_equal(resolve(hp, escaped, owners), hp)
+    chex.assert_trees_all_equal(resolve(hp.at[0].set(0), escaped, owners), jnp.zeros(12, jnp.int32))
+    chex.assert_trees_all_equal(resolve(hp, escaped.at[0].set(True), owners), hp.at[1:].set(0))
+    chex.assert_trees_all_equal(resolve(hp.at[5].set(0), escaped, owners), hp.at[5:].set(0))
 
 
 def battle(game, heroes, enemies):
@@ -144,6 +208,61 @@ def test_single_summon_corpse_empty_slot_owner_death_and_no_xp(summon_game):
     restored,hp = compiled_method(env,'_restore_roster')(result,result.hp,jnp.bool_(True))
     assert hp[0] == 0 and restored.unit_ids[0] == env.progression.ids['squire']
     assert jnp.all(restored.summon_owner == -1)
+
+
+def test_summon_reuses_escaped_cell_and_preserves_survivor(summon_game):
+    env, _ = summon_game
+    state = battle(summon_game, ['squire','duke',None,'elementalist',None,None],
+                   ['squire',None,None,None,None,None])
+    state = state.replace(actor=jnp.int32(0), round=jnp.int32(1), preparation=jnp.zeros(12,bool),
+        hp=state.hp.at[0].set(37), unit_xp=state.unit_xp.at[0].set(17),
+        unit_levels=state.unit_levels.at[0].set(2),
+        retreating=state.retreating.at[0].set(True), priority=state.priority.at[3].set(10000.))
+    summoner = state.replace(actor=jnp.int32(3))
+    assert not compiled_method(env, 'action_mask')(summoner)[SHOOT]  # retreat is not complete
+    escaped = act(env, state, CONTINUE)
+    assert escaped.escaped[0] and escaped.hp[0] == 37
+    ready = escaped.replace(actor=jnp.int32(3))
+    assert compiled_method(env, 'action_mask')(ready)[SHOOT]
+    summoned = act(env, ready, SHOOT)
+    assert summoned.summon_owner[0] == 3 and summoned.summon_saved_hp[0] == 37
+    assert summoned.native_xp[0] == 17 and summoned.native_levels[0] == 2 and not summoned.escaped[0]
+    # Replacing a dead summon keeps the first escaped fighter's snapshot.
+    repeated = act(env, summoned.replace(actor=jnp.int32(3), hp=summoned.hp.at[0].set(0)), SHOOT)
+    assert repeated.summon_saved_hp[0] == 37 and repeated.native_xp[0] == 17
+    lost_summon = compiled_method(env, '_linked_summon_hp')(repeated, repeated.hp.at[3].set(0))
+    restored, hp = compiled_method(env, '_restore_roster')(repeated, lost_summon, jnp.bool_(True))
+    assert hp[0] == 37 and restored.escaped[0] and restored.unit_xp[0] == 17
+    assert restored.unit_ids[0] == env.progression.ids['squire'] and restored.unit_levels[0] == 2
+    assert not jnp.any(restored.summon_saved_hp) and jnp.all(restored.summon_owner == -1)
+
+
+@pytest.mark.parametrize('enemy', [False, True])
+def test_escaped_large_unit_frees_both_summon_cells(summon_game, enemy):
+    env, _ = summon_game
+    roster = ['titan','squire',None,None,'elementalist',None]
+    state = battle(summon_game, roster, roster)
+    offset = 6 if enemy else 0
+    state = state.replace(actor=jnp.int32(offset+4), round=jnp.int32(1), preparation=jnp.zeros(12,bool))
+    targets = compiled_method(env, '_summon_targets')
+    assert not targets(state)[offset] and not targets(state)[offset+3]
+    escaped = state.replace(escaped=state.escaped.at[offset].set(True))
+    assert targets(escaped)[offset] and targets(escaped)[offset+3]
+
+
+def test_summon_keeps_escaped_copy_in_its_native_form(summon_game):
+    env, _ = summon_game
+    state = battle(summon_game, ['doppelganger','duke',None,'elementalist',None,None],
+                   ['squire',None,None,None,None,None])
+    copied = compiled_method(env, '_copy_unit')(state.replace(actor=jnp.int32(0)),
+                                               jnp.int32(1), jnp.bool_(True))
+    copied = copied.replace(actor=jnp.int32(3), hp=copied.hp.at[0].set(50),
+                            escaped=copied.escaped.at[0].set(True))
+    original, expected_hp = compiled_method(env, '_restore_roster')(copied, copied.hp, jnp.bool_(True))
+    summoned, _ = compiled_method(env, '_spawn_units')(copied, jnp.int32(0), jnp.bool_(True), jnp.zeros(12))
+    restored, hp = compiled_method(env, '_restore_roster')(summoned, summoned.hp, jnp.bool_(True))
+    assert restored.unit_ids[0] == original.unit_ids[0] == env.progression.ids['doppelganger']
+    assert hp[0] == expected_hp[0] and restored.escaped[0] and not restored.copied[0]
 
 
 @pytest.mark.parametrize('caster',['occultmaster','lyf','laclaan'])

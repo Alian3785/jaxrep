@@ -111,6 +111,8 @@ def test_map_only_validation_no_resource_cost_and_recovery(current_game):
     for field in ('gold','movement_points','day','buildings','recovery_balance','unit_xp','battle_key'):
         chex.assert_trees_all_equal(getattr(revived,field),getattr(wounded,field))
     invalid=[(state,'healing',0),(state,'life',0),(state,'might',0),(wounded,'healing',1),
+             (wounded.replace(summon_owner=wounded.summon_owner.at[1].set(1)),'life',1),
+             (wounded.replace(summon_battle=jnp.bool_(True)),'life',1),
              (wounded,'might',5),(wounded.replace(done=jnp.bool_(True)),'might',0),
              (compiled_method(env,'_begin_battle')(wounded.replace(enemy=jnp.int32(0))),'might',0)]
     for before,key,slot in invalid:

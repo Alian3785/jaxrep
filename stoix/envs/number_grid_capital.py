@@ -6,6 +6,8 @@ The user's integer-HP rule rounds affordable healing down and retains change.
 """
 import jax.numpy as jnp
 
+from stoix.envs.number_grid_combat import can_revive
+
 HEAL_START, REVIVE_START, CAPITAL_ACTIONS = 44, 50, 56
 HEAL_REWARD, REVIVE_REWARD = .01, .5
 CAPITAL_HEAL, CAPITAL_REVIVE = 17, 18
@@ -40,15 +42,16 @@ class CapitalRules:
         common = (self.at_capital(state) & self.temple_built(state)
                   & ~state.in_battle & ~state.done & (ids != 0))
         heal = common & (hp > 0) & (hp < maximum) & (state.gold >= prices[..., 0])
-        revive = common & (hp == 0) & (state.gold >= prices[..., 1])
+        revive = common & can_revive(state, jnp.arange(6) if slot is None else slot) & (state.gold >= prices[..., 1])
         return heal, revive
 
     def apply(self, state, action, max_hp):
         """Called from a validated world step; other actions leave recovery intact."""
         healing = (action >= HEAL_START) & (action < REVIVE_START)
         reviving = (action >= REVIVE_START) & (action < CAPITAL_ACTIONS)
-        service = healing | reviving
         slot = jnp.clip(jnp.where(healing, action-HEAL_START, action-REVIVE_START), 0, 5)
+        reviving &= can_revive(state, slot)
+        service = healing | reviving
         prices = self.prices[state.unit_ids[slot]]
         amount = jnp.minimum(jnp.maximum(max_hp[slot]-state.hp[slot], 0),
                              state.gold // jnp.maximum(prices[0], 1))

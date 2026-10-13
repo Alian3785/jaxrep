@@ -17,6 +17,17 @@ PROFILE_FIELDS = set(STAT_NAMES) | {'size', 'role', 'attack_type', 'immunities',
                                   'secondary_attack_type', 'secondary_accuracy', 'secondary_damage'}
 
 
+def can_revive(state, slots):
+    """Shared resurrection eligibility; callers also check occupancy and access.
+
+    Battle summons carry an owner (their own slot for item summons). World
+    summons instead replace the player party under the summon_battle flag.
+    Unit identity is irrelevant: a permanent Zombie can still be resurrected.
+    """
+    return ((state.hp[slots] <= 0) & (state.summon_owner[slots] < 0)
+            & ~(state.summon_battle & (slots < 6)))
+
+
 def uses_aoe_accuracy_falloff(profile):
     """Reference Mage heroes and Nosferatu lose 10 points per living target."""
     unit_type = profile.get('unit_type', 'Mage' if profile.get('role') == 'area' else '')

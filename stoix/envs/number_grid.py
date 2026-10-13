@@ -12,7 +12,7 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 from stoix.envs.number_grid_combat import (
-    HP, DAMAGE, ACCURACY, ARMOR, INITIATIVE, MELEE, AREA, HEALER, build_combat_tables, accuracy_hits,
+    HP, DAMAGE, ACCURACY, ARMOR, INITIATIVE, MELEE, AREA, HEALER, build_combat_tables, accuracy_hits, can_revive,
 )
 from stoix.envs.number_grid_capital import CapitalRules, HEAL_START, REVIVE_START, CAPITAL_ACTIONS
 from stoix.envs.number_grid_potions import PotionRules, POTION_START, merchants, scenario_potions
@@ -104,6 +104,7 @@ class BattleState(NumberGridState):
     copy_secondary: jax.Array
     copy_traits: jax.Array
     summon_owner: jax.Array
+    summon_saved_hp: jax.Array  # escaped permanent fighter beneath a battle summon
     preparation: jax.Array
     initiative_override: jax.Array  # native or exact temporary form/slow base
     saved_initiative_override: jax.Array
@@ -770,6 +771,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             copy_stats=jnp.zeros((12,5),jnp.float32), copy_traits=jnp.zeros((12,4),jnp.uint32),
             copy_secondary=jnp.zeros((12,2),jnp.float32),
             summon_owner=jnp.full(12,-1,jnp.int32), preparation=jnp.zeros(12,bool),
+            summon_saved_hp=jnp.zeros(12,jnp.int32),
             fenrir=jnp.zeros(12, jnp.bool_),
             armor_shreds=jnp.zeros(12, jnp.int32),
             imp=jnp.zeros(12, jnp.bool_), imp_wards=jnp.zeros(12, jnp.uint32),
@@ -873,7 +875,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
 
     def _clear_roster_slots(self, state, affected):
         fields = self._empty_summon_fields(state)
-        zero = ('unit_ids', 'unit_levels', 'unit_xp', 'native_ids', 'native_levels', 'native_xp',
+        zero = ('unit_ids', 'unit_levels', 'unit_xp', 'native_ids', 'native_levels', 'native_xp', 'summon_saved_hp',
                 'hp', 'copy_stats', 'copy_traits', 'copy_secondary', 'preparation', 'pending_healers',
                 'potion_doses', 'potion_bonus', 'potion_temporary', 'potion_active', 'potion_wards',
                 'equipment_bonus', 'last_poison_damage', 'last_burn_damage', 'last_water_damage',
@@ -1151,7 +1153,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         covered = back & alive[pair] & (sizes[pair] == 2)
         footprint_free = ~covered & ~((natural_sizes == 2) & alive[pair])
         occupied = (state.unit_ids != 0) if self.progression_enabled else (self._combat_stats(state)[:,HP] > 0)
-        revive = (state.hp <= 0) & ~state.battle_revived & footprint_free
+        revive = can_revive(state, self.slots) & ~state.battle_revived & footprint_free
         # Dead slots have zero effective initiative in the JAX scheduler.
         return occupied & ~state.escaped & ~covered & (alive | revive) & ((self.slots < 6) == (state.actor < 6))
 
@@ -1704,6 +1706,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
 
     def _begin_battle(self, state, key=None, random_values=None):
         state = state.replace(copied=jnp.zeros(12,bool),summon_owner=jnp.full(12,-1,jnp.int32),
+                              summon_saved_hp=jnp.zeros(12,jnp.int32),
                               preparation=jnp.zeros(12,bool),
                               primary_override=jnp.full(12,-1,jnp.int32),preweak_damage=jnp.full(12,-1,jnp.int32),
                               powerup=jnp.zeros(12,bool),powerup_layered=jnp.zeros(12,bool),
@@ -2463,7 +2466,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             next_actor = jnp.where(active[next_actor],next_actor,jnp.argmax(jnp.where(
                 active & (phases == 0),priority,jnp.where(active & (phases == 1),-priority,-1e9)))).astype(jnp.int32)
         state = state.replace(waited=jnp.where(round_number != state.round,False,state.waited))
-        party_defeated = ~jnp.any(hp[:6] > 0)
+        party_defeated = ~jnp.any((hp[:6] > 0) | (state.summon_saved_hp[:6] > 0))
         lost = party_defeated
         summon_battle = state.summon_battle if self.spell_casting_enabled else jnp.bool_(False)
         lost &= ~summon_battle  # a fallen summon only ends its own battle
@@ -2611,7 +2614,8 @@ class NumberGrid(Summoning, NumericNumberGrid):
             kill_xp = self.unit_experience(state)[:,1]
             bank = state.battle_xp + jnp.sum(jnp.where(killed, kill_xp, 0).reshape(2, 6), axis=1)
             if self.has_copies or self.has_summons or self.has_item_summons:
-                state,hp = self._restore_roster(state,hp,raw_ended)
+                state,hp = self._restore_roster(state.replace(escaped=escaped),hp,raw_ended)
+                escaped = state.escaped
             ids, levels, xp, enemies, hp, gains, promoted = self.progression.finish(
                 state, hp, escaped, victory, lost, withdrawal, bank, self._party_experience_bonus(state))
             if self.spell_casting_enabled:

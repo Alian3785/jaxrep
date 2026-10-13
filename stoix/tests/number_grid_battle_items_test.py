@@ -9,12 +9,12 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from stoix.envs.number_grid import CONTINUE, DEFEND, REST, WAIT, action_names, load_map
+from stoix.envs.number_grid import CONTINUE, DEFEND, REST, SHOOT, WAIT, action_names, load_map
 from stoix.envs.number_grid_battle_items import (BATTLE_ITEM, ITEM_EQUIPPED, MAGIC_BY_KEY, MAGIC_ITEMS,
                                                  ORBS, TALISMANS, BattleItemRules)
 from stoix.envs.number_grid_items import ITEMS, USABLE, ItemRules
 from stoix.envs.number_grid_potions import POTION_START
-from stoix.tests.number_grid_fixtures import enemy_roster_state
+from stoix.tests.number_grid_fixtures import compiled_method, enemy_roster_state
 
 
 
@@ -151,6 +151,88 @@ def test_battle_potion_heals_and_is_drunk(default_game, item_battle):
         f'item1_ally_{t}' for t in (0, 1, 2, 4)]
     healed, _ = step(battle, jnp.int32(NAMES.index('item1_ally_0')))
     assert healed.hp[0] == 90 and healed.potions[healing] == 1 and healed.battle_items.tolist() == [-1, -1]
+
+
+@pytest.mark.parametrize('item', ['orb_of_life', 'life'])
+def test_battle_items_cannot_revive_summons(default_game, item_battle, item):
+    env, _, step, mask = default_game
+    rules = env.battle_item_rules
+    # Create the actual independent summon that previously came back with 85 HP.
+    summoned, _ = step(item_battle, jnp.int32(NAMES.index('item2_ally_3')))
+    assert summoned.summon_owner[3] == 3
+    life = env.potion_rules.keys.index('life')
+    dead = slots(env, summoned, item, None).replace(actor=jnp.int32(1),
+        hp=summoned.hp.at[3].set(0), potions=summoned.potions.at[life].set(1),
+        turn_phase=summoned.turn_phase.at[1].set(0))
+    action = jnp.int32(rules.use_start+3)
+    assert not mask(dead)[action]
+    rejected, _ = step(dead, action)
+    for field in ('hp', 'actor', 'battle_key', 'battle_items', 'battle_item_charges',
+                  'battle_item_used', 'item_inventory', 'potions'):
+        np.testing.assert_array_equal(getattr(rejected, field), getattr(dead, field))
+    # The same Zombie as a permanent party member remains a valid target.
+    permanent = dead.replace(summon_owner=dead.summon_owner.at[3].set(-1))
+    assert mask(permanent)[action]
+    # Living summons can still be healed.
+    wounded = slots(env, dead, 'healing', None).replace(hp=dead.hp.at[3].set(1),
+        potions=dead.potions.at[env.potion_rules.keys.index('healing')].set(1))
+    assert mask(wounded)[action]
+
+
+@pytest.mark.parametrize('owner,map_summon', [(3, False), (4, False), (-1, True)])
+def test_patriarch_cannot_revive_any_summon(default_game, item_battle, owner, map_summon):
+    env, _, step, mask = default_game
+    ids = env.progression.ids
+    patriarch, zombie = ids['patriarch'], ids['g000uu0087']
+    state = item_battle.replace(actor=jnp.int32(4),
+        unit_ids=item_battle.unit_ids.at[4].set(patriarch).at[3].set(zombie),
+        unit_levels=item_battle.unit_levels.at[4].set(env.progression.base_levels[patriarch])
+            .at[3].set(env.progression.base_levels[zombie]),
+        hp=item_battle.hp.at[4].set(125).at[3].set(0),
+        summon_owner=item_battle.summon_owner.at[3].set(owner), summon_battle=jnp.bool_(map_summon))
+    action = jnp.int32(SHOOT+3)
+    for before in (state, state.replace(post_victory=jnp.int32(1),
+                                       pending_healers=jnp.zeros(12, bool).at[4].set(True))):
+        assert not mask(before)[action]
+        rejected, _ = step(before, action)
+        for field in ('hp', 'actor', 'battle_key', 'battle_revived', 'revival_xp_cutoff'):
+            np.testing.assert_array_equal(getattr(rejected, field), getattr(before, field))
+    permanent = state.replace(summon_owner=state.summon_owner.at[3].set(-1), summon_battle=jnp.bool_(False))
+    assert mask(permanent)[action]
+    assert mask(state.replace(hp=state.hp.at[3].set(1)))[action]
+    # Enemy AI uses the same target predicate; a map summon affects only BLUE.
+    enemy = state.replace(actor=jnp.int32(10),
+        unit_ids=state.unit_ids.at[10].set(patriarch).at[9].set(zombie),
+        hp=state.hp.at[10].set(125).at[9].set(0),
+        summon_owner=state.summon_owner.at[9].set(-1 if map_summon else owner+6))
+    assert bool(compiled_method(env, '_patriarch_targets')(enemy)[9]) == map_summon
+
+
+@pytest.mark.core
+@pytest.mark.parametrize('victory', [True, False], ids=['victory', 'only_escaped_survivor'])
+def test_item_summon_preserves_escaped_fighter_at_battle_end(default_game, item_battle, victory):
+    env, _, step, mask = default_game
+    before = item_battle.replace(hp=item_battle.hp.at[0].set(37),
+        escaped=item_battle.escaped.at[0].set(True), unit_xp=item_battle.unit_xp.at[0].set(17),
+        unit_levels=item_battle.unit_levels.at[0].set(2))
+    action = jnp.int32(NAMES.index('item2_ally_0'))
+    assert mask(before)[action]
+    summoned, _ = step(before, action)
+    assert summoned.summon_saved_hp[0] == 37 and summoned.summon_owner[0] == 0
+    assert not summoned.escaped[0] and summoned.hp[0] > 0
+    if victory:
+        ending = summoned.replace(actor=jnp.int32(1), hp=summoned.hp.at[6:].set(0),
+                                   battle_xp=jnp.array([0, 100], jnp.int32))
+        result = finish(step, ending)
+    else:
+        # Every visible ally is dead, but the escaped Squire is still alive.
+        ending = summoned.replace(actor=jnp.int32(1), hp=summoned.hp.at[:6].set(0))
+        result = finish(step, ending, CONTINUE)
+        assert not result.lost and not result.done
+        np.testing.assert_array_equal(result.position, before.origin)
+    assert result.hp[0] == 37 and result.unit_ids[0] == before.unit_ids[0]
+    assert result.unit_levels[0] == 2 and result.unit_xp[0] == 17 and result.last_xp[0] == 0
+    assert not jnp.any(result.summon_saved_hp) and jnp.all(result.summon_owner == -1)
 
 
 def finish(step, state, action=DEFEND):

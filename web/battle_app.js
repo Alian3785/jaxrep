@@ -51,7 +51,7 @@
     const name=(map.name||'').replace(/^NumberGrid-\d+x\d+-/,'');
     return map.display_name||({
       default:'Default', super_last_stand:'Super Last Stand',
-      siege_train:'Siege Train', wotans_retribution:'Возмездие Вотана'
+      siege_train:'Siege Train', wotans_retribution:'Возмездие Вотана', trade_train:'Торговое обучение'
     })[name]||name;
   }
   function construction(){return mode==='manual'?(manualConstruction||data.construction):data.construction;}

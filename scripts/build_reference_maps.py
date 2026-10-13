@@ -1,4 +1,4 @@
-"""Convert the three reference campaigns to standalone, versioned JAX map files.
+"""Convert reference campaigns to standalone, versioned JAX map files.
 
 Only reads reference map definitions and layout snapshots; never runs its environment.
 Run with scripts/run_gpu.sh and --reference pointing to the reference directory.
@@ -15,7 +15,7 @@ from scripts.build_default_map import CURRENT, RULES, UNITS, cell, dump, roster,
 from stoix.envs.number_grid_items import ITEMS
 from stoix.envs.number_grid_potions import POTIONS
 
-NAMES = ('super_last_stand', 'siege_train', 'wotans_retribution')
+NAMES = ('super_last_stand', 'siege_train', 'wotans_retribution', 'trade_train')
 ALIASES = {
     'Potion of Healing': 'healing', 'Potion of Restoration': 'restoration', 'Life Potion': 'life',
     'Эликсир Жизни': 'life', 'Эликсир восстановления': 'restoration',
@@ -82,7 +82,8 @@ def build(base, name):
     blocked = {tuple(p) for p in layout['obstacles']} | removed
     terrain = {k: [cell(p) for p in layout['terrain'][k] if tuple(p) not in blocked]
                for k in ('water', 'forest', 'road')}
-    game_map = dict(name='NumberGrid-50x50-'+name, size=layout['grid_size']+2,
+    size = layout['grid_size']+2
+    game_map = dict(name=f'NumberGrid-{size}x{size}-'+name, size=size,
         agent_position=cell(layout['hero']), agent_number=1,
         opponent_positions=[cell(e['position']) for e in stacks], opponent_numbers=[1]*len(stacks),
         **{k: CURRENT[k] for k in RULES}, battle_items=True, hero_skills=True,
@@ -128,7 +129,10 @@ def build(base, name):
         definitions = getattr(config, kind+'_sites')
         sites = []
         for site_name, spec in definitions.items():
-            site = dict(name=site_name, position=cell(spec['anchor']))
+            # Layout snapshots already contain scaled/conflict-resolved coordinates.
+            # trade_train's source anchors are on 48x48, but its playable map is 24x24.
+            snapshot = next(s for s in layout['sites'] if s['name'] == site_name)
+            site = dict(name=site_name, position=cell(snapshot['position']))
             if kind == 'merchant':
                 offers = (config.merchant_buy_items_by_site or {}).get(site_name, config.merchant_buy_items)
                 site.update(potions={}, items={}, prices={})
@@ -137,6 +141,10 @@ def build(base, name):
                     target = 'potions' if any(p['key']==key for p in POTIONS) else 'items'
                     site[target][key] = int(offer['stock'])
                     site['prices'][key] = int(offer['price'])
+            if kind == 'mercenary':
+                site['roster'] = [dict(unit=keys[offer['unit_name']],
+                                       price=int(offer['gold']), stock=int(offer['stock']))
+                                  for offer in spec['roster']]
             if kind == 'spell_shop':
                 site['spells'] = [dict(spell='g000ss0019', price=1000, stock=1),
                                   dict(spell='g000ss0058', price=1000, stock=1)]
@@ -153,10 +161,12 @@ def build(base, name):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--reference', type=Path, required=True)
+    parser.add_argument('--map', action='append', choices=NAMES, dest='maps',
+                        help='Only rebuild the selected map(s); by default rebuild all reference campaigns')
     args = parser.parse_args()
     base = args.reference/'Big_map' if (args.reference/'Big_map').is_dir() else args.reference
     sys.path.insert(0, str(base))
-    for name in NAMES:
+    for name in args.maps or NAMES:
         target = ROOT/'maps'/f'{name}.json'
         target.write_text(dump(build(base, name)), encoding='utf-8')
         print('Wrote', target)

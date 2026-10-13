@@ -196,6 +196,6 @@ wsl -d Ubuntu-24.04 -u minigrid --cd C:\jaxjax -- /home/minigrid/.venvs/numbergr
 
 В [руинах](docs/RUINS.md) 3×3 в [7,23] находятся тролль и гоблин-лучник. Победа даёт одно зелье силы (+30% урона до отдыха); разграбленные руины остаются препятствием. Атаковать можно с пяти подсвеченных клеток у входа с живым героем.
 
-Три кампании `super_last_stand`, `siege_train` и `wotans_retribution`: [карты, сценарии и награды](docs/REFERENCE_CAMPAIGNS.md).
+Кампании `super_last_stand`, `siege_train`, `wotans_retribution` и `trade_train`: [карты, сценарии и награды](docs/REFERENCE_CAMPAIGNS.md). Для `trade_train` доступны [описание и проверка проходимости](docs/TRADE_TRAIN.md).
 
 Подробное поведение агента сохраняется в [отчётах по эпизодам](docs/EPISODE_REPORTS.md): состав и опыт армии, последовательность улучшений, побеждённые отряды и причина поражения. Для существующих моделей доступна отдельная GPU-команда `report_number_grid.py`.

@@ -53,7 +53,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 # Named maps for training and human mode; anything else is a JSON path.
 MAP_FILES = {'current': _ROOT / 'number_grid_map.json', 'default': _ROOT / 'maps/default.json'}
 MAP_FILES.update({name: _ROOT / 'maps' / (name+'.json')
-                 for name in ('super_last_stand', 'siege_train', 'wotans_retribution')})
+                 for name in ('super_last_stand', 'siege_train', 'wotans_retribution', 'trade_train')})
 DRAGON_MAPS = {'default-green-dragon': 'dragon', 'default-blue-dragon': 'blue_dragon'}
 
 

@@ -417,7 +417,7 @@ if __name__ == '__main__':
     p.add_argument('--output')
     p.add_argument('--select-best', action='store_true',
                    help='Save checkpoints at 1M summaries; select by wins on 128 fixed episodes and evaluate the best on 1024 other episodes')
-    p.add_argument('--map', help='current, default, default-green-dragon, default-blue-dragon, super_last_stand, siege_train, wotans_retribution, or a saved map JSON')
+    p.add_argument('--map', help='current, default, default-green-dragon, default-blue-dragon, super_last_stand, siege_train, wotans_retribution, trade_train, or a saved map JSON')
     p.add_argument('--no-unit-swaps', action='store_true',
                    help='Remove the party swap actions and features from the map (unit_swaps: false)')
     p.add_argument('--no-episode-reports', action='store_true',

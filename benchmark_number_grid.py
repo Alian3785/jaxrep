@@ -26,6 +26,8 @@ from stoix.envs.number_grid import MAP, NumberGrid, load_map, wrap_wall_action_m
 from numbergrid_config import ROOT, make_config
 from numbergrid_tracking import NumberGridTracking, add_tracking_arguments
 from stoix.envs.number_grid_metrics import summarize_campaign
+from stoix.envs.number_grid_episode_reports import compact_episode_events
+from numbergrid_episode_reports import EpisodeReports, read_episode_batch
 
 
 def save_json(path, value):
@@ -175,6 +177,8 @@ def run_training(args, tracking):
         # Training without party swaps: the map then has no swap actions at all (docs/UNIT_SWAPS.md).
         game_map = {**game_map, 'unit_swaps': False}
     config = make_config(total, seed, map_config=game_map)
+    config.env.kwargs.episode_reports = bool(game_map.get('battle_mode')
+        and game_map.get('unit_progression') and not getattr(args, 'no_episode_reports', False))
     run_name = f"number_grid-{game_map['size']}x{game_map['size']}" + ('-step-cost' if game_map.get('step_cost', 0) else '') + ('-smoke' if args.smoke else '')
     if game_map.get('objective_enemy') is not None:
         run_name += '-'+game_map.get('campaign_objective', 'target-enemy')
@@ -191,6 +195,7 @@ def run_training(args, tracking):
         raise FileExistsError(f'Output already contains files; choose another --output: {output}')
     output.mkdir(parents=True, exist_ok=True)
     measured_sources = ['benchmark_number_grid.py', 'numbergrid_config.py', 'numbergrid_tracking.py',
+                        'numbergrid_episode_reports.py', 'stoix/envs/number_grid_episode_reports.py',
                         'stoix/envs/number_grid_scenarios.py', 'stoix/envs/number_grid_reference_rewards.py',
                         'stoix/envs/number_grid_hero_skills.py',
                         'numbergrid_campaign.py', 'numbergrid_comet_dashboard.py', 'stoix/envs/number_grid_metrics.py',
@@ -214,6 +219,8 @@ def run_training(args, tracking):
         print(json.dumps(record), flush=True)
     status('initializing', device=str(jax.devices()[0]), total_timesteps=total)
     env, _ = make(config)
+    reports = (EpisodeReports(output, game_map, env.combat_info)
+               if config.env.kwargs.episode_reports else None)
     keys = tuple(jax.random.split(jax.random.PRNGKey(seed), 3))
     learner, actor, state = learner_setup(env, keys, config)
     initial_params = jax.device_get(unreplicate(state.params))
@@ -238,7 +245,10 @@ def run_training(args, tracking):
                 losses[name] = jnp.sum(episodes[name])
         if 'campaign_events' in episodes:
             losses['campaign'] = summarize_campaign(episodes)
-        return result.learner_state, losses
+        packets = None
+        if 'episode_event' in episodes:
+            losses['episode_report_events'], packets = compact_episode_events(episodes)
+        return result.learner_state, losses, packets
     jax.block_until_ready(state)
     begin_compile = time.perf_counter()
     compiled = jax.jit(chunk).lower(state).compile()
@@ -248,15 +258,28 @@ def run_training(args, tracking):
     training_seconds = 0.0
     checkpoints = []
     intermediate_checkpoint_seconds = 0.0
+    episode_report_seconds = 0.0
+    reported_expected = 0
+    report_summary = None
     status('training', training_steps=0, total_timesteps=total)
     loop_started = time.perf_counter()
     for i in range(total // step_size):
         begin = time.perf_counter()
-        state, metrics = compiled(state)
-        jax.block_until_ready((state, metrics))
+        state, metrics, packets = compiled(state)
+        jax.block_until_ready((state, metrics, packets))
         elapsed = time.perf_counter() - begin
         training_seconds += elapsed
         host_metrics = jax.device_get(metrics)
+        if reports is not None:
+            report_started = time.perf_counter()
+            count = int(host_metrics.pop('episode_report_events'))
+            # One count and one populated batch per learner block, never per step.
+            batch = read_episode_batch(packets, count)
+            reports.consume(batch, transition_base=i * step_size)
+            reported_expected += int(host_metrics['episodes'])
+            if reports.completed != reported_expected:
+                raise AssertionError('Episode reports lost a terminal record')
+            episode_report_seconds += time.perf_counter() - report_started
         campaign = host_metrics.pop('campaign', None)
         if campaign is not None:
             tracking.campaign.add(campaign)
@@ -269,6 +292,10 @@ def run_training(args, tracking):
                                         time.perf_counter() - loop_started,
                                         final=(i + 1) * step_size == total)
         if summary is not None:
+            if reports is not None:
+                report_started = time.perf_counter()
+                report_summary = reports.write_summary(expected_completed=reported_expected)
+                episode_report_seconds += time.perf_counter() - report_started
             status('training', training_steps=summary['training_steps'], total_timesteps=total,
                    mean_steps_per_second=summary['training_steps']/training_seconds,
                    mean_episode_return=summary['mean_episode_return'],
@@ -280,6 +307,10 @@ def run_training(args, tracking):
                 checkpoints.append(save_checkpoint(output, unreplicate(state.params), (i + 1) * step_size))
                 save_json(output / 'checkpoints.json', checkpoints)
                 intermediate_checkpoint_seconds += time.perf_counter() - checkpoint_started
+    if reports is not None:
+        report_started = time.perf_counter()
+        report_summary = reports.write_summary(expected_completed=reported_expected, final=True)
+        episode_report_seconds += time.perf_counter() - report_started
     training_loop_seconds = time.perf_counter() - loop_started
     with (output / 'metrics.csv').open('w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=list(rows[0]))
@@ -328,6 +359,13 @@ def run_training(args, tracking):
         training_loop_seconds=training_loop_seconds,
         training_loop_steps_per_second=total/training_loop_seconds,
         tracking_logging_seconds=tracking.logging_seconds,
+        episode_report_seconds=episode_report_seconds,
+        episode_reports=(None if report_summary is None else {
+            **{key: report_summary[key] for key in ('schema_version', 'completed_episodes',
+                'pending_episodes', 'events', 'outcomes', 'mean_awarded_xp')},
+            'episodes_file': 'episode_reports.jsonl',
+            'summary_file': 'episode_reports.summary.json',
+            'readable_summary_file': 'episode_reports.md'}),
         tracking_init_seconds=tracking.metadata['init_seconds'],
         completed_training_episodes=tracking.episodes, won_training_episodes=tracking.wins,
         tracking=tracking.metadata.copy(),
@@ -380,5 +418,7 @@ if __name__ == '__main__':
     p.add_argument('--map', help='current, default, default-green-dragon, default-blue-dragon, super_last_stand, siege_train, wotans_retribution, or a saved map JSON')
     p.add_argument('--no-unit-swaps', action='store_true',
                    help='Remove the party swap actions and features from the map (unit_swaps: false)')
+    p.add_argument('--no-episode-reports', action='store_true',
+                   help='Disable detailed per-episode reports; aggregate campaign metrics remain')
     add_tracking_arguments(p)
     train(p.parse_args())

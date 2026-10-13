@@ -37,6 +37,7 @@ from stoix.envs.number_grid_lords import with_starting_party
 from stoix.envs import number_grid_unit_swaps as unit_swaps
 from stoix.envs.number_grid_wards import ward_tags, grant_wards, expire_wards
 from stoix.envs.number_grid_metrics import campaign_events, empty_campaign_counts
+from stoix.envs.number_grid_episode_reports import empty_event, episode_event
 from stoix.envs.number_grid_scenarios import ScenarioRules
 from stoix.envs import number_grid_reference_rewards as reference_rewards
 from stoix.envs.number_grid_effects import effect_tables, effect_breaks, POISON, FROSTBITE, BLISTER, DISABLE, TRANSFORM, SHORT, LONG, armor_after_shreds, source_protection, advance_poison_queue, advance_periodic_queue, vampiric_heal
@@ -294,7 +295,8 @@ class BattleState(NumberGridState):
 
 
 class NumberGrid(Summoning, NumericNumberGrid):
-    def __init__(self, max_steps=None, map_config=None):
+    def __init__(self, max_steps=None, map_config=None, episode_reports=False):
+        self.episode_reports = False
         # Without an explicit hero_roster the ruler chooses the starting hero and party.
         game_map = with_starting_party(MAP if map_config is None else map_config)
         super().__init__(max_steps=max_steps, map_config=game_map)
@@ -337,6 +339,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         self.has_water = False
         self.has_fire = False
         self.progression_enabled = bool(game_map.get('unit_progression', False))
+        self.episode_reports = bool(episode_reports) and self.progression_enabled
         if self.progression_enabled and not self.basic_combat:
             raise ValueError('Unit progression requires basic combat')
         # Reference skill ladder: Pathfinding, Weapon Master, the lord's Might (docs/HERO_SKILLS.md).
@@ -1785,6 +1788,8 @@ class NumberGrid(Summoning, NumericNumberGrid):
                                     'turn_ended': jnp.bool_(False),
                                     'campaign_events': empty_campaign_counts(),
                                     'rest_penalty': jnp.float32(0)})
+            if self.episode_reports:
+                ts = ts.replace(extras={**ts.extras, 'episode_event': empty_event()})
         return ts
 
     def _begin_battle(self, state, key=None, random_values=None):
@@ -2970,6 +2975,9 @@ class NumberGrid(Summoning, NumericNumberGrid):
                                     action, valid, counts[4:]),
                                 'rest_penalty': (jnp.where(rested, self.rest_penalty(state), 0.)
                                                  if self.basic_combat else jnp.float32(0))})
+        if self.episode_reports:
+            ts = ts.replace(extras={**ts.extras, 'episode_event': episode_event(
+                self, state, world_state, next_state, action, valid, counts[4:])})
         return next_state, ts
 
     def action_space(self, env_params=None):

@@ -27,6 +27,7 @@ def _siege_kills(env, state, killed):
 
 
 def world(env, before, after, action, rest):
+    """Calculate strategic shaping, including the one-time living-level bonus when a siege spawns."""
     moved = jnp.any(before.position != after.position)
     engage = after.in_battle & ~after.summon_battle
     directional = (action >= 0) & (action < 8)
@@ -50,11 +51,12 @@ def world(env, before, after, action, rest):
     if env.siege_rewards:
         target = env.objective_enemy
         spawned = after.scenario_spawned[target] & ~before.scenario_spawned[target]
-        # Snapshot the permanent party before battle preparation/automatic enemy
-        # activations. REST neither promotes nor revives units. No healing reward.
+        # REST cannot promote/revive the permanent party. Capture preparation
+        # before battle setup or automatic attacks on the spawning turn, and pay
+        # immediately even if contact happens later or the hero loses this turn.
         living = (before.hp[:6] > 0) & (before.unit_ids[:6] != 0)
-        strength = jnp.sum(jnp.where(living, env.max_hp(before)[:6], 0))
-        reward += spawned*env.siege_rewards['spawn_hp']*strength
+        strength = jnp.sum(jnp.where(living, jnp.maximum(before.unit_levels[:6]-1, 0), 0))
+        reward += spawned*env.siege_rewards['spawn_level']*strength
         if env.spell_casting_enabled:
             maximum = env.progression.stats(env.casting.enemy_ids[target],
                                             after.enemy_progress[target, :, 0])[:, HP].astype(jnp.int32)

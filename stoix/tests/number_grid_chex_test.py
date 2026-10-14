@@ -12,7 +12,7 @@ from stoix.networks.base import FeedForwardActor
 from stoix.networks.heads import CategoricalHead
 from stoix.networks.torso import MLPTorso
 
-from stoix.tests.number_grid_fixtures import current_environment
+from stoix.tests.number_grid_fixtures import basic_environment, current_environment
 from stoix.envs.number_grid import SHOOT, WAIT, DEFEND, CONTINUE, REST
 
 
@@ -43,11 +43,12 @@ def assert_same_result(expected, actual):
             chex.assert_trees_all_equal(wanted, got)
 
 
-@lru_cache(maxsize=1)
-def reference_batch():
+@lru_cache(maxsize=2)
+def reference_batch(contract=False):
     # Compare compiled scalar steps with the compiled vmapped production path.
     # Reuse the scalar oracle rather than compiling each individual action.
-    env = current_environment()
+    """Cache eight scalar transition oracles and their input batch for a selected test map."""
+    env = basic_environment() if contract else current_environment()
     states, actions = scenarios(env)
     batched = jax.tree.map(lambda *xs: jnp.stack(xs), *states)
     scalar_step = compiled_method(env,'step')
@@ -56,18 +57,29 @@ def reference_batch():
     return env, states, actions, batched, expected
 
 
+def check_batched_steps(contract):
+    # Same eight transitions for the fast core contract and full catalogue case.
+    """Compare scalar and vmapped transitions, including exact discrete state and finite features."""
+    env, states, actions, batched, expected = reference_batch(contract)
+    actual = compiled_method(env, 'step', batched=True)(batched, actions)
+    assert_same_result(expected, actual)
+    next_states, ts = actual
+    chex.assert_shape(next_states.hp, (8, 12))
+    chex.assert_shape(ts.observation, (8, env.observation_size))
+    chex.assert_type([next_states.hp, next_states.defended, ts.observation],
+                     [jnp.int32, jnp.bool_, jnp.float32])
+
+
+@pytest.mark.core
+def test_batched_combat_contract_matches_individual_steps():
+    """Cover all eight transition kinds on the compact map within the core compilation budget."""
+    check_batched_steps(contract=True)
+
+
 class CombatTransformsTest(chex.TestCase):
-    @pytest.mark.core
     def test_batched_step_matches_individual_steps(self):
-        # Map movement, hero actions, enemy AI, escape, invalid and terminal steps.
-        env, states, actions, batched, expected = reference_batch()
-        actual = compiled_method(env,'step',batched=True)(batched,actions)
-        assert_same_result(expected, actual)
-        next_states, ts = actual
-        chex.assert_shape(next_states.hp, (8, 12))
-        chex.assert_shape(ts.observation, (8, env.observation_size))
-        chex.assert_type([next_states.hp, next_states.defended, ts.observation],
-                         [jnp.int32, jnp.bool_, jnp.float32])
+        """Run the same scalar/batch contract on the full catalogue as an extended check."""
+        check_batched_steps(contract=False)
 
     @chex.variants(with_jit=True, without_jit=False)
     def test_reset_and_mask_preserve_batch_contract(self):
@@ -130,8 +142,8 @@ def test_masked_warrior_policy_sample_argmax_and_ppo_gradient(current_game):
     assert np.isfinite(value) and all(np.isfinite(x).all() for x in jax.tree.leaves(gradients))
 
 
-@pytest.mark.core
 def test_human_service_uses_identical_mask_and_rejects_unreachable_target(human_service):
+    """Verify the manual service exposes the environment mask and rejects an unreachable attack."""
     service = human_service
     # This regression starts in combat; building an unused new-game snapshot
     # would compile metadata that is unrelated to mask/step agreement.

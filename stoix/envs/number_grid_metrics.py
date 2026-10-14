@@ -42,6 +42,11 @@ def campaign_events(env, before, world, after, action, valid, battle_counts):
         battle_retreats=battle_counts[2], unit_upgrades=battle_counts[3],
         enemy_squads_defeated=jnp.sum(before.alive & ~after.alive),
     )
+    if env.bot.enabled:
+        from stoix.envs.number_grid import REST
+        # REST's private bot combats do not count as the agent's victories.
+        values['enemy_squads_defeated'] = (jnp.sum(world.alive & ~after.alive)
+            + jnp.where(world_action & (action != REST), jnp.sum(before.alive & ~world.alive), 0))
     if env.basic_combat:
         values['buildings_built'] = jax.lax.population_count(world.buildings & ~before.buildings)
     if env.capital_enabled:

@@ -56,6 +56,7 @@ def loot(names):
 
 
 def build(base, name):
+    """Translate a reference scenario and its layout into JAX armies, events, and rewards."""
     module = importlib.import_module('maps.'+name)
     from unit_revive_costs import REVIVE_PROFILE_IDS_BY_NAME
     config = module.MAP
@@ -117,7 +118,7 @@ def build(base, name):
         game_map['objective_enemy'] = index[layout['objective_enemy_id']]
     if name == 'siege_train':
         # User-requested JAX training shaping, not an original game mechanic.
-        game_map['siege_rewards'] = dict(victory_multiplier=3., unit_kill=5., spawn_hp=.05)
+        game_map['siege_rewards'] = dict(victory_multiplier=3., unit_kill=5., spawn_level=5.)
     if name == 'trade_train':
         # User-requested entry levels above 1, paid only for the hero army's victory.
         game_map['army_victory_level_reward'] = 5.

@@ -578,7 +578,7 @@
       const wall=r===0||c===0||r===map.size-1||c===map.size-1,index=r*map.size+c;
       const seen=s.visited&&(s.visited[index>>>5]&(1<<(index&31)));
       const {x,y}=displayTile([r,c],map.size);
-      roundRect(x*cell+1,y*cell+1,cell-2,cell-2,Math.max(2,cell*.12),wall?'#d3decc':current()?.territory_quotes?.territory[r][c]?'#e6cfb5':seen?'#dfecd9':(r+c)%2?'#f3f6ef':'#ecf2e6');
+      roundRect(x*cell+1,y*cell+1,cell-2,cell-2,Math.max(2,cell*.12),wall?'#d3decc':current()?.territory_quotes?.opponent_territory?.[r]?.[c]?'#cdddf0':current()?.territory_quotes?.territory[r][c]?'#e6cfb5':seen?'#dfecd9':(r+c)%2?'#f3f6ef':'#ecf2e6');
     }
     const terrain=terrainGrid(map);
     for(let r=1;r<map.size-1;r++)for(let c=1;c<map.size-1;c++){
@@ -590,13 +590,14 @@
       if(kind===2){ctx.fillStyle='#6c9061';ctx.beginPath();ctx.moveTo(x+cell*.22,y+cell*.73);ctx.lineTo(x+cell*.5,y+cell*.22);ctx.lineTo(x+cell*.78,y+cell*.73);ctx.fill();}
       if(kind===1){ctx.setLineDash([cell*.12,cell*.12]);ctx.beginPath();ctx.moveTo(x+cell*.18,y+cell*.5);ctx.lineTo(x+cell*.82,y+cell*.5);ctx.stroke();ctx.setLineDash([]);}
       if(current()?.territory_quotes?.territory[r][c]){ctx.strokeStyle='#b58d64';ctx.strokeRect(x+1,y+1,cell-2,cell-2);}
+      if(current()?.territory_quotes?.opponent_territory?.[r]?.[c]){ctx.strokeStyle='#4b73a3';ctx.strokeRect(x+1,y+1,cell-2,cell-2);}
     }
     for(const position of territoryInfo()?.obstacles||[]){
       const {x:c,y:r}=displayTile(position,map.size);
       roundRect(c*cell+1,r*cell+1,cell-2,cell-2,cell*.14,'#899088');
       ctx.fillStyle='#626c63';ctx.beginPath();ctx.moveTo((c+.16)*cell,(r+.8)*cell);ctx.lineTo((c+.48)*cell,(r+.2)*cell);ctx.lineTo((c+.84)*cell,(r+.8)*cell);ctx.fill();
     }
-    for(const capital of territoryInfo()?.enemy_capitals||[]){
+    for(const capital of [...(territoryInfo()?.enemy_capitals||[]),...(territoryInfo()?.enemy_territory_sources||[])]){
       const cells=capital.footprint||[];if(!cells.length)continue;
       const rows=cells.map(p=>p[0]),cols=cells.map(p=>p[1]),top=Math.min(...rows),left=Math.min(...cols);
       const {x:c,y:r,width:w,height:h}=displayRect([top,left],Math.max(...rows)-top+1,Math.max(...cols)-left+1,map.size);
@@ -616,6 +617,7 @@
       }
       ctx.fillStyle='#fff';ctx.textAlign='center';ctx.textBaseline='middle';ctx.font='800 '+Math.round(cell*(marker ? .72 : .48))+'px system-ui';ctx.fillText(marker?.letter||'З',(c+.5)*cell,(r+.52)*cell);
       if(current()?.territory_quotes?.mine_owned[i]){ctx.strokeStyle='#795a37';ctx.lineWidth=1.5;ctx.strokeRect(c*cell+1,r*cell+1,cell-2,cell-2);}
+      if(current()?.territory_quotes?.mine_owner?.[i]===2){ctx.strokeStyle='#35669f';ctx.lineWidth=2;ctx.strokeRect(c*cell+1,r*cell+1,cell-2,cell-2);}
     }
     for(const site of siteInfo()?.sites||[]){
       const style={merchant:['#b58242','#e3cba5','#775129','Торг'],trainer:['#688da4','#c3d7df','#3f637b','Тренер'],mercenary:['#8e7b59','#e5dcc7','#665238','Наём'],spell_shop:['#7b68a8','#ddd5ef','#4c3d78','Магия']}[site.kind];
@@ -660,7 +662,7 @@
       ctx.restore();
     });
     const token=(p,n)=>{const {x,y}=displayTile(p,map.size);roundRect(x*cell+cell*.09,y*cell+cell*.09,cell*.82,cell*.82,cell*.2,'#d5c0e8');ctx.fillStyle='#654777';ctx.font='650 '+Math.round(cell*.55)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(n,(x+.5)*cell,(y+.52)*cell);};
-    (s.enemy_positions||map.opponent_positions).forEach((p,i)=>{if(s.alive[i]&&!(ruinInfo()?.ruins||[]).some(r=>r.enemy===i)&&!(territoryInfo()?.cities||[]).some(c=>c.position.every((v,j)=>v===p[j])))token(p,map.enemy_units[i]);});
+    (s.enemy_positions||map.opponent_positions).forEach((p,i)=>{if(s.alive[i]&&!(ruinInfo()?.ruins||[]).some(r=>r.enemy===i)&&!(territoryInfo()?.cities||[]).some(c=>c.position.every((v,j)=>v===p[j])))token(p,i===map.scripted_bot?.enemy?'Б':map.enemy_units[i]);});
     (map.chests||[]).forEach((chest,i)=>{
       if(!s.chest_alive?.[i])return;
       const tile=displayTile(chest.position,map.size),x=tile.x*cell,y=tile.y*cell;
@@ -867,11 +869,18 @@
     const goalCities=targetEnemy===null?(territoryInfo()?.cities||[]).map((c,i)=>c.objective?i:-1).filter(i=>i>=0):[];
     const remainingEnemy=i=>s.alive[i]||s.scenario_spawned?.[i]===false;
     const waves=map.campaign_objective==='waves';
+    const mirror=map.campaign_objective==='scripted_bot';
     $('remaining').textContent=targetEnemy!==null?Number(remainingEnemy(targetEnemy)):waves?(map.scheduled_enemies||[]).filter(e=>remainingEnemy(e.enemy)).length:goalCities.length?goalCities.filter(i=>!s.city_owned?.[i]).length:s.alive.filter((a,i)=>a&&!guards.has(i)).length;
     $('remaining-label').textContent=targetEnemy!==null?'цель: '+targetName+' · отряд № '+(targetEnemy+1):waves?'армий волн осталось, включая ещё не появившиеся':goalCities.length?'целевых городов осталось ('+goalCities.map(i=>territoryInfo().cities[i].name).join(', ')+')':'отрядов осталось';
+    if(mirror){$('remaining').textContent=s.bot_hero_victories>0?'0':'1';$('remaining-label').textContent='цель: победить бота отрядом героя';}
+    let botStatus=$('bot-status');
+    if(!botStatus){botStatus=document.createElement('p');botStatus.id='bot-status';$('lord-summary').after(botStatus);}
+    botStatus.hidden=!map.scripted_bot;
+    if(map.scripted_bot)botStatus.textContent='Бот Империи: '+(['охотится','возвращается домой','отдыхает','повержен'][s.bot_mode]||'—')+(s.bot_timer?' · осталось ходов: '+s.bot_timer:'')+' · побед над нейтралами: '+s.bot_defeated_enemies+'. Голубые клетки — земля оппонента; бежевые — ваша.';
     $('chest-status').hidden=!(map.chests||[]).length;
     $('chest-status').textContent=(s.last_event===21?eventText(snap)+' ':'')+'Сундуков осталось: '+(s.chest_alive||[]).filter(Boolean).length+' / '+(map.chests||[]).length+'. Подойдите на соседнюю клетку, включая диагональ: всё содержимое попадёт в инвентарь.';
     $('wins').textContent=s.alive.filter((v,i)=>!v&&s.scenario_spawned?.[i]!==false).length;
+    if(map.scripted_bot)$('wins').textContent=(s.reference_defeated||[]).filter(Boolean).length;
     $('steps').textContent=fmt(s.step_count);$('reward').textContent=fmt(snap.total_reward);
     $('gold').textContent=fmt(s.gold);
     const turns=turnRules(),points=s.movement_points;
@@ -901,6 +910,7 @@
     if(isSummoner(s.actor))$('attack-hint').textContent='Призыв: выберите свободную клетку своего отряда. Большое существо занимает переднюю и заднюю клетки линии.';
     const message=s.won?(targetEnemy!==null?'Победа! Цель повержена: '+targetName+'.':goalCities.length?'Победа! Целевые города захвачены.':'Победа! Карта очищена.'):s.lost?'Ваш отряд погиб. Начните новую игру.':s.done?'Достигнут лимит. Начните новую игру.':s.in_battle?'Выбирайте цели и берегите свой отряд.':!s.movement_points?'Очки перемещения закончились. Можно использовать зелья, строить или отдохнуть.':'Шаг на клетку врага — атака. Рядом с отрядом можно пройти без боя.';
     $('message').textContent=message;
+    if(mirror&&s.won)$('message').textContent='Победа! Отряд героя победил бота Империи.';
     $('map-controls').hidden=s.in_battle||capitalOpen||potionsOpen||spellsOpen;$('battle-controls').hidden=!s.in_battle||capitalOpen||potionsOpen||spellsOpen;
     $('continue').hidden=!s.in_battle||!mask[17];
     $('wave-continue').hidden=s.in_battle||!mask[17]||s.done;

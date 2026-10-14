@@ -19,8 +19,6 @@ from stoix.envs.number_grid_spells import SPELL_BY_ID, SpellResearchRules
 from stoix.tests.number_grid_fixtures import compiled_method
 
 
-pytestmark = pytest.mark.core
-
 ROOT = Path(__file__).resolve().parents[2]
 MANA = jnp.full(5, 5000, jnp.int32)
 # A scroll of an own legion spell (its book row) and other factions' spells (item-only rows).
@@ -35,7 +33,9 @@ def scroll_rules(env, lord='warrior', **changes):
     return SpellCastRules(config, research, construction, env.progression, env.territory, env.ruins, 212, items), items
 
 
+@pytest.mark.core
 def test_catalogue_keeps_only_researchable_spells():
+    """Keep item-only spells out of research while retaining supported scroll and staff actions."""
     audit = json.loads((ROOT/'docs/validation/spell-item-sources.json').read_text(encoding='utf-8'))
     assert audit['counts'] == dict(scrolls=120, staves=21, supported_scrolls=101, supported_staves=14)
     assert [p['key'] for p in SPELL_ITEMS] == [r['key'] for r in audit['items'] if r['supported']]
@@ -130,7 +130,9 @@ def test_hire_scroll_consumption_and_staff_access(current_game):
     assert started.scroll_magic_start
 
 
+@pytest.mark.core
 def test_default_map_hires_reader_and_reads_scroll(default_game):
+    """Exercise hiring a scroll reader and consuming a scroll through Default's public step."""
     env, initial, step, mask = default_game
     rules = env.casting
     scroll = env.item_rules.keys.index('mind_ward_scroll')

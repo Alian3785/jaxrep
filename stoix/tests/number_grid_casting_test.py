@@ -359,22 +359,26 @@ def test_summon_round_limit_keeps_existing_return_without_retreat_penalty(curren
     assert float(ts.reward) == pytest.approx(-env.step_cost-.05*env.recruitment.composition(out)[2])
 
 
-@pytest.mark.core
-def test_batched_casts_match_single_transitions_and_mask_equals_step(current_game):
+@pytest.mark.parametrize('compare_batch', [
+    pytest.param(False, id='scalar', marks=pytest.mark.core), pytest.param(True, id='full-batch'),
+])
+def test_batched_casts_match_single_transitions_and_mask_equals_step(current_game, compare_batch):
+    """Check cast legality against step and optionally compare full-map batch transitions."""
     env, initial, step, _ = current_game
     rules = env.casting
-    batched = compiled_method(env, 'step', batched=True)
     mask = compiled_method(env, 'action_mask')
     states = [ready(env, initial, 0, 1, 3), ready(env, initial, 1, position=jnp.array([19, 26], jnp.int32)),
               ready(env, initial, 0, 1).replace(mana=jnp.zeros(5, jnp.int32)),
               ready(env, initial, 3, enemy_spell_effects=initial.enemy_spell_effects.at[0].set(rules.bits[3]))]
     actions = [rules.start, rules.start+1, rules.start+1, rules.start+3]
-    batch = jax.tree.map(lambda *x: jnp.stack(x), *states)
-    out, ts = batched(batch, jnp.array(actions, jnp.int32))
-    for k, (state, action) in enumerate(zip(states, actions)):
-        single, single_ts = step(state, jnp.int32(action))
-        chex.assert_trees_all_equal(jax.tree.map(lambda x, k=k: x[k], out), single)
-        assert float(ts.reward[k]) == pytest.approx(float(single_ts.reward))
+    if compare_batch:
+        batched = compiled_method(env, 'step', batched=True)
+        batch = jax.tree.map(lambda *x: jnp.stack(x), *states)
+        out, ts = batched(batch, jnp.array(actions, jnp.int32))
+        for k, (state, action) in enumerate(zip(states, actions)):
+            single, single_ts = step(state, jnp.int32(action))
+            chex.assert_trees_all_equal(jax.tree.map(lambda x, k=k: x[k], out), single)
+            assert float(ts.reward[k]) == pytest.approx(float(single_ts.reward))
     for state in states:
         allowed = mask(state)
         for i in range(rules.count):

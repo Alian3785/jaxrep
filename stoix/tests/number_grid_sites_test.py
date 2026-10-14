@@ -84,12 +84,16 @@ def test_exact_three_purchase_actions_and_finite_stock(current_game):
     assert env.observation_size==1843 and compiled_method(env,'observation')(initial).shape==(1843,)
     state=at_site(env,initial,'merchant').replace(movement_points=jnp.int32(0))
     before=state
-    state,_=advance(state,jnp.int32(rules.buy_start))
+    purchases=CAMPAIGN_FIELDS.index('merchant_purchases')
+    state,ts=advance(state,jnp.int32(rules.buy_start))
     assert state.last_event==BOUGHT and state.gold==before.gold-700
+    assert ts.extras['campaign_events'][purchases]==1
     assert state.potions[env.potion_rules.keys.index('invulnerability')]==1
     assert state.merchant_stock.tolist()==[0,10,10]
     assert not compiled_method(env,'action_mask')(state)[rules.buy_start]
-    unchanged(state,advance(state,jnp.int32(rules.buy_start))[0])
+    repeated,ts=advance(state,jnp.int32(rules.buy_start))
+    unchanged(state,repeated)
+    assert ts.extras['campaign_events'][purchases]==0
     state,_=advance(state,jnp.int32(REST))
     assert state.merchant_stock[0]==0  # No daily replenishment.
     for i,price in ((1,150),(2,400)):

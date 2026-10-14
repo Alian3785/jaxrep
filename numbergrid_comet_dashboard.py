@@ -11,7 +11,7 @@ from uuid import uuid4
 CAMPAIGN_MECHANICS = (
     'battle_victories', 'battle_defeats', 'battle_retreats', 'unit_upgrades',
     'castle_heal_uses', 'castle_healed_hp', 'chests_collected', 'buildings_built',
-    'ruins_cleared', 'potions_used', 'merchant_sale_gold', 'spells_learned',
+    'ruins_cleared', 'potions_used', 'merchant_purchases', 'merchant_sale_gold', 'spells_learned',
     'spell_casts', 'summoned_units', 'hired_units', 'mercenaries_hired', 'battle_items_equipped',
     'battle_items_used', 'unit_swaps', 'enemy_squads_defeated', 'cities_captured', 'trainer_uses',
     'capital_defense_acquired', 'capital_defense_effects', 'capital_health_effects',
@@ -19,10 +19,12 @@ CAMPAIGN_MECHANICS = (
     'capital_entry_strength',
 )
 CAMPAIGN_CHARTS = (
-    'campaign/victory_rate', 'campaign/defeat_rate', 'campaign/timeout_rate',
+    # First row (three per row): run-long win and defeat rates, then the
+    # latest interval's win rate in place of the run-long timeout rate.
+    'campaign/victory_rate', 'campaign/defeat_rate', 'campaign/window/victory_rate',
     'campaign/battle_win_rate',
     *(f'campaign/completed/{name}_mean' for name in CAMPAIGN_MECHANICS),
-    'campaign/window/victory_rate', 'campaign/window/battle_win_rate',
+    'campaign/timeout_rate', 'campaign/window/battle_win_rate',
     'campaign/window/battle_victories_mean', 'campaign/window/unit_upgrades_mean',
     'campaign/window/dragon_reached_episodes_rate', 'campaign/victories_total',
     'campaign/window/capital_defense_acquired_mean',
@@ -47,6 +49,7 @@ CHART_TITLES = {
     'campaign/completed/buildings_built_mean': 'Построено зданий — в среднем на эпизод',
     'campaign/completed/ruins_cleared_mean': 'Разграблено руин — в среднем на эпизод',
     'campaign/completed/potions_used_mean': 'Использовано эликсиров — в среднем на эпизод',
+    'campaign/completed/merchant_purchases_mean': 'Покупок у торговца — в среднем на эпизод',
     'campaign/completed/merchant_sale_gold_mean': 'Золото от продажи вещей — в среднем на эпизод',
     'campaign/completed/spells_learned_mean': 'Изучено заклинаний — в среднем на эпизод',
     'campaign/completed/spell_casts_mean': 'Применено заклинаний — в среднем на эпизод',

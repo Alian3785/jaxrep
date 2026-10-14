@@ -20,6 +20,7 @@ CAMPAIGN_FIELDS = (
     'capital_defense_acquired', 'capital_defense_effects', 'capital_health_effects',
     'capital_guardian_rounds', 'capital_guardian_battles',
     'capital_first_contacts', 'capital_entry_strength',
+    'merchant_purchases',
 )
 EPISODE_WINDOW = 100
 
@@ -84,6 +85,10 @@ def campaign_events(env, before, world, after, action, valid, battle_counts):
     if env.sites_enabled:
         values['sold_items'] = jnp.where(world_action, world.last_sold_count, 0)
         values['merchant_sale_gold'] = jnp.where(world_action, world.last_sale_gold, 0)
+        if env.site_rules.has_merchant:
+            # Each successful purchase of a potion or item takes one unit of
+            # merchant stock; nothing else changes that stock.
+            values['merchant_purchases'] = jnp.sum(before.merchant_stock - world.merchant_stock)
         if env.site_rules.has_trainer:
             start = env.site_rules.train_start
             # One successful purchase for one fighter, regardless of XP bought.

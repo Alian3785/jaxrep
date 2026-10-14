@@ -2255,7 +2255,10 @@ class NumberGrid(Summoning, NumericNumberGrid):
             next_state = jax.lax.cond(resting & ~next_state.done,
                                       self.script_events.advance, lambda s: s, next_state)
         if self.bot.enabled:
-            next_state = jax.lax.cond(resting, lambda s: self.bot.advance(self, s), lambda s: s, next_state)
+            # Under vmap the cond runs for every environment; only a real map
+            # REST may enter the bot's search and auto-battle loops.
+            next_state = jax.lax.cond(resting, lambda s: self.bot.advance(self, s, resting & ~before.in_battle),
+                                      lambda s: s, next_state)
             # Autoresolution consumes the same device PRNG stream; do not reuse
             # the old world-action key for a subsequent encounter.
             key, random_key = jax.random.split(next_state.battle_key)

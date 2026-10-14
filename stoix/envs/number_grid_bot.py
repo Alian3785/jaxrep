@@ -48,15 +48,17 @@ class ScriptedBotRules:
         # Reference offsets in (x,y), converted to row/column.
         offsets = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1),
                    (1, -1), (1, 0), (1, 1)]
-        neighbors, valid = [], []
         blocked = set(territory.obstacle_cells)
-        for r in range(self.size):
-            for c in range(self.size):
-                neighbors.append([max(0, min(self.cells-1, (r+dr)*self.size+c+dc)) for dr, dc in offsets])
-                valid.append([0 < r+dr < self.size-1 and 0 < c+dc < self.size-1
-                              and (r+dr, c+dc) not in blocked for dr, dc in offsets])
-        self.neighbors = jnp.array(neighbors, jnp.int32)
-        self.valid_neighbors = jnp.array(valid, bool)
+        # A step in direction k enters cell n from predecessors[n, k]; it is
+        # legal exactly when n is an interior cell without an obstacle.
+        self.passable = jnp.array([0 < r < self.size-1 and 0 < c < self.size-1 and (r, c) not in blocked
+                                   for r in range(self.size) for c in range(self.size)], bool)
+        self.predecessors = jnp.array([[max(0, min(self.cells-1, (r-dr)*self.size+c-dc)) for dr, dc in offsets]
+                                       for r in range(self.size) for c in range(self.size)], jnp.int32)
+        self.lift_levels = max(1, (self.cells-1).bit_length())
+        # Search keys rank*8+direction stay below 8*cells; 16 bits halve the
+        # traffic of each layer pass on maps up to 63x63.
+        self.key_dtype = jnp.int16 if 8*self.cells < 2**15 else jnp.int32
         self.observation_size = 5+6*4
 
     def _cell(self, position):
@@ -84,40 +86,50 @@ class ScriptedBotRules:
         return jax.lax.cond(~state.alive[self.enemy] & (state.bot_mode != DEFEATED),
                             self.mark_defeated, lambda s: s, state)
 
-    def _search(self, state, allow_hero):
-        """FIFO BFS: occupied enemy cells are reachable terminal nodes."""
+    def _search(self, state, allow_hero, active=True):
+        """FIFO BFS: occupied enemy cells are reachable terminal nodes.
+
+        One loop pass expands a whole distance layer instead of one queued cell.
+        Each layer keeps its cells' dense FIFO ranks; a new cell takes the
+        smallest (rank, direction) among its discoverers, which is the queue
+        order and parent of the one-cell FIFO search. With ``active`` false the
+        search is skipped and only the start is reached: vmapped callers whose
+        result is discarded then add no loop passes.
+        """
         start = self._cell(state.enemy_positions[self.enemy])
         hero = self._cell(state.position)
         occupied = jnp.zeros(self.cells, jnp.int32).at[self._cell(state.enemy_positions)].max(
             state.alive.astype(jnp.int32)) > 0
         occupied = occupied.at[start].set(False)
-        queue = jnp.zeros(self.cells, jnp.int32).at[0].set(start)
         parent = jnp.full(self.cells, -1, jnp.int32).at[start].set(start)
         distance = jnp.full(self.cells, self.cells, jnp.int32).at[start].set(0)
+        enterable = self.passable & ((jnp.arange(self.cells) != hero) | allow_hero)
+        frontier = jnp.zeros(self.cells, bool).at[start].set(active)
+        dtype, keys = self.key_dtype, 8*self.cells
+        direction = jnp.arange(8, dtype=dtype)
 
-        def visit(carry):
-            """Expand one FIFO node, treating other armies as reachable endpoints rather than corridors."""
-            head, tail, queue, parent, distance = carry
-            current = queue[head]
-            neighbors = self.neighbors[current]
-            fresh = self.valid_neighbors[current] & (parent[neighbors] < 0)
-            fresh &= (neighbors != hero) | allow_hero
-            fresh &= ~occupied[current] | (current == start)
-            # Distinct valid neighbours; invalid entries use an out-of-bounds
-            # scatter dropped by JAX rather than overwriting a real cell.
-            indices = jnp.where(fresh, neighbors, self.cells)
-            parent = parent.at[indices].set(current, mode='drop')
-            distance = distance.at[indices].set(distance[current]+1, mode='drop')
-            slots = jnp.where(fresh, tail+jnp.cumsum(fresh.astype(jnp.int32))-1, self.cells)
-            queue = queue.at[slots].set(neighbors, mode='drop')
-            return head+1, tail+jnp.sum(fresh), queue, parent, distance
+        def layer(carry):
+            """Reach every cell one step beyond the current layer, in FIFO discovery order."""
+            depth, frontier, rank, parent, distance = carry
+            # Rank of each expanding predecessor; `cells` marks none (occupied
+            # armies are reached but never expanded).
+            source = jnp.where(frontier & ~occupied, rank, self.cells)[self.predecessors]
+            key = jnp.where(source < self.cells, source*8+direction, dtype(keys))
+            first = jnp.min(key, axis=1).astype(jnp.int32)
+            fresh = (first < keys) & (parent < 0) & enterable
+            parent = jnp.where(fresh, self.predecessors[jnp.arange(self.cells), first % 8], parent)
+            distance = jnp.where(fresh, depth+1, distance)
+            # Keys are unique per cell; their dense ranks keep the layer's queue order.
+            present = jnp.zeros(keys, dtype).at[jnp.where(fresh, first, keys)].set(1, mode='drop')
+            rank = jnp.cumsum(present, dtype=dtype)[jnp.minimum(first, keys-1)]-1
+            return depth+1, fresh, rank, parent, distance
 
         _, _, _, parent, distance = jax.lax.while_loop(
-            lambda carry: carry[0] < carry[1], visit,
-            (jnp.int32(0), jnp.int32(1), queue, parent, distance))
+            lambda carry: jnp.any(carry[1]), layer,
+            (jnp.int32(0), frontier, jnp.zeros(self.cells, dtype), parent, distance))
         return parent, distance
 
-    def navigate(self, env, state):
+    def navigate(self, env, state, active=True):
         """Choose a reference-priority target and spend movement, queuing contact without overlap."""
         position = state.enemy_positions[self.enemy]
         returning = state.bot_mode == RETURNING
@@ -125,7 +137,7 @@ class ScriptedBotRules:
         has_target = jnp.any(targets)
         pursuing = ~returning & ~has_target
         home_blocked = returning & jnp.all(state.position == self.home)
-        parent, distance = self._search(state, pursuing | home_blocked)
+        parent, distance = self._search(state, pursuing | home_blocked, active)
         costs = distance[self._cell(state.enemy_positions)]
         fallback = 10000+jnp.max(jnp.abs(state.enemy_positions-position), axis=1)
         costs = jnp.where(costs < self.cells, costs, fallback)
@@ -135,19 +147,17 @@ class ScriptedBotRules:
                                    jnp.where(pursuing, state.position, state.enemy_positions[target_index]))
         target_cell = self._cell(target_position)
         reachable = parent[target_cell] >= 0
-        start = self._cell(position)
-        # Reverse path [target, ..., start], built with a fixed-shape buffer.
-        path = jnp.full(self.cells, start, jnp.int32).at[0].set(target_cell)
-
-        def trace(carry):
-            """Append one predecessor to the reverse path in its fixed-capacity buffer."""
-            count, path, current = carry
-            previous = parent[current]
-            return count+1, path.at[count].set(previous), previous
-
-        length, path, _ = jax.lax.while_loop(
-            lambda c: reachable & (c[2] != start) & (c[0] < self.cells), trace,
-            (jnp.int32(1), path, target_cell))
+        # Path length in cells, start and target included; 1 when unreachable.
+        length = jnp.where(reachable, distance[target_cell]+1, 1)
+        # route[i] is the path cell i+1 moves from the start: the target's
+        # ancestor length-2-i levels up, found by binary lifting instead of a
+        # sequential walk back to the start. Unreachable targets keep their cell.
+        ancestor = jnp.where(parent >= 0, parent, jnp.arange(self.cells))
+        climb = jnp.where(reachable, jnp.maximum(0, length-2-jnp.arange(self.budget)), 0)
+        route = jnp.full(self.budget, target_cell, jnp.int32)
+        for level in range(self.lift_levels):
+            route = jnp.where(((climb >> level) & 1) == 1, ancestor[route], route)
+            ancestor = ancestor[ancestor]
         stop_adjacent = ~returning | home_blocked
         steps = jnp.maximum(0, length-1-stop_adjacent.astype(jnp.int32))
         bot_hp = jnp.maximum(0, self.maximum(state)-state.enemy_wounds[self.enemy])
@@ -160,7 +170,7 @@ class ScriptedBotRules:
         def move(i, carry):
             """Advance one path step within the remaining budget and terrain constraints."""
             pos, remaining, stopped = carry
-            cell = path[jnp.maximum(0, length-2-i)]
+            cell = route[i]
             next_pos = jnp.array([cell//self.size, cell % self.size], jnp.int32)
             # Historical greedy fallback for unreachable neutrals/return home.
             candidates = pos+jnp.array([(dy, dx) for dx in (-1, 0, 1) for dy in (-1, 0, 1)
@@ -196,9 +206,13 @@ class ScriptedBotRules:
         fight = ~returning & has_target & contact
         return state, target_index, fight
 
-    def _autobattle(self, env, state, target):
+    def _autobattle(self, env, state, target, active=True):
         # Player-only layers are cleared in a private copy. No host callbacks.
-        """Run the tactical engine on private state, committing only armies, bot progress, and RNG."""
+        """Run the tactical engine on private state, committing only armies, bot progress, and RNG.
+
+        With ``active`` false no activation runs; vmapped callers pass it so
+        environments without a fight add no passes to the shared battle loop.
+        """
         ids = state.bot_ids
         progress = state.enemy_progress[self.enemy]
         hp = jnp.maximum(0, self.maximum(state)-state.enemy_wounds[self.enemy])
@@ -235,7 +249,7 @@ class ScriptedBotRules:
         # automatic responses. Complete the last response/healing sequence even
         # when the blue-decision limit has just been reached.
         _, result = jax.lax.while_loop(
-            lambda c: c[1].in_battle & ~c[1].done &
+            lambda c: active & c[1].in_battle & ~c[1].done &
                       ((c[0] < self.battle_decisions) | env.automatic_battle_turn(c[1])),
             activation, (jnp.int32(0), scratch))
         victory = ~result.alive[target] & ~result.lost
@@ -274,8 +288,14 @@ class ScriptedBotRules:
         action = jnp.where(jnp.any(valid), SHOOT+target, fallback)
         return jnp.where(env._actor_mass_healer(state), SHOOT+first, action).astype(jnp.int32)
 
-    def advance(self, env, state):
-        """Advance hunting, home recovery, or the defeat countdown for one strategic day."""
+    def advance(self, env, state, active=True):
+        """Advance hunting, home recovery, or the defeat countdown for one strategic day.
+
+        ``active`` is false where the caller discards this result. Under vmap
+        lax.cond/switch evaluate every branch for every environment; the flag
+        keeps those environments out of the search and auto-battle loops.
+        """
+        travelling = active & (state.bot_mode <= RETURNING)
         state = state.replace(bot_moves_spent=jnp.int32(0), bot_target=jnp.int32(-1))
 
         def respawn(s):
@@ -297,8 +317,9 @@ class ScriptedBotRules:
 
         def travel(s):
             """Move toward the selected target and autoresolve only a reached neutral encounter."""
-            s, target, fight = self.navigate(env, s)
-            return jax.lax.cond(fight, lambda s: self._autobattle(env, s, target), lambda s: s, s)
+            s, target, fight = self.navigate(env, s, travelling)
+            return jax.lax.cond(fight, lambda s: self._autobattle(env, s, target, travelling & fight),
+                                lambda s: s, s)
 
         # Hunting and returning share one travel program. Repeating `travel`
         # in switch's branch tuple creates two copies of the entire battle

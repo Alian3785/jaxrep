@@ -1,4 +1,4 @@
-"""Run the mandatory regression suite in one CUDA process within seven minutes.
+"""Run the mandatory regression suite in one CUDA process within ten minutes.
 
 Usage: bash scripts/run_gpu.sh scripts/test_gpu.py --output results/gpu-tests/RUN
 Reuse the local JAX compilation cache by default; --cold-cache measures a fresh
@@ -16,7 +16,7 @@ import sys
 import time
 import tomllib
 
-WALL_LIMIT = 420
+WALL_LIMIT = 600
 
 
 def main():

@@ -1,5 +1,11 @@
 # NumberGrid 48×48 — отряды Disciples II
 
+[Mirror match](docs/MIRROR_MATCH.md): `--map mirror_match` (алиас `mirrow_match`).
+39 нейтральных отрядов, скриптовый бот Империи, рост и конкуренция земель.
+Цель — победить бота основным отрядом героя. Для ручной игры:
+`open-numbergrid.cmd -Map mirror_match`. Основные проверки карты, бота и
+конкуренции земель включены в `core`; расширенные проверки запускаются отдельно.
+
 Проект восстановлен из описания Alian3785/jaxrep и работает на NVIDIA GeForce GTX 1660 Ti (6 ГБ), Windows + WSL2 Ubuntu 24.04. Среда и обычный Stoix Anakin feedforward PPO выполняются end-to-end на JAX/GPU.
 
 [Карта Default](docs/DEFAULT_MAP.md) поддерживает три цели: `--map default`

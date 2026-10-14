@@ -3,7 +3,7 @@ param(
     [switch]$ColdCache
 )
 
-# Start before launching WSL: its startup belongs to the seven-minute budget.
+# Start before launching WSL: its startup belongs to the ten-minute budget.
 $testStartedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000.0
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $testArguments = @('scripts/test_gpu.py', '--output', $Output,

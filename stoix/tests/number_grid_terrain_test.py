@@ -51,8 +51,10 @@ def test_living_flying_heroes_and_dead_leader_prices(current_game):
     assert compiled_method(env,'travel_costs')(no_hero).tolist() == [2,1,4,6]
 
 
-@pytest.mark.core
-def test_actual_step_mask_quotes_and_last_partial_move(current_game):
+@pytest.mark.parametrize('compare_batch', [
+    pytest.param(False, id='scalar', marks=pytest.mark.core), pytest.param(True, id='full-batch'),
+])
+def test_actual_step_mask_quotes_and_last_partial_move(current_game, compare_batch):
     env, initial, _, _ = current_game
     cases, actions, expected, destinations = [], [], [], []
     for position, action, cost in (([2,2],2,1),([2,3],2,2),([4,16],3,4),([12,4],4,6)):
@@ -65,6 +67,20 @@ def test_actual_step_mask_quotes_and_last_partial_move(current_game):
                 actions.append(action)
                 expected.append(min(points,cost*(2 if dead else 1)))
                 destinations.append(jnp.array(position)+env.directions[action]*(points>0))
+    if not compare_batch:
+        # Reuse scalar programs. Stacking every leaf of 24 whole campaign states
+        # only to test scalar moves compiled many unrelated padding kernels.
+        step = compiled_method(env, 'step')
+        mask = compiled_method(env, 'action_mask')
+        quotes = compiled_method(env, 'map_commands')
+        for state, action, spent, destination in zip(cases, actions, expected, destinations):
+            assert bool(mask(state)[action]) == bool(state.movement_points > 0)
+            assert quotes(state)[action, 1] == spent
+            following, _ = step(state, jnp.int32(action))
+            chex.assert_trees_all_equal(following.position, destination)
+            assert following.movement_points == state.movement_points-spent
+            assert following.day == state.day and not following.in_battle
+        return
     states = jax.tree.map(lambda *xs:jnp.stack(xs),*cases)
     actions, expected = jnp.array(actions), jnp.array(expected)
     masks = compiled_method(env,'action_mask',batched=True)(states)

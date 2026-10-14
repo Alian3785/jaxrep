@@ -151,6 +151,12 @@ class SpellCastRules:
         self.full_regeneration = jnp.array([i in full for i in range(len(game_map['opponent_positions']))]) if full else None
         self.enemy_city = territory.enemy_city
         self.enemy_ids = progression.enemy_ids
+        self.bot_enemy = game_map.get('scripted_bot', {}).get('enemy')
+        self.bot_home = (jnp.array(game_map['scripted_bot']['home'], jnp.int32)
+                         if self.bot_enemy is not None else None)
+        source_ids = game_map.get('reference_enemy_ids', list(range(len(game_map['opponent_positions']))))
+        order = {i: rank for rank, i in enumerate(sorted(range(len(source_ids)), key=source_ids.__getitem__))}
+        self.target_order = jnp.array([order[i] for i in range(len(source_ids))], jnp.int32)
         self.occupied = self.enemy_ids != 0
         # Original getUnitRegen (D2ModdingToolset unitutils.cpp) for map stacks: each
         # unit's own Gunits REGEN plus the place. Map stacks are neutral, so there is no
@@ -210,18 +216,28 @@ class SpellCastRules:
     def targets(self, state):
         """Nearest living stack and nearest field stack with their distances."""
         distance = jnp.max(jnp.abs(state.enemy_positions - state.position), axis=1)
-        # One lexicographic key: distance, then the lower stack index.
-        key = distance * self.enemy_count + jnp.arange(self.enemy_count)
+        # Reference: distance, then source enemy ID (the mobile bot is -75).
+        key = distance * self.enemy_count + self.target_order
         worst = jnp.iinfo(jnp.int32).max
         any_key = jnp.where(state.alive, key, worst)
-        field_key = jnp.where(state.alive & self.field, key, worst)
+        field = self.field
+        if self.bot_enemy is not None:
+            position = state.enemy_positions[self.bot_enemy]
+            protected = (jnp.all(position == self.bot_home)
+                         | jnp.all(position == jnp.array(self.territory.capital)))
+            field = field.at[self.bot_enemy].set(~protected)
+        field_key = jnp.where(state.alive & field, key, worst)
         any_target, field_target = jnp.argmin(any_key), jnp.argmin(field_key)
         any_target = jnp.where(any_key[any_target] < worst, any_target, -1).astype(jnp.int32)
         field_target = jnp.where(field_key[field_target] < worst, field_target, -1).astype(jnp.int32)
         return any_target, field_target, distance
 
     def enemy_max_hp(self, state):
-        return self.progression.stats(self.enemy_ids, state.enemy_progress[..., 0])[..., HP].astype(jnp.int32)
+        return self.progression.stats(self.current_enemy_ids(state), state.enemy_progress[..., 0])[..., HP].astype(jnp.int32)
+
+    def current_enemy_ids(self, state):
+        return (self.enemy_ids.at[self.bot_enemy].set(state.bot_ids)
+                if self.bot_enemy is not None else self.enemy_ids)
 
     # Masks ---------------------------------------------------------------
     def _effect(self, state, max_hp, cap, targets, row=None):
@@ -336,9 +352,12 @@ class SpellCastRules:
         t = jnp.maximum(target, 0)
         # Damage: a direct hit on every living unit of the stack, ignoring armour.
         striking = valid & (kind == DAMAGE)
-        maximum = self.progression.stats(self.enemy_ids[t], state.enemy_progress[t, :, 0])[:, HP].astype(jnp.int32)
-        current = jnp.where(self.occupied[t], jnp.maximum(maximum - state.enemy_wounds[t], 0), 0)
-        hit = striking & (current > 0) & ((self.blocks[t] & self.element_bits[index]) == 0)
+        ids = self.current_enemy_ids(state)[t]
+        maximum = self.progression.stats(ids, state.enemy_progress[t, :, 0])[:, HP].astype(jnp.int32)
+        current = jnp.where(ids != 0, jnp.maximum(maximum - state.enemy_wounds[t], 0), 0)
+        traits = self.progression.traits[ids]
+        blocks = traits[:, 2] | traits[:, 3]
+        hit = striking & (current > 0) & ((blocks & self.element_bits[index]) == 0)
         remaining = jnp.where(hit, jnp.maximum(current - self.amounts[index], 0), current)
         killed = striking & ~jnp.any(remaining > 0)
         wounds = state.enemy_wounds.at[t].set(jnp.where(striking, maximum - remaining, state.enemy_wounds[t]))
@@ -424,6 +443,9 @@ class SpellCastRules:
         if self.full_regeneration is not None:
             heal = jnp.where(self.full_regeneration[:, None], maximum, heal)
         recovering = resting & state.alive[:, None] & self.occupied & (current > 0) & (wounds > 0)
+        if self.bot_enemy is not None:
+            # Bot healing is exclusively its return-home/rest state machine.
+            recovering = recovering.at[self.bot_enemy].set(False)
         return state.replace(
             enemy_wounds=jnp.where(recovering, jnp.maximum(wounds - heal, 0), wounds),
             spell_casts=jnp.where(resting, 0, state.spell_casts),
@@ -460,7 +482,7 @@ class SpellCastRules:
         """
         t = jnp.maximum(before.enemy, 0)
         maximum = self.progression.stats(after.unit_ids[6:], after.unit_levels[6:])[:, HP].astype(jnp.int32)
-        wounds = jnp.where(victory | ~self.occupied[t], 0, jnp.maximum(maximum - hp[6:], 0))
+        wounds = jnp.where(victory | (after.unit_ids[6:] == 0), 0, jnp.maximum(maximum - hp[6:], 0))
         summon = before.summon_battle
         restore = back & summon
         party = before.spell_party

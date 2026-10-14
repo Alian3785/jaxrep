@@ -46,10 +46,32 @@ def growth_ranks(size, sources, blocked):
     return tuple(rows)
 
 
+@lru_cache(maxsize=32)
+def growth_distances(size, sources, blocked):
+    """Unweighted eight-neighbour distances, independent of source reach/owner."""
+    blocked = set(blocked)
+    result = []
+    for origin in sources:
+        distances = [size*size]*(size*size)
+        distances[origin[0]*size+origin[1]] = 0
+        queue = deque([origin])
+        while queue:
+            r, c = queue.popleft()
+            for dr in (-1, 0, 1):
+                for dc in (-1, 0, 1):
+                    nr, nc = r+dr, c+dc
+                    if (0 < nr < size-1 and 0 < nc < size-1 and (nr, nc) not in blocked
+                            and distances[nr*size+nc] == size*size):
+                        distances[nr*size+nc] = distances[r*size+c]+1
+                        queue.append((nr, nc))
+        result.append(tuple(distances))
+    return tuple(result)
+
+
 class TerritoryRules:
     def __init__(self, game_map, progression, start, site_rules=None, ruin_rules=None):
         self.size = int(game_map['size'])
-        self.moving_enemies = bool(game_map.get('scheduled_enemies'))
+        self.moving_enemies = bool(game_map.get('scheduled_enemies') or game_map.get('scripted_bot'))
         self.capital = tuple(game_map['agent_position'])
         self.cities = list(game_map.get('cities', []))
         self.count = len(self.cities)
@@ -116,6 +138,26 @@ class TerritoryRules:
             if ranks[0][p[0]*self.size+p[1]] == self.size*self.size:
                 raise ValueError('Map object is unreachable from capital: '+str(p))
         self.initial_claims = jnp.array([1]+[0]*self.count,jnp.int32)
+        self.opponent_sources = list(game_map.get('enemy_territory_sources', []))
+        self.contested = bool(self.opponent_sources)
+        self.initial_owners = jnp.zeros(self.size*self.size if self.contested else 0, jnp.int8)
+        if self.contested:
+            homes = tuple(tuple(s['position']) for s in self.opponent_sources)
+            if (len(set(homes)) != len(homes) or self.capital in homes
+                    or any(len(p) != 2 or any(type(v) is not int or not 0 < v < self.size-1 for v in p)
+                           or p in obstacles | water for p in homes)):
+                raise ValueError('Opponent territory sources must be distinct passable land cells')
+            if any(type(s.get('growth', 10)) is not int or s.get('growth', 10) < 0 for s in self.opponent_sources):
+                raise ValueError('Opponent territory growth must be a nonnegative integer')
+            land_blocked = tuple(sorted(obstacles | water))
+            self.distances = jnp.array(growth_distances(self.size, sources, land_blocked), jnp.int32)
+            self.opponent_ranks = jnp.array(growth_ranks(self.size, homes, land_blocked), jnp.int32)
+            self.opponent_distances = jnp.array(growth_distances(self.size, homes, land_blocked), jnp.int32)
+            self.opponent_counts = jnp.sum(self.opponent_ranks < self.size*self.size, axis=1)
+            self.opponent_growth = jnp.array([s.get('growth', 10) for s in self.opponent_sources], jnp.int32)
+            self.initial_owners = self.initial_owners.at[self.capital[0]*self.size+self.capital[1]].set(1)
+            for r, c in homes:
+                self.initial_owners = self.initial_owners.at[r*self.size+c].set(2)
         enemy_positions = game_map['opponent_positions']
         self.enemy_count = len(enemy_positions)
         armies = [[] for _ in range(self.size*self.size)]
@@ -154,6 +196,8 @@ class TerritoryRules:
         # Mana, six income values, independent source growth, city and mine rows,
         # local 5x5 ownership/obstacle windows, fort/lord context.
         self.observation_size = 5+6+(1+self.count)+7*self.count+5*len(self.mines)+50+3
+        if self.contested:
+            self.observation_size += 25+len(self.mines)+len(self.opponent_sources)
         self.metadata = dict(cities=[dict(c,action=start+i) for i,c in enumerate(self.cities)],
             mines=self.mines, resource_kinds=RESOURCE_KINDS, resource_names=RESOURCE_NAMES,
             mine_income=50,base_income=self.base_income.tolist(),capital_growth=10,
@@ -161,14 +205,38 @@ class TerritoryRules:
             capital_regeneration=35,capital_armor=50,own_land_regeneration=10,
             lord_type=self.lord,lord_regeneration=self.lord_regen,obstacles=game_map.get('obstacles',[]),
             enemy_capitals=self.enemy_capitals,capital_guard_armor=CAPITAL_ARMOR,
-            capital_guard_regeneration=CAPITAL_REGENERATION)
+            capital_guard_regeneration=CAPITAL_REGENERATION,
+            enemy_territory_sources=self.opponent_sources)
 
     def _cells(self, positions):
         return positions[...,0]*self.size+positions[...,1]
 
     def owned(self, state, positions):
+        if self.contested:
+            return self.owner(state, positions) == 1
         cells = self._cells(jnp.clip(positions,0,self.size-1))
         return jnp.any(self.ranks[:,cells] < state.territory_claims.reshape((-1,)+(1,)*cells.ndim),axis=0)
+
+    def owner(self, state, positions):
+        inside = jnp.all((positions > 0) & (positions < self.size-1), axis=-1)
+        if self.contested:
+            cells = self._cells(jnp.clip(positions, 0, self.size-1))
+            return jnp.where(inside, state.territory_owners[cells], 0)
+        return (inside & self.owned(state, positions)).astype(jnp.int8)
+
+    def repaint(self, state):
+        """Strictly nearer reaching source wins; ties retain the previous owner.
+
+        Python reference campaign_env_territory._refresh_faction_territories.
+        This transition is never called from income/observation queries.
+        """
+        agent = jnp.min(jnp.where(self.ranks < state.territory_claims[:, None],
+                                  self.distances, self.size*self.size), axis=0)
+        opponent = jnp.min(jnp.where(self.opponent_ranks < state.opponent_claims[:, None],
+                                     self.opponent_distances, self.size*self.size), axis=0)
+        owners = jnp.where(agent < opponent, 1,
+                          jnp.where(opponent < agent, 2, state.territory_owners)).astype(jnp.int8)
+        return state.replace(territory_owners=owners)
 
     def blocked(self, positions):
         outside = jnp.any((positions<=0)|(positions>=self.size-1),axis=-1)
@@ -218,6 +286,10 @@ class TerritoryRules:
     def next_turn(self,state):
         rates = jnp.concatenate((jnp.array([10],jnp.int32),jnp.where(state.city_owned,self.growth[state.city_levels],0)))
         state = state.replace(territory_claims=jnp.minimum(state.territory_claims+rates,self.reachable_counts))
+        if self.contested:
+            state = state.replace(opponent_claims=jnp.minimum(
+                state.opponent_claims+self.opponent_growth, self.opponent_counts))
+            state = self.repaint(state)
         income = self.income(state)
         return state.replace(gold=state.gold+income[0],mana=state.mana+income[1:])
 
@@ -226,6 +298,10 @@ class TerritoryRules:
         cleared = self.remaining_defenders(state)==0
         captured = entered & ~state.city_owned & self.city_at(state) & cleared & hero
         claims = state.territory_claims.at[1:].set(jnp.where(captured,1,state.territory_claims[1:]))
+        if self.contested and self.count:
+            cells = self._cells(self.positions)
+            state = state.replace(territory_owners=state.territory_owners.at[cells].set(
+                jnp.where(captured, 1, state.territory_owners[cells])))
         return state.replace(city_owned=state.city_owned|captured,territory_claims=claims,last_captured_cities=captured,
             last_event=jnp.where(jnp.any(captured),CITY_CAPTURED,state.last_event))
 
@@ -263,12 +339,21 @@ class TerritoryRules:
         mines = jnp.concatenate((self.mine_positions/(self.size-1),self.mine_kinds[:,None]/5.,
             self.mine_ownership(state)[:,None],jnp.full((len(self.mines),1),.05)),axis=1).reshape(-1)
         local = state.position+self.local_offsets
-        return jnp.concatenate((state.mana/1000.,self.income(state)/100.,state.territory_claims/(self.size*self.size),
+        observation = jnp.concatenate((state.mana/1000.,self.income(state)/100.,state.territory_claims/(self.size*self.size),
             cities,mines,self.owned(state,local),self.blocked(local),
             jnp.array([self.service_at(state),self.fort_regeneration(state)/100.,self.lord_regen/100.])))
+        if self.contested:
+            observation = jnp.concatenate((observation, self.owner(state, local) == 2,
+                self.owner(state, self.mine_positions) == 2, state.opponent_claims/(self.size*self.size)))
+        return observation
 
     def quotes(self,state,banner=0):
+        territory = (state.territory_owners if self.contested else
+                     jnp.any(self.ranks < state.territory_claims[:, None], axis=0).astype(jnp.int8))
         return dict(income=self.income(state),mine_owned=self.mine_ownership(state),
+            mine_owner=self.owner(state, self.mine_positions),
             city_available=self.available(state),city_costs=self.costs[state.city_levels],
             at_owned_fort=self.service_at(state),regeneration=self.regeneration_percent(state,banner)[:6],
-            territory=jnp.any(self.ranks<state.territory_claims[:,None],axis=0).reshape(self.size,self.size))
+            territory=(territory == 1).reshape(self.size,self.size),
+            opponent_territory=(territory == 2).reshape(self.size,self.size),
+            territory_owner=territory.reshape(self.size,self.size))

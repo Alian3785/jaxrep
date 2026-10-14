@@ -39,6 +39,7 @@ from stoix.envs.number_grid_wards import ward_tags, grant_wards, expire_wards
 from stoix.envs.number_grid_metrics import campaign_events, empty_campaign_counts
 from stoix.envs.number_grid_episode_reports import empty_event, episode_event
 from stoix.envs.number_grid_scenarios import ScenarioRules
+from stoix.envs.number_grid_bot import ScriptedBotRules
 from stoix.envs import number_grid_reference_rewards as reference_rewards
 from stoix.envs.number_grid_effects import effect_tables, effect_breaks, POISON, FROSTBITE, BLISTER, DISABLE, TRANSFORM, SHORT, LONG, armor_after_shreds, source_protection, advance_poison_queue, advance_periodic_queue, vampiric_heal
 from stoix.envs.number_grid_buildings import (
@@ -53,7 +54,9 @@ _ROOT = Path(__file__).resolve().parents[2]
 # Named maps for training and human mode; anything else is a JSON path.
 MAP_FILES = {'current': _ROOT / 'number_grid_map.json', 'default': _ROOT / 'maps/default.json'}
 MAP_FILES.update({name: _ROOT / 'maps' / (name+'.json')
-                 for name in ('small', 'super_last_stand', 'siege_train', 'wotans_retribution', 'trade_train')})
+                 for name in ('small', 'super_last_stand', 'siege_train', 'wotans_retribution', 'trade_train', 'mirror_match')})
+MAP_FILES['mirrow_match'] = MAP_FILES['mirror_match']
+MAP_FILES['mirror-match'] = MAP_FILES['mirror_match']
 DRAGON_MAPS = {base+'-'+color+'-dragon': (base, objective)
                for base in ('default', 'small')
                for color, objective in (('green', 'dragon'), ('blue', 'blue_dragon'))}
@@ -130,6 +133,16 @@ ROUND_LIMIT_RETREAT = 56
 
 @struct.dataclass
 class BattleState(NumberGridState):
+    bot_ids: jax.Array
+    bot_mode: jax.Array
+    bot_timer: jax.Array
+    bot_target: jax.Array
+    bot_moves_spent: jax.Array
+    bot_defeated_enemies: jax.Array
+    bot_hero_victories: jax.Array
+    bot_autobattle: jax.Array
+    opponent_claims: jax.Array
+    territory_owners: jax.Array
     enemy_positions: jax.Array
     scenario_spawned: jax.Array
     pending_encounters: jax.Array
@@ -668,6 +681,13 @@ class NumberGrid(Summoning, NumericNumberGrid):
             self.capital.territory = self.territory
             self.recruitment.territory = self.territory
         self.scenario = ScenarioRules(game_map, self.territory if self.territory_enabled else None)
+        if game_map.get('scripted_bot') and not (self.territory_enabled and casting_enabled(game_map)):
+            raise ValueError('Scripted bot requires territory, progression and persistent spell wounds')
+        self.bot = ScriptedBotRules(game_map, self.territory if self.territory_enabled else None,
+                                    self.progression if self.progression_enabled else None)
+        self.scripted_bot_objective = game_map.get('campaign_objective') == 'scripted_bot'
+        if self.scripted_bot_objective and not self.bot.enabled:
+            raise ValueError('The scripted_bot objective requires an enabled bot')
         # Capital guards stay on the map but are never required for victory. With
         # objective cities only their capture counts, so no stack has to fall.
         self.goal_enemies = None
@@ -753,34 +773,37 @@ class NumberGrid(Summoning, NumericNumberGrid):
         # User-defined prototype rule: ceil(10% max HP) once per strategic rest.
         self.rest_healing = jnp.concatenate(((self.hero_full + 9) // 10, jnp.zeros(6, jnp.int32)))
         self.observation_version = int(game_map.get('battle_observation_version', 1))
-        if self.basic_combat and self.observation_version not in (7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44):
+        if (self.bot.enabled or (self.territory_enabled and self.territory.contested)) and self.observation_version < 45:
+            raise ValueError('Scripted bot and contested territory require observation version 45')
+        if self.basic_combat and self.observation_version not in (7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45):
             raise ValueError('Combat rules version 2 requires observation version 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 or 18')
-        if not self.basic_combat and self.observation_version in (4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44):
+        if not self.basic_combat and self.observation_version in (4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45):
             raise ValueError('Observation versions 7вЂ“18 require combat rules version 2')
-        if (self.warrior_slot >= 0 or self.has_enemy_warriors) and self.observation_version not in (3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44):
+        if (self.warrior_slot >= 0 or self.has_enemy_warriors) and self.observation_version not in (3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45):
             raise ValueError('Warrior maps require battle_observation_version 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 or 18')
-        self.observation_size = (4 + 5 * self.num_opponents + (141 if self.basic_combat else 48) + 6 if self.observation_version in (2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44)
+        self.observation_size = (4 + 5 * self.num_opponents + (141 if self.basic_combat else 48) + 6 if self.observation_version in (2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45)
                                  else self.observation_size + 2 * self.num_opponents + 12 * 8 + 6)
         self.observation_size += self.scenario.observation_size
+        self.observation_size += self.bot.observation_size
         self.observation_size += self.num_opponents+1 if self.army_victory_level_reward else 0
 
-        if self.observation_version in (8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44):
+        if self.observation_version in (8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45):
             self.observation_size += 48
-        if self.progression_enabled != (self.observation_version in (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44)):
+        if self.progression_enabled != (self.observation_version in (9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45)):
             raise ValueError('Unit progression requires observation version 9, 10, 11, 12, 13, 14, 15, 16, 17 or 18')
         if self.progression_enabled:
             self.observation_size += 60
         if self.observation_version >= 10:
             self.observation_size += 12
-        if self.capital_enabled != (self.observation_version in (11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44)):
+        if self.capital_enabled != (self.observation_version in (11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45)):
             raise ValueError("Capital services require observation version 11, 12, 13, 14, 15, 16, 17 or 18")
         if self.capital_enabled:
             self.observation_size += 17
-        if self.potions_enabled != (self.observation_version in (12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44)):
+        if self.potions_enabled != (self.observation_version in (12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45)):
             raise ValueError("Map potions require observation version 12, 13, 14, 15, 16, 17 or 18")
         if self.potions_enabled:
             self.observation_size += self.potion_rules.count+(36 if self.has_potion_buffs else 0)
-        if self.chests_enabled != (self.observation_version in (13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44)):
+        if self.chests_enabled != (self.observation_version in (13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45)):
             raise ValueError('Map chests require observation version 13, 14, 15, 16, 17 or 18')
         if self.chests_enabled:
             self.observation_size += (1+self.chest_rules.features.shape[1])*self.chest_rules.count
@@ -867,6 +890,11 @@ class NumberGrid(Summoning, NumericNumberGrid):
             visited = visited.at[cell // 32].set(jnp.uint32(1 << (cell % 32)))
         zero = jnp.int32(0)
         state = BattleState(
+            bot_ids=self.bot.initial_ids if self.bot.enabled else jnp.zeros(0, jnp.int32),
+            bot_mode=zero, bot_timer=zero, bot_target=jnp.int32(-1), bot_moves_spent=zero,
+            bot_defeated_enemies=zero, bot_hero_victories=zero, bot_autobattle=jnp.bool_(False),
+            opponent_claims=jnp.ones(len(self.territory.opponent_sources) if self.territory_enabled else 0, jnp.int32),
+            territory_owners=self.territory.initial_owners if self.territory_enabled else jnp.zeros(0, jnp.int8),
             enemy_positions=self.opponent_positions,
             scenario_spawned=~self.scenario.scheduled,
             pending_encounters=jnp.zeros(self.num_opponents, bool),
@@ -1038,7 +1066,9 @@ class NumberGrid(Summoning, NumericNumberGrid):
             # Reference _hero_has_weapon_master: any hero of the party, alive or not.
             level = jnp.max(jnp.where(self.equipment_heroes[state.unit_ids[:6]], state.unit_levels[:6], 0))
             bonus = (level >= hero_skills.WEAPON_MASTER_LEVEL) | bonus
-        return bonus
+        # Reference bot autoresolution creates a bare BattleEnv whose
+        # exp_multiplier stays 1.0; campaign hero/Tome bonuses are not applied.
+        return bonus & ~state.bot_autobattle
 
     def movement_cap(self,state):
         base = jnp.int32(MAX_MOVEMENT_POINTS)
@@ -1176,7 +1206,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             values = self._potion_stats(state,values)
             if self.territory_enabled:
                 values = values.at[6:,ARMOR].add(state.battle_fort_armor)
-                if self.scenario.enabled:
+                if self.scenario.enabled or self.bot.enabled:
                     values = values.at[:6,ARMOR].add(state.battle_hero_fort_armor)
             if self.has_copies:
                 values = jnp.where(state.copied[:,None],state.copy_stats,values)
@@ -1422,7 +1452,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         protected = self.fear_protected[target_slots]
         if self.territory_enabled:
             protected |= (target_slots>=6) & (state.battle_fort_armor>0)
-            if self.scenario.enabled:
+            if self.scenario.enabled or self.bot.enabled:
                 protected |= (target_slots<6) & (state.battle_hero_fort_armor>0)
         if self.ruins_enabled:
             protected |= (target_slots>=6) & (state.enemy>=0) & (self.ruins.enemy_ruin[jnp.maximum(state.enemy,0)]>=0)
@@ -1547,7 +1577,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         if self.basic_combat:
             context = jnp.concatenate((context, self.construction.observation(state), jnp.asarray(
                 [state.gold / 1000., state.movement_points / MAX_MOVEMENT_POINTS], jnp.float32)))
-        if self.observation_version in (2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44):
+        if self.observation_version in (2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45):
             # No duplicate max-HP arrays or obsolete numeric battle strengths.
             # Signed queue priority contains both order and waiting/acted status.
             world = jnp.stack((state.enemy_positions[:,0] / (self.size-1),
@@ -1556,7 +1586,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             active = (state.hp > 0) & ~state.escaped
             queue = jnp.where(active & (state.turn_phase == 0), state.priority,
                              jnp.where(active & (state.turn_phase == 1), -state.priority, 0.))
-            hp_scale = (jnp.maximum(self.max_hp(state), 1) if self.observation_version in (3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44)
+            hp_scale = (jnp.maximum(self.max_hp(state), 1) if self.observation_version in (3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45)
                         else self.hero_hp)
             if self.basic_combat:
                 queue /= self.priority_scale
@@ -1577,7 +1607,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
                 growth = jnp.stack((ids / (len(self.progression.rows)-1), xp[:, 0]/100.,
                                    xp[:, 1]/1000., xp[:, 2]/10000., xp[:, 3]/jnp.maximum(xp[:, 2], 1)), axis=1)
                 context = jnp.concatenate((growth.reshape(-1), context))
-            if self.observation_version in (8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44):
+            if self.observation_version in (8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45):
                 # Compact exact source/bitset encoding; keeps the GPU policy input small.
                 context = jnp.concatenate((self.unit_traits(state).reshape(-1) /
                                            jnp.tile(jnp.array([4. if self.observation_version >= 10 else 3., 9., 511., 511.]), 12), context))
@@ -1652,6 +1682,8 @@ class NumberGrid(Summoning, NumericNumberGrid):
                 context=jnp.concatenate((context,self.unit_swaps.observation(state)))
             if self.scenario.enabled:
                 context=jnp.concatenate((context,self.scenario.observation(state)))
+            if self.bot.enabled:
+                context=jnp.concatenate((context,self.bot.observation(state)))
             if self.army_victory_level_reward:
                 context=jnp.concatenate((context,state.army_victory_rewarded.astype(jnp.float32),
                                          jnp.asarray([state.army_battle_level_strength/100.], jnp.float32)))
@@ -1791,7 +1823,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             mask = jnp.where(state.post_victory > 0,post,mask)
         forced_action = jnp.where(controlled, RETREAT, CONTINUE)
         mask = jnp.where(self.round_limit_retreat(state), jnp.arange(self.num_actions) == forced_action, mask)
-        if self.scenario.enabled:
+        if self.scenario.enabled or self.bot.enabled:
             mask = jnp.where(~state.in_battle & jnp.any(state.pending_encounters & state.alive),
                              jnp.arange(self.num_actions) == CONTINUE, mask)
         return jnp.where(state.done, jnp.arange(self.num_actions) == CONTINUE, mask)
@@ -1803,7 +1835,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         healing is not an active fight and must finish normally.
         """
         return (state.in_battle & (state.round > self.max_rounds)
-                & ~state.summon_battle & (state.post_victory == 0))
+                & ~state.summon_battle & ~state.bot_autobattle & (state.post_victory == 0))
 
     def automatic_battle_turn(self, state):
         """Reference _advance_until_blue_turn: no player choice on this activation."""
@@ -1820,8 +1852,19 @@ class NumberGrid(Summoning, NumericNumberGrid):
         return jnp.where(self.round_limit_retreat(state) & controlled, RETREAT, CONTINUE).astype(jnp.int32)
 
     def _goals_left(self, alive, spawned):
+        if self.scripted_bot_objective:
+            return jnp.bool_(True)  # absence/death alone never completes Mirror match
         alive = alive | ~spawned
         return jnp.any(alive if self.goal_enemies is None else alive & self.goal_enemies)
+
+    def _campaign_won(self, state):
+        if self.scripted_bot_objective:
+            return (state.bot_hero_victories > 0) & ~state.lost & ~state.bot_autobattle
+        return (~self._goals_left(state.alive, state.scenario_spawned) & ~state.lost
+                & (self.territory.goals_captured(state) if self.territory_enabled else True))
+
+    def enemy_unit_ids(self, state):
+        return self.bot.ids(state) if self.bot.enabled else self.progression.enemy_ids
 
     def _objective_reward(self, won, hero_battle):
         # Reference blue-dragon bonus: magic can win, but only the hero army earns it.
@@ -1882,13 +1925,17 @@ class NumberGrid(Summoning, NumericNumberGrid):
             random_values = jax.random.uniform(random_key, (self.random_size,))
         if self.progression_enabled:
             enemy_progress = state.enemy_progress[state.enemy]
-            state = state.replace(unit_ids=state.unit_ids.at[6:].set(self.progression.enemy_ids[state.enemy]),
+            state = state.replace(unit_ids=state.unit_ids.at[6:].set(self.enemy_unit_ids(state)[state.enemy]),
                                   unit_levels=state.unit_levels.at[6:].set(enemy_progress[:, 0]),
                                   unit_xp=state.unit_xp.at[6:].set(enemy_progress[:, 1]),
                                   battle_xp=jnp.zeros(2, jnp.int32),
                                   last_xp=jnp.zeros(12, jnp.int32), last_promoted=jnp.uint32(0))
         if self.territory_enabled:
             state = state.replace(battle_fort_armor=self.territory.defender_armor(state))
+            if self.bot.enabled:
+                at_home = jnp.all(state.enemy_positions[self.bot.enemy] == self.bot.home)
+                state = state.replace(battle_fort_armor=jnp.where(
+                    (state.enemy == self.bot.enemy) & at_home, 50, state.battle_fort_armor))
         if self.spell_casting_enabled:
             state, spell_hp = self.casting.begin_battle(state, state.hp)
             state = state.replace(hp=spell_hp)
@@ -1998,7 +2045,9 @@ class NumberGrid(Summoning, NumericNumberGrid):
                 bonus += cast_bonus + engage_bonus
             next_state = self.territory.upgrade(next_state,action)
             next_state = self.territory.capture(next_state,moved)
-            won = ~self._goals_left(next_state.alive, next_state.scenario_spawned) & self.territory.goals_captured(next_state)
+            if self.bot.enabled:
+                next_state = self.bot.sync_defeat(next_state)
+            won = self._campaign_won(next_state)
             next_state = next_state.replace(won=won,done=next_state.done|won)
             bonus += self._objective_reward(won, jnp.bool_(False))
         if self.spell_research_enabled:
@@ -2044,6 +2093,14 @@ class NumberGrid(Summoning, NumericNumberGrid):
             next_state = next_state.replace(visited=state.visited.at[word].set(state.visited[word] | jnp.where(moved, bit, jnp.uint32(0))))
         if self.scenario.enabled:
             next_state = jax.lax.cond(resting, self.scenario.advance, lambda s: s, next_state)
+        if self.bot.enabled:
+            next_state = jax.lax.cond(resting, lambda s: self.bot.advance(self, s), lambda s: s, next_state)
+            # Autoresolution consumes the same device PRNG stream; do not reuse
+            # the old world-action key for a subsequent encounter.
+            key, random_key = jax.random.split(next_state.battle_key)
+            random_values = jax.random.uniform(random_key, (self.random_size,))
+            next_state = next_state.replace(battle_key=key)
+        if self.scenario.enabled or self.bot.enabled:
             pending = next_state.pending_encounters & next_state.alive
             attacked = jnp.any(pending) & ~(engage | summon)
             enemy = jnp.argmax(pending)
@@ -2052,7 +2109,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
                     next_state.pending_encounters[enemy] & ~attacked))
             engage |= attacked
         next_state = jax.lax.cond(engage | summon, lambda s: self._begin_battle(s, key, random_values), lambda s: s, next_state)
-        if self.scenario.enabled:
+        if self.scenario.enabled or self.bot.enabled:
             fort = jnp.where(jnp.all(next_state.position == jnp.array(self.territory.capital)), 50,
                 jnp.max(jnp.where(self.territory.city_at(next_state) & next_state.city_owned,
                                   self.territory.fort_bonus[next_state.city_levels], 0), initial=0))
@@ -2650,7 +2707,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         # Internal unit activations never consume that budget.
         raw_ended = victory | withdrawal | lost
         round_limit_reached = ((state.round <= self.max_rounds) & (round_number > self.max_rounds)
-                               & ~raw_ended & ~post_turn)
+                               & ~raw_ended & ~post_turn & ~state.bot_autobattle)
         pending = jnp.zeros(12,jnp.bool_)
         post_team = jnp.int32(0)
         if self.progression_enabled and self.has_healers:
@@ -2847,9 +2904,11 @@ class NumberGrid(Summoning, NumericNumberGrid):
         )
         if self.spell_casting_enabled:
             next_state = self.casting.finish_battle(state, next_state, hp, victory, back)
+        if self.bot.enabled:
+            next_state = self.bot.after_battle(state, next_state, victory, victory | withdrawal | lost)
         if self.territory_enabled:
             next_state = self.territory.capture(next_state,victory & ~summon_battle)
-            final_win = ~self._goals_left(next_state.alive, next_state.scenario_spawned) & ~next_state.lost & self.territory.goals_captured(next_state)
+            final_win = self._campaign_won(next_state)
             next_state = next_state.replace(won=final_win,done=next_state.done|final_win)
             won = final_win
         # reward_magic_enemy_defeat_multiplier=0: a summon victory pays no defeat/ruin reward.
@@ -2992,7 +3051,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             battle_valid = jnp.where(state.post_victory > 0,post_valid,battle_valid)
         battle_valid = jnp.where(self.round_limit_retreat(state),
                                  action == jnp.where(controlled, RETREAT, CONTINUE), battle_valid)
-        if self.scenario.enabled:
+        if self.scenario.enabled or self.bot.enabled:
             world_valid = jnp.where(jnp.any(state.pending_encounters & state.alive), action == CONTINUE, world_valid)
         valid = jnp.where(state.in_battle, battle_valid, world_valid) & ~state.done
         # Map actions can start a battle whose first activation belongs to RED.
@@ -3044,7 +3103,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
                                 'player_battle_transition': counts[1],
                                 'enemy_battle_transition': counts[2],
                                 'automatic_battle_transition': counts[3],
-                                'battle_victory': (counts[0] > 0) & jnp.any(state.alive & ~next_state.alive),
+                                'battle_victory': counts[4] > 0,
                                 'building_constructed': valid & ~state.in_battle & (action >= BUILD_START) & (action < REST),
                                 'turn_ended': rested,
                                 'campaign_events': campaign_events(self, state, world_state, next_state,

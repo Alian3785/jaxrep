@@ -138,6 +138,9 @@ class ProgressionRules:
         # Feature pruning must include every recruit and its later promotions.
         # This host-only closure runs at construction, never in the JAX step.
         reached = set(hero)
+        self.bot_enabled = bool(game_map.get('scripted_bot'))
+        if self.bot_enabled:
+            reached.update(enemies[game_map['scripted_bot']['enemy']])
         if game_map.get('faction_recruitment'):
             recruits = OFFERS[construction.faction] + tuple(
                 row['unit'] for _, row, _ in mercenary_offers(game_map))
@@ -301,6 +304,8 @@ class ProgressionRules:
             if len(choices) > 2:
                 raise ValueError('Progression catalogue supports at most two direct evolutions')
         self.targets = jnp.array(targets, jnp.int32)
+        self.bot_targets = jnp.array([next((self.ids[k] for k in r['upgrades'] if k in self.ids), 0)
+                                      for r in rows], jnp.int32)
         self.building_bits = jnp.array(bits, jnp.uint32)
         # Preserve Python float/round for every possible damage (400 for heroes, 300 for other units).
         # Integer armour growth reaches its cap within this lookup. The first
@@ -401,6 +406,8 @@ class ProgressionRules:
         built = ((state.buildings & bits) == bits) & (bits != 0) & (jnp.arange(12)[:, None] < 6)
         built &= (state.blocked_buildings & bits) == 0
         target = jnp.where(built[:, 0], choices[:, 0], jnp.where(built[:, 1], choices[:, 1], 0))
+        if self.bot_enabled:
+            target = jnp.where(state.bot_autobattle & (jnp.arange(12) < 6), self.bot_targets[ids], target)
         evolved = reached & (target != 0)
         grown = reached & self.dynamic[ids]
         changed = evolved | grown

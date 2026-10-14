@@ -95,7 +95,6 @@ def test_round_limit_does_not_override_victory_post_healing_or_episode_budget(cu
     assert not out.in_battle and out.step_count == env.max_steps  # responses finish before truncation
 
 
-@pytest.mark.core
 def test_human_game_automatically_selects_retreat_after_round_limit(human_service, current_game):
     env, initial, _, _ = current_game
     state = last_round_state(env, initial).replace(actor=jnp.int32(1),

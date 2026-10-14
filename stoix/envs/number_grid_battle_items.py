@@ -229,7 +229,13 @@ class BattleItemRules:
     # ------------------------------ map: equip ------------------------------
     def stock(self, state):
         """Owned copies by kind; equipping only reserves them."""
-        potions = state.potions[jnp.maximum(self.potion_index, 0)]
+        if state.potions.shape[0]:
+            potions = state.potions[jnp.maximum(self.potion_index, 0)]
+        else:
+            # Maps without potion kinds (Mirror match) have no potion items: every
+            # potion_index is -1. Eager calls (human-mode quotes) cannot index an
+            # empty array, so supply the unused values directly.
+            potions = jnp.zeros(self.potion_index.shape, state.potions.dtype)
         if self.equipment is None or not self.equipment.capacity:
             return jnp.where(self.potion_index >= 0, potions, 0)
         owned = jnp.sum(state.item_inventory[None, :] == self.item_index[:, None], axis=1)

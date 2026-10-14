@@ -19,12 +19,14 @@ VARIANTS = ('small', 'small-green-dragon', 'small-blue-dragon')
 
 @pytest.fixture(scope='module', params=VARIANTS)
 def small_game(request):
+    """Share a reproducible Small environment for each city or dragon objective variant."""
     env = NumberGrid(map_config=load_map(request.param))
     initial, _ = compiled_method(env, 'reset')(jax.random.PRNGKey(42))
     return env, initial
 
 
 def test_small_reference_armies_and_independent_variants(tmp_path):
+    """Pin source army IDs and verify objective variants preserve geometry and independent data."""
     base = load_map('small')
     expected = sorted((set(range(1, 31, 2)) | set(range(37, 66, 2))
                        | {31, 34, 35, 68, 69, 70, 74, 75}) - {55})
@@ -56,6 +58,7 @@ def test_small_reference_armies_and_independent_variants(tmp_path):
 
 
 def test_small_geometry_and_observations(small_game):
+    """Check collision-free objects, reachable services, finite features, and variant objectives."""
     env, initial = small_game
     config = env.map_config
     assert env.num_actions == len(action_names(config))
@@ -87,6 +90,7 @@ def test_small_geometry_and_observations(small_game):
 
 
 def test_small_trainer_mask_and_step(small_game):
+    """Require trainer proximity and payment, with XP stopping short of an automatic level-up."""
     env, initial = small_game
     mask, step = compiled_method(env, 'action_mask'), compiled_method(env, 'step')
     trainer = next(site for site in env.site_rules.sites if site['kind'] == 'trainer')
@@ -104,6 +108,7 @@ def test_small_trainer_mask_and_step(small_game):
 
 
 def test_small_dragon_has_a_legal_entry(small_game):
+    """Find an in-bounds approach and enter the dragon battle through a legal public action."""
     env, initial = small_game
     target = env.map_config['reference_enemy_ids'].index(31)
     position = env.map_config['opponent_positions'][target]

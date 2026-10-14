@@ -27,6 +27,7 @@ CHEST_POSITIONS = {'X1': (14, 22)}  # X1 originally shares (14, 23) with a gold 
 
 
 def build(layout):
+    """Convert Small while recording footprint relocations and preserving source army IDs."""
     if layout['map_id'] != 'small' or layout['grid_size'] != 24:
         raise ValueError('Expected the reference 24x24 Small snapshot')
     stacks = sorted(layout['enemies'], key=lambda e: e['id'])
@@ -66,6 +67,7 @@ def build(layout):
                             entrance=list(RUIN_ENTRANCES[eid])))
 
     def site(code, **extra):
+        """Build a service record at its collision-free anchor with the supplied inventory."""
         return dict(name=sites[code]['name'], position=cell(SITE_ANCHORS[code]), **extra)
 
     capital = next(c for c in layout['capitals'] if c['position'] != layout['hero'])
@@ -105,6 +107,7 @@ def build(layout):
 
 
 def main():
+    """Write the adapted Small map from a local reference layout without running the game."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--reference', type=Path, required=True)
     parser.add_argument('--output', type=Path, default=ROOT/'maps/small.json')

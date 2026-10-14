@@ -23,6 +23,7 @@ from stoix.tests.number_grid_fixtures import compiled_method
 
 @pytest.fixture(scope='module')
 def mirror():
+    """Share the complete Mirror match environment and a reproducible CUDA reset state."""
     assert jax.default_backend() == 'gpu', 'Mirror match tests require CUDA'
     env = NumberGrid(map_config=load_map('mirror_match'))
     state, _ = compiled_method(env, 'reset')(jax.random.PRNGKey(42))
@@ -31,17 +32,20 @@ def mirror():
 
 @pytest.fixture(scope='module')
 def navigate(mirror):
+    """Reuse one JIT navigation program across movement and encounter scenarios."""
     env, _ = mirror
     return jax.jit(lambda state: env.bot.navigate(env, state))
 
 
 @pytest.fixture(scope='module')
 def bot_turn(mirror):
+    """Reuse the real compiled daily bot transition, including its tactical engine."""
     env, _ = mirror
     return jax.jit(lambda state: env.bot.advance(env, state))
 
 
 def only_bot(env, state, position=(12, 12), hero=(12, 30)):
+    """Place the hero and bot for an isolated scenario with all neutral armies removed."""
     return state.replace(alive=jnp.arange(env.num_opponents) == env.bot.enemy,
         position=jnp.array(hero, jnp.int32),
         enemy_positions=state.enemy_positions.at[env.bot.enemy].set(jnp.array(position, jnp.int32)))
@@ -49,6 +53,7 @@ def only_bot(env, state, position=(12, 12), hero=(12, 30)):
 
 @pytest.mark.core
 def test_map_layout_and_large_units(mirror):
+    """Pin mirrored formations, capital coordinates, large-unit slots, resources, and CLI aliases."""
     env, state = mirror
     m = env.map_config
     assert m['size'] == 50 and m['agent_position'] == [6, 6]
@@ -72,6 +77,7 @@ def test_map_layout_and_large_units(mirror):
 
 
 def test_import_matches_reference_snapshot():
+    """Require the map importer to reproduce the pinned local snapshot and its source digest."""
     source = Path('C:/Disciples 2 python reference/Big_map/maps/mirror_match/layout.json')
     if not source.is_file():
         source = Path('/mnt/c/Disciples 2 python reference/Big_map/maps/mirror_match/layout.json')
@@ -83,6 +89,7 @@ def test_import_matches_reference_snapshot():
 
 @pytest.mark.core
 def test_exclusive_growth_ties_income_and_read_only_queries(mirror):
+    """Check exclusive land, stable ties, mine income, water barriers, and ownership-based healing."""
     env, state = mirror
     t = env.territory
     grow = jax.jit(t.next_turn)
@@ -124,6 +131,7 @@ def test_exclusive_growth_ties_income_and_read_only_queries(mirror):
 
 @pytest.mark.core
 def test_bfs_neutral_priority_budget_and_blockers(mirror, navigate):
+    """Check neutral priority, source-ID ties, legal paths, and the bot's movement budget."""
     env, initial = mirror
     state = only_bot(env, initial, hero=(12, 13))
     # Hero is adjacent but an eligible neutral remains, so it retains priority.
@@ -145,6 +153,7 @@ def test_bfs_neutral_priority_budget_and_blockers(mirror, navigate):
 
 
 def test_pursuit_opens_agent_battle_and_home_return_does_not_overlap(mirror, navigate):
+    """Exercise REST-to-combat through public step and prevent home-return overlap with the hero."""
     env, initial = mirror
     step = compiled_method(env, 'step')
     state = only_bot(env, initial, position=(12, 12), hero=(12, 13))
@@ -165,6 +174,7 @@ def test_pursuit_opens_agent_battle_and_home_return_does_not_overlap(mirror, nav
 
 @pytest.mark.core
 def test_respawn_and_home_rest_restore_only_bot(mirror, bot_turn):
+    """Check the defeat countdown and home recovery while preserving player state and bot progress."""
     env, initial = mirror
     defeated = env.bot.mark_defeated(initial)
     first = bot_turn(defeated)
@@ -195,6 +205,7 @@ def test_respawn_and_home_rest_restore_only_bot(mirror, bot_turn):
 
 @pytest.mark.core
 def test_neutral_combat_uses_engine_promotes_without_buildings_and_preserves_player(mirror, bot_turn):
+    """Resolve a real neutral fight and require bot upgrades without player rewards or state changes."""
     env, initial = mirror
     b = env.bot.enemy
     state = only_bot(env, initial, position=(12, 12), hero=(5, 30))
@@ -223,6 +234,7 @@ def test_neutral_combat_uses_engine_promotes_without_buildings_and_preserves_pla
 
 @pytest.mark.core
 def test_bot_autobattle_does_not_inherit_campaign_experience_bonus(mirror):
+    """Exclude the campaign hero's experience multiplier from the private bot battle."""
     env, initial = mirror
     high_level = initial.replace(unit_levels=initial.unit_levels.at[:6].set(12))
     bonus = compiled_method(env, '_party_experience_bonus')
@@ -231,6 +243,7 @@ def test_bot_autobattle_does_not_inherit_campaign_experience_bonus(mirror):
 
 
 def test_bot_timeout_preserves_neutral_wounds_and_starts_full_respawn_timer(mirror, monkeypatch):
+    """Limit bot decisions without inventing a victory or removing surviving neutral fighters."""
     env, initial = mirror
     state = only_bot(env, initial).replace(alive=initial.alive.at[env.bot.enemy].set(True))
     # The limit expires after initial red automatic activations. No guaranteed
@@ -245,18 +258,48 @@ def test_bot_timeout_preserves_neutral_wounds_and_starts_full_respawn_timer(mirr
 
 @pytest.mark.parametrize('summon', [False, True])
 def test_only_hero_battle_completes_objective(mirror, summon):
+    """Require hero victory to terminate the campaign; a summon win only defeats the opponent."""
     env, initial = mirror
     party = jnp.stack((initial.unit_ids[:6], initial.unit_levels[:6], initial.unit_xp[:6], initial.hp[:6]))
     before = initial.replace(enemy=jnp.int32(env.bot.enemy), summon_battle=jnp.bool_(summon), spell_party=party)
     battle = compiled_method(env, '_begin_battle')(before)
     battle = battle.replace(actor=jnp.int32(0), hp=battle.hp.at[6:].set(0))
-    after, _ = compiled_method(env, 'step')(battle, jnp.int32(DEFEND))
+    after, timestep = compiled_method(env, 'step')(battle, jnp.int32(DEFEND))
     assert after.won == (not summon) and after.done == (not summon)
     assert after.bot_hero_victories == int(not summon)
     assert after.bot_mode == DEFEATED and after.bot_timer == 2
+    assert timestep.terminated() == (not summon) and not timestep.truncated()
+    assert timestep.last() == (not summon)
+    assert float(timestep.discount) == float(summon)  # Only a hero victory stops bootstrapping.
+
+
+def test_max_steps_truncates_without_victory_and_preserves_bootstrap(mirror):
+    """The public step truncates at its decision budget and retains value bootstrap."""
+    env, initial = mirror
+    step, mask = compiled_method(env, 'step'), compiled_method(env, 'action_mask')
+    moves = mask(initial)[:8]
+    assert jnp.any(moves)
+    action = jnp.argmax(moves).astype(jnp.int32)
+    before = initial.replace(step_count=jnp.int32(env.max_steps-2))
+    penultimate, ongoing = step(before, action)
+    assert penultimate.step_count == env.max_steps-1 and not penultimate.done
+    assert not penultimate.in_battle and not ongoing.last()
+    assert float(ongoing.discount) == 1.
+
+    back = (action+4) % 8
+    assert mask(penultimate)[back]
+    after, timestep = step(penultimate, back)
+    assert after.step_count == env.max_steps and after.done
+    assert not after.won and not after.lost and after.bot_hero_victories == 0
+    assert timestep.last() and timestep.truncated() and not timestep.terminated()
+    assert float(timestep.discount) == 1.  # Keep the final state's value in the bootstrap target.
+    assert timestep.observation.shape == (env.observation_size,)
+    assert jnp.all(jnp.isfinite(timestep.observation))
+    chex.assert_trees_all_equal(after.position, initial.position)
 
 
 def test_magic_kill_respawns_without_victory_and_field_target_is_dynamic(mirror):
+    """Exercise spell targeting, lethal damage, and two-day respawn without campaign victory."""
     env, initial = mirror
     b, c = env.bot.enemy, env.casting
     state = only_bot(env, initial, position=(12, 13), hero=(12, 12))
@@ -282,6 +325,7 @@ def test_magic_kill_respawns_without_victory_and_field_target_is_dynamic(mirror)
 
 @pytest.mark.core
 def test_reset_shapes_mask_rng_and_no_neutral_credit(mirror):
+    """Check reset features and RNG while requiring a hero victory even after neutrals are gone."""
     env, initial = mirror
     reset = compiled_method(env, 'reset')
     again, timestep = reset(jax.random.PRNGKey(17))
@@ -301,6 +345,7 @@ def test_reset_shapes_mask_rng_and_no_neutral_credit(mirror):
 
 @pytest.mark.core
 def test_pursuit_and_blocked_home_queue_encounters(mirror, navigate):
+    """Queue hero contact during pursuit or blocked home return without sharing a map cell."""
     env, initial = mirror
     pursuing = only_bot(env, initial, position=(12, 12), hero=(12, 13))
     after, _, neutral_fight = navigate(pursuing)
@@ -316,6 +361,7 @@ def test_pursuit_and_blocked_home_queue_encounters(mirror, navigate):
 @pytest.mark.core
 @pytest.mark.parametrize('summon', [False, True])
 def test_objective_requires_recorded_hero_victory(mirror, summon):
+    """Distinguish a recorded hero victory from summon victory or mere absence of live armies."""
     env, initial = mirror
     before = initial.replace(enemy=jnp.int32(env.bot.enemy), summon_battle=jnp.bool_(summon),
         unit_ids=initial.unit_ids.at[6:].set(initial.bot_ids))
@@ -329,6 +375,7 @@ def test_objective_requires_recorded_hero_victory(mirror, summon):
 
 @pytest.mark.core
 def test_spell_target_follows_bot_position_and_reference_id(mirror):
+    """Use the bot's current position, source ID, and home protection when selecting spell targets."""
     env, initial = mirror
     state = only_bot(env, initial, position=(12, 13), hero=(12, 12))
     targets = compiled_method(env.casting, 'targets')

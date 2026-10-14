@@ -63,6 +63,7 @@ def cast_summon_keys(game_map):
 
 class SpellCastRules:
     def __init__(self, game_map, research, construction, progression, territory, ruins, start, items=None):
+        """Prepare spell actions, target eligibility, and costs from the campaign catalogue."""
         own, extras = spell_book(game_map)
         self.rows = _rows(game_map)
         # Book rows have research/shop state, daily limits and actions; every row
@@ -233,9 +234,11 @@ class SpellCastRules:
         return any_target, field_target, distance
 
     def enemy_max_hp(self, state):
+        """Compute current enemy maximum HP, including the upgraded mobile bot formation."""
         return self.progression.stats(self.current_enemy_ids(state), state.enemy_progress[..., 0])[..., HP].astype(jnp.int32)
 
     def current_enemy_ids(self, state):
+        """Select current bot unit IDs while retaining static formations for other enemies."""
         return (self.enemy_ids.at[self.bot_enemy].set(state.bot_ids)
                 if self.bot_enemy is not None else self.enemy_ids)
 
@@ -342,6 +345,7 @@ class SpellCastRules:
 
     # World transitions ---------------------------------------------------
     def apply(self, state, action, max_hp, cap, targets=None):
+        """Apply an eligible world spell and update its costs, daily use, and target effects."""
         targets = self.targets(state) if targets is None else targets
         any_target, field_target, _ = targets
         book, item, index, _, _ = self._decode(action)

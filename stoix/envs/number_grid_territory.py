@@ -70,6 +70,7 @@ def growth_distances(size, sources, blocked):
 
 class TerritoryRules:
     def __init__(self, game_map, progression, start, site_rules=None, ruin_rules=None):
+        """Prepare settlement, resource, obstacle, and faction growth tables from the map."""
         self.size = int(game_map['size'])
         self.moving_enemies = bool(game_map.get('scheduled_enemies') or game_map.get('scripted_bot'))
         self.capital = tuple(game_map['agent_position'])
@@ -212,12 +213,14 @@ class TerritoryRules:
         return positions[...,0]*self.size+positions[...,1]
 
     def owned(self, state, positions):
+        """Query agent ownership at positions without advancing claims or repainting contested land."""
         if self.contested:
             return self.owner(state, positions) == 1
         cells = self._cells(jnp.clip(positions,0,self.size-1))
         return jnp.any(self.ranks[:,cells] < state.territory_claims.reshape((-1,)+(1,)*cells.ndim),axis=0)
 
     def owner(self, state, positions):
+        """Return neutral, agent, or opponent ownership; out-of-map positions are neutral."""
         inside = jnp.all((positions > 0) & (positions < self.size-1), axis=-1)
         if self.contested:
             cells = self._cells(jnp.clip(positions, 0, self.size-1))
@@ -284,6 +287,7 @@ class TerritoryRules:
         return self.base_income+50*jnp.sum(self.mine_onehot*self.mine_ownership(state)[:,None],axis=0)
 
     def next_turn(self,state):
+        """Grow both factions, resolve ownership, and credit resources from the resulting land."""
         rates = jnp.concatenate((jnp.array([10],jnp.int32),jnp.where(state.city_owned,self.growth[state.city_levels],0)))
         state = state.replace(territory_claims=jnp.minimum(state.territory_claims+rates,self.reachable_counts))
         if self.contested:
@@ -294,6 +298,7 @@ class TerritoryRules:
         return state.replace(gold=state.gold+income[0],mana=state.mana+income[1:])
 
     def capture(self,state,entered):
+        """Capture an entered, cleared city only when a living original hero is present."""
         hero = jnp.any(self.heroes[state.unit_ids[:6]] & (state.hp[:6]>0) & (state.summon_owner[:6]<0) & ~state.copied[:6])
         cleared = self.remaining_defenders(state)==0
         captured = entered & ~state.city_owned & self.city_at(state) & cleared & hero
@@ -332,6 +337,7 @@ class TerritoryRules:
         return armor
 
     def observation(self,state):
+        """Encode land, resource ownership, and settlement state without changing territory."""
         cities = jnp.concatenate((self.positions/(self.size-1),state.city_levels[:,None]/5.,state.city_owned[:,None],
             state.territory_claims[1:,None]/(self.size*self.size),
             self.remaining_defenders(state)[:,None]/2.,
@@ -348,6 +354,7 @@ class TerritoryRules:
         return observation
 
     def quotes(self,state,banner=0):
+        """Expose land masks, mine owners, income, and settlement information for queries and UI."""
         territory = (state.territory_owners if self.contested else
                      jnp.any(self.ranks < state.territory_claims[:, None], axis=0).astype(jnp.int8))
         return dict(income=self.income(state),mine_owned=self.mine_ownership(state),

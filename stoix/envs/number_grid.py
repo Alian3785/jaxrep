@@ -321,6 +321,7 @@ class BattleState(NumberGridState):
 
 class NumberGrid(Summoning, NumericNumberGrid):
     def __init__(self, max_steps=None, map_config=None, episode_reports=False):
+        """Validate the campaign configuration and prepare static rules for JAX transitions."""
         self.episode_reports = False
         # Without an explicit hero_roster the ruler chooses the starting hero and party.
         game_map = with_starting_party(MAP if map_config is None else map_config)
@@ -881,6 +882,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             self.observation_size += 24
 
     def reset(self, rng_key, env_params=None):
+        """Create a fresh campaign state and FIRST timestep from the supplied PRNG key."""
         if not self.battle_mode:
             return super().reset(rng_key, env_params)
         visited = jnp.zeros(self.visited_words, jnp.uint32)
@@ -1197,6 +1199,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         return jnp.where(state.imp[slot] | state.fenrir[slot],0.,values).at[1].min(100.)
 
     def _combat_stats(self, state, cap=True):
+        """Combine unit progression, battle modifiers, and applicable fortification armor."""
         if self.progression_enabled:
             # Lowered forms always have their native level. Fetching their
             # base row avoids a dependent level lookup through the growth table.
@@ -1567,6 +1570,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         return jnp.concatenate((self.hero_full, jnp.where(state.in_battle, opponents, 0)))
 
     def observation(self, state):
+        """Encode the current world and battle state into the configured flat feature vector."""
         if not self.battle_mode:
             return super().observation(state)
         context = jnp.asarray([
@@ -1742,6 +1746,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         return priority
 
     def action_mask(self, state):
+        """Mark legal commands using the current party, dynamic enemy positions, and resources."""
         if not self.battle_mode:
             return super().action_mask(state)
         destination = state.position[None] + self.directions
@@ -1852,18 +1857,21 @@ class NumberGrid(Summoning, NumericNumberGrid):
         return jnp.where(self.round_limit_retreat(state) & controlled, RETREAT, CONTINUE).astype(jnp.int32)
 
     def _goals_left(self, alive, spawned):
+        """Check remaining or scheduled army goals; bot campaigns require a recorded hero win."""
         if self.scripted_bot_objective:
             return jnp.bool_(True)  # absence/death alone never completes Mirror match
         alive = alive | ~spawned
         return jnp.any(alive if self.goal_enemies is None else alive & self.goal_enemies)
 
     def _campaign_won(self, state):
+        """Check the configured army, city, or hero-versus-bot objective without awarding rewards."""
         if self.scripted_bot_objective:
             return (state.bot_hero_victories > 0) & ~state.lost & ~state.bot_autobattle
         return (~self._goals_left(state.alive, state.scenario_spawned) & ~state.lost
                 & (self.territory.goals_captured(state) if self.territory_enabled else True))
 
     def enemy_unit_ids(self, state):
+        """Return enemy formations with the mobile bot's current upgraded roster substituted."""
         return self.bot.ids(state) if self.bot.enabled else self.progression.enemy_ids
 
     def _objective_reward(self, won, hero_battle):
@@ -1888,6 +1896,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         return ts
 
     def _begin_battle(self, state, key=None, random_values=None):
+        """Initialize tactical state and snapshot entry strength for an eligible victory reward."""
         state = state.replace(copied=jnp.zeros(12,bool),summon_owner=jnp.full(12,-1,jnp.int32),
                               summon_saved_hp=jnp.zeros(12,jnp.int32),
                               preparation=jnp.zeros(12,bool),
@@ -1974,6 +1983,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         return state
 
     def _world_step(self, state, action, key, random_values, spell_targets=None):
+        """Apply one strategic command, including REST growth, bot movement, and queued encounters."""
         before = state
         state = state.replace(last_ruin=jnp.int32(-1), last_sale_gold=jnp.int32(0), last_sold_count=jnp.int32(0), last_trade_item=jnp.int32(-1),
                               last_poison_damage=jnp.zeros(12, jnp.int32),
@@ -2272,6 +2282,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         return self._battle_step_regular(state,action,key,random_values,with_metrics=with_metrics)
 
     def _battle_step_regular(self, state, action, key, random_values, with_metrics=False):
+        """Resolve one tactical activation, its aftermath, and optional combat event counters."""
         actor = state.actor
         post_turn = state.post_victory > 0
         skipping = (state.paralyzed[actor] | state.long_paralyzed[actor]) & ~post_turn
@@ -2952,6 +2963,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         return next_state, reward
 
     def step(self, state, action, env_params=None):
+        """Execute one player decision and automatic responses, then report rewards and episode status."""
         if not self.battle_mode:
             return super().step(state, action, env_params)
         # Validate only the selected move/target here. The full action mask is

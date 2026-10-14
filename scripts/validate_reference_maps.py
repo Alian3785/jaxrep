@@ -15,6 +15,7 @@ from stoix.envs.number_grid import NumberGrid, REST, action_names, load_map
 
 
 def validate(name):
+    """Check a campaign on CUDA, including reset, REST, and legal objective approaches."""
     if jax.default_backend() != 'gpu':
         raise RuntimeError('Map preflight requires CUDA')
     game_map = load_map(name)

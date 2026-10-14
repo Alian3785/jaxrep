@@ -30,6 +30,7 @@ def _damage_rolls(armors):
 
 class ProgressionRules:
     def __init__(self, game_map, construction):
+        """Build unit statistics, starting experience, and upgrade requirements for the scenario."""
         if 'hero_roster' not in game_map or 'enemy_rosters' not in game_map:
             raise ValueError('Unit progression requires named rosters')
         self.ids = {}

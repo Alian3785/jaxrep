@@ -96,6 +96,7 @@ def test_round_limit_does_not_override_victory_post_healing_or_episode_budget(cu
 
 
 def test_human_game_automatically_selects_retreat_after_round_limit(human_service, current_game):
+    """Require the manual service to finish forced round-limit retreat without extra player input."""
     env, initial, _, _ = current_game
     state = last_round_state(env, initial).replace(actor=jnp.int32(1),
         turn_phase=jnp.full(12, 2, jnp.int32).at[1].set(0))

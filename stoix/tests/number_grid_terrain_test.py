@@ -55,6 +55,7 @@ def test_living_flying_heroes_and_dead_leader_prices(current_game):
     pytest.param(False, id='scalar', marks=pytest.mark.core), pytest.param(True, id='full-batch'),
 ])
 def test_actual_step_mask_quotes_and_last_partial_move(current_game, compare_batch):
+    """Check terrain costs and partial final moves against masks, quotes, and actual transitions."""
     env, initial, _, _ = current_game
     cases, actions, expected, destinations = [], [], [], []
     for position, action, cost in (([2,2],2,1),([2,3],2,2),([4,16],3,4),([12,4],4,6)):

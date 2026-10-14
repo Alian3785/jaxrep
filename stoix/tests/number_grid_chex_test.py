@@ -47,6 +47,7 @@ def assert_same_result(expected, actual):
 def reference_batch(contract=False):
     # Compare compiled scalar steps with the compiled vmapped production path.
     # Reuse the scalar oracle rather than compiling each individual action.
+    """Cache eight scalar transition oracles and their input batch for a selected test map."""
     env = basic_environment() if contract else current_environment()
     states, actions = scenarios(env)
     batched = jax.tree.map(lambda *xs: jnp.stack(xs), *states)
@@ -58,6 +59,7 @@ def reference_batch(contract=False):
 
 def check_batched_steps(contract):
     # Same eight transitions for the fast core contract and full catalogue case.
+    """Compare scalar and vmapped transitions, including exact discrete state and finite features."""
     env, states, actions, batched, expected = reference_batch(contract)
     actual = compiled_method(env, 'step', batched=True)(batched, actions)
     assert_same_result(expected, actual)
@@ -70,11 +72,13 @@ def check_batched_steps(contract):
 
 @pytest.mark.core
 def test_batched_combat_contract_matches_individual_steps():
+    """Cover all eight transition kinds on the compact map within the core compilation budget."""
     check_batched_steps(contract=True)
 
 
 class CombatTransformsTest(chex.TestCase):
     def test_batched_step_matches_individual_steps(self):
+        """Run the same scalar/batch contract on the full catalogue as an extended check."""
         check_batched_steps(contract=False)
 
     @chex.variants(with_jit=True, without_jit=False)
@@ -139,6 +143,7 @@ def test_masked_warrior_policy_sample_argmax_and_ppo_gradient(current_game):
 
 
 def test_human_service_uses_identical_mask_and_rejects_unreachable_target(human_service):
+    """Verify the manual service exposes the environment mask and rejects an unreachable attack."""
     service = human_service
     # This regression starts in combat; building an unused new-game snapshot
     # would compile metadata that is unrelated to mask/step agreement.

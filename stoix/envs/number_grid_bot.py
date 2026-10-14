@@ -15,6 +15,7 @@ MODE_NAMES = ('hunting', 'returning', 'resting', 'defeated')
 
 class ScriptedBotRules:
     def __init__(self, game_map, territory, progression):
+        """Validate a city-free bot scenario and prepare fixed-shape movement and roster tables."""
         self.enabled = bool(game_map.get('scripted_bot'))
         self.observation_size = 0
         if not self.enabled:
@@ -59,15 +60,19 @@ class ScriptedBotRules:
         self.observation_size = 5+6*4
 
     def _cell(self, position):
+        """Flatten row/column positions while preserving any leading batch dimensions."""
         return position[..., 0]*self.size+position[..., 1]
 
     def ids(self, state):
+        """Substitute the bot's current formation into the enemy unit catalogue."""
         return self.progression.enemy_ids.at[self.enemy].set(state.bot_ids)
 
     def maximum(self, state):
+        """Compute maximum HP for the bot's current unit IDs and persistent levels."""
         return self.progression.stats(state.bot_ids, state.enemy_progress[self.enemy, :, 0])[:, HP].astype(jnp.int32)
 
     def mark_defeated(self, state):
+        """Remove the bot and clear encounters without restarting an existing respawn timer."""
         return state.replace(bot_mode=jnp.int32(DEFEATED),
             bot_timer=jnp.where(state.bot_mode == DEFEATED, state.bot_timer, self.respawn_turns),
             alive=state.alive.at[self.enemy].set(False),
@@ -75,6 +80,7 @@ class ScriptedBotRules:
             enemy_spell_effects=state.enemy_spell_effects.at[self.enemy].set(jnp.uint32(0)))
 
     def sync_defeat(self, state):
+        """Start respawn when another rule kills the bot before its strategic update."""
         return jax.lax.cond(~state.alive[self.enemy] & (state.bot_mode != DEFEATED),
                             self.mark_defeated, lambda s: s, state)
 
@@ -90,6 +96,7 @@ class ScriptedBotRules:
         distance = jnp.full(self.cells, self.cells, jnp.int32).at[start].set(0)
 
         def visit(carry):
+            """Expand one FIFO node, treating other armies as reachable endpoints rather than corridors."""
             head, tail, queue, parent, distance = carry
             current = queue[head]
             neighbors = self.neighbors[current]
@@ -111,6 +118,7 @@ class ScriptedBotRules:
         return parent, distance
 
     def navigate(self, env, state):
+        """Choose a reference-priority target and spend movement, queuing contact without overlap."""
         position = state.enemy_positions[self.enemy]
         returning = state.bot_mode == RETURNING
         targets = self.eligible & state.alive
@@ -132,6 +140,7 @@ class ScriptedBotRules:
         path = jnp.full(self.cells, start, jnp.int32).at[0].set(target_cell)
 
         def trace(carry):
+            """Append one predecessor to the reverse path in its fixed-capacity buffer."""
             count, path, current = carry
             previous = parent[current]
             return count+1, path.at[count].set(previous), previous
@@ -149,6 +158,7 @@ class ScriptedBotRules:
         capital = jnp.array(self.territory.capital)
 
         def move(i, carry):
+            """Advance one path step within the remaining budget and terrain constraints."""
             pos, remaining, stopped = carry
             cell = path[jnp.maximum(0, length-2-i)]
             next_pos = jnp.array([cell//self.size, cell % self.size], jnp.int32)
@@ -188,6 +198,7 @@ class ScriptedBotRules:
 
     def _autobattle(self, env, state, target):
         # Player-only layers are cleared in a private copy. No host callbacks.
+        """Run the tactical engine on private state, committing only armies, bot progress, and RNG."""
         ids = state.bot_ids
         progress = state.enemy_progress[self.enemy]
         hp = jnp.maximum(0, self.maximum(state)-state.enemy_wounds[self.enemy])
@@ -210,6 +221,7 @@ class ScriptedBotRules:
         scratch = env._begin_battle(scratch)
 
         def activation(carry):
+            """Resolve one activation and count only decisions made by the blue bot policy."""
             decisions, current = carry
             automatic = env.automatic_battle_turn(current)
             action = jnp.where(automatic, env._automatic_battle_action(current),
@@ -263,9 +275,11 @@ class ScriptedBotRules:
         return jnp.where(env._actor_mass_healer(state), SHOOT+first, action).astype(jnp.int32)
 
     def advance(self, env, state):
+        """Advance hunting, home recovery, or the defeat countdown for one strategic day."""
         state = state.replace(bot_moves_spent=jnp.int32(0), bot_target=jnp.int32(-1))
 
         def respawn(s):
+            """Tick the defeat timer and restore the initial formation when the countdown expires."""
             timer = jnp.maximum(0, s.bot_timer-1)
             due = timer == 0
             return s.replace(bot_timer=timer, bot_mode=jnp.where(due, HUNTING, DEFEATED),
@@ -277,10 +291,12 @@ class ScriptedBotRules:
                 pending_encounters=s.pending_encounters.at[self.enemy].set(due & jnp.all(s.position == self.home)))
 
         def rest(s):
+            """Finish the home rest by reviving and healing the bot without resetting its progression."""
             return s.replace(bot_mode=jnp.int32(HUNTING), bot_timer=jnp.int32(0),
                              enemy_wounds=s.enemy_wounds.at[self.enemy].set(0))
 
         def travel(s):
+            """Move toward the selected target and autoresolve only a reached neutral encounter."""
             s, target, fight = self.navigate(env, s)
             return jax.lax.cond(fight, lambda s: self._autobattle(env, s, target), lambda s: s, s)
 
@@ -292,6 +308,7 @@ class ScriptedBotRules:
         return jax.lax.switch(branch, (travel, rest, respawn), state)
 
     def after_battle(self, before, after, victory, ended):
+        """Record hero-only bot victories and update the opponent's lifecycle after tactical combat."""
         fighting_bot = (before.enemy == self.enemy) & ~before.bot_autobattle
         won = fighting_bot & victory
         real_victory = won & ~before.summon_battle
@@ -301,6 +318,7 @@ class ScriptedBotRules:
         return jax.lax.cond(won, self.mark_defeated, lambda s: s, after)
 
     def observation(self, state):
+        """Encode lifecycle, movement, roster, levels, XP, and HP into fixed-size bot features."""
         progress = state.enemy_progress[self.enemy]
         maximum = self.maximum(state)
         hp = jnp.maximum(0, maximum-state.enemy_wounds[self.enemy])

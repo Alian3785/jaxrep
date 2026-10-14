@@ -13,12 +13,14 @@ from stoix.tests.number_grid_fixtures import compiled_method, hero_roster_state
 
 @pytest.fixture(scope='module')
 def target_game():
+    """Share the blue-dragon campaign and reset state for objective-level reward scenarios."""
     env = NumberGrid(map_config=load_map('default-blue-dragon'))
     state, _ = compiled_method(env, 'reset')(jax.random.PRNGKey(42))
     return env, state
 
 
 def near_enemy(env, state, enemy):
+    """Place the hero on a passable approach with the target spawned and movement available."""
     position = state.enemy_positions[enemy]
     blocked = env.territory.blocked_grid.reshape(env.size, env.size)
     direction, offset = next((i, d) for i, d in enumerate(env.directions.tolist())
@@ -29,11 +31,13 @@ def near_enemy(env, state, enemy):
 
 
 def enter(env, before, action):
+    """Execute a deterministic world transition to capture the battle-entry reward snapshot."""
     return compiled_method(env, '_world_step')(before, action,
         jax.random.PRNGKey(19), jnp.full(env.random_size, .5))
 
 
 def finish(env, battle, outcome='victory'):
+    """Resolve a prepared victory, retreat, or defeat without pending healing turns."""
     if outcome == 'victory':
         battle = battle.replace(hp=battle.hp.at[6:].set(0))
     elif outcome == 'retreat':
@@ -48,11 +52,13 @@ def finish(env, battle, outcome='victory'):
 
 
 def developed_party(env, initial):
+    """Build a mixed-level hero party that can expose incorrect level-strength accounting."""
     return hero_roster_state(env, initial,
         ['defender_of_faith', 'duke', None, 'white_mage', None, None])
 
 
 def test_target_snapshot_is_observable_and_paid_only_on_victory(target_game):
+    """Freeze living entry levels, expose the snapshot, and pay it exactly once on target victory."""
     env, initial = target_game
     target = env.objective_enemy
     assert env.army_victory_level_reward == 5.
@@ -96,6 +102,7 @@ def test_target_snapshot_is_observable_and_paid_only_on_victory(target_game):
 
 @pytest.mark.parametrize('outcome', ['retreat', 'defeat'])
 def test_unsuccessful_target_battle_discards_snapshot(target_game, outcome):
+    """Discard unpaid strength after retreat or defeat and recalculate it on a later entry."""
     env, initial = target_game
     before, action = near_enemy(env, developed_party(env, initial), env.objective_enemy)
     arrived, _ = enter(env, before, action)
@@ -115,6 +122,7 @@ def test_unsuccessful_target_battle_discards_snapshot(target_game, outcome):
 
 
 def test_other_armies_and_invalid_moves_cannot_earn_target_bonus(target_game):
+    """Prevent unrelated encounters, stale snapshots, and rejected movement from earning the bonus."""
     env, initial = target_game
     before, action = near_enemy(env, developed_party(env, initial), 0)
     arrived, _ = enter(env, before, action)
@@ -132,6 +140,7 @@ def test_other_armies_and_invalid_moves_cannot_earn_target_bonus(target_game):
 
 
 def test_summoned_army_cannot_earn_target_level_bonus(target_game):
+    """Exclude spell-created armies from the hero's objective-level victory reward."""
     env, initial = target_game
     near, _ = near_enemy(env, initial, env.objective_enemy)
     spell_id = 'g000ss0117'
@@ -148,11 +157,13 @@ def test_summoned_army_cannot_earn_target_level_bonus(target_game):
 
 @pytest.mark.parametrize('value', [1, 'true', None])
 def test_invalid_target_scope_is_rejected(value):
+    """Reject non-boolean values for the objective-only level reward option."""
     with pytest.raises(ValueError, match='army_victory_level_objective_only'):
         NumberGrid(map_config={**load_map('default-blue-dragon'), 'army_victory_level_objective_only': value})
 
 
 def test_target_scope_requires_an_objective_and_enabled_reward():
+    """Require an army objective and a positive reward when objective-only scope is requested."""
     with pytest.raises(ValueError, match='requires objective_enemy'):
         NumberGrid(map_config={**load_map('trade_train'), 'army_victory_level_objective_only': True})
     with pytest.raises(ValueError, match='requires objective_enemy'):
@@ -160,6 +171,7 @@ def test_target_scope_requires_an_objective_and_enabled_reward():
 
 
 def test_unrelated_maps_keep_level_rewards_disabled():
+    """Keep target-level shaping disabled on campaigns that did not opt into it."""
     for name in ('default', 'default-green-dragon', 'super_last_stand', 'wotans_retribution', 'siege_train'):
         assert not load_map(name).get('army_victory_level_reward', 0.)
     assert not load_map('trade_train').get('army_victory_level_objective_only', False)
@@ -168,6 +180,7 @@ def test_unrelated_maps_keep_level_rewards_disabled():
 @pytest.mark.parametrize('levels,expected', [([1, 1, 1, 1], 0.), ([2, 2, 3, 1], 20.),
                                           ([4, 4, 4, 4], 60.)])
 def test_target_bonus_grows_with_entry_levels(target_game, levels, expected):
+    """Verify exact victory payouts for representative party levels at battle entry."""
     env, initial = target_game
     base = hero_roster_state(env, initial, ['possessed', 'duke', 'possessed', 'cultist', None, None])
     base = base.replace(unit_levels=base.unit_levels.at[:4].set(jnp.array(levels)))

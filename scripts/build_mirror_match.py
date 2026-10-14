@@ -15,6 +15,7 @@ from scripts.build_default_map import CURRENT, RULES, UNITS, cell, dump, roster
 
 
 def build(layout, source_hash):
+    """Convert the pinned 48x48 layout and Empire roster into a bordered JAX map."""
     if layout['map_id'] != 'mirror_match' or layout['grid_size'] != 48:
         raise ValueError('Expected the reference 48x48 Mirror match layout')
     stacks = sorted(layout['enemies'], key=lambda e: e['id'])
@@ -61,6 +62,7 @@ def build(layout, source_hash):
 
 
 def main():
+    """Read the reference snapshot, retain its digest, and write the requested map JSON."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--reference', type=Path, required=True)
     parser.add_argument('--output', type=Path, default=ROOT/'maps/mirror_match.json')

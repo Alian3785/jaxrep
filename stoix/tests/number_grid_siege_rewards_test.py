@@ -38,6 +38,7 @@ def battle_reward(env, before, after, hp, victory=False, lost=False, withdrawal=
 
 
 def test_spawn_rewards_living_levels_above_one_and_ignores_hp(siege):
+    """Calculate the siege arrival bonus from living unit levels above one, independently of HP."""
     env, baseline, initial = siege
     # Wounded level-4 fighter + level-3 hero + level-2 cultist = six extra levels.
     # The dead level-7 fighter and an empty level-99 slot do not contribute.
@@ -60,6 +61,7 @@ def test_spawn_rewards_living_levels_above_one_and_ignores_hp(siege):
 
 
 def test_spawn_bonus_is_once_per_episode_and_not_deferred_to_contact(siege):
+    """Pay the siege bonus on arrival once per episode, without waiting for combat contact."""
     env, baseline, initial = siege
     before = initial.replace(day=jnp.int32(27), unit_levels=initial.unit_levels.at[1].set(4))
     after = env.scenario.advance(before.replace(day=jnp.int32(28)))
@@ -84,6 +86,7 @@ def test_spawn_bonus_is_once_per_episode_and_not_deferred_to_contact(siege):
 
 
 def test_no_spawn_bonus_before_due_turn_or_for_level_one_party(siege):
+    """Keep the spawn bonus zero before arrival and for a party with no levels above one."""
     env, baseline, initial = siege
     for before in (initial.replace(day=jnp.int32(26), unit_levels=initial.unit_levels.at[1].set(4)),
                    initial.replace(day=jnp.int32(27))):
@@ -94,6 +97,7 @@ def test_no_spawn_bonus_before_due_turn_or_for_level_one_party(siege):
 
 
 def test_spawn_reward_precedes_attacks_and_is_not_conditional_on_battle_outcome(siege):
+    """Preserve the arrival reward regardless of later combat damage or outcome."""
     env, baseline, initial = siege
     target = env.objective_enemy
     before = initial.replace(day=jnp.int32(27), unit_levels=initial.unit_levels.at[1].set(3),
@@ -113,6 +117,7 @@ def test_spawn_reward_precedes_attacks_and_is_not_conditional_on_battle_outcome(
 
 @pytest.mark.parametrize('value', [-1., True, float('inf'), float('nan'), '5', None])
 def test_invalid_spawn_level_coefficient_is_rejected(value):
+    """Reject invalid siege spawn-level reward coefficients during environment construction."""
     config = load_map('siege_train')
     config['siege_rewards']['spawn_level'] = value
     with pytest.raises(ValueError, match='siege_rewards.spawn_level'):
@@ -120,12 +125,14 @@ def test_invalid_spawn_level_coefficient_is_rejected(value):
 
 
 def test_spawn_reward_cannot_be_combined_with_victory_level_reward():
+    """Reject configuration that would pay both arrival and victory level rewards for the siege."""
     config = {**load_map('siege_train'), 'army_victory_level_reward': 5.}
     with pytest.raises(ValueError, match='mutually exclusive'):
         NumberGrid(map_config=config)
 
 
 def test_obsolete_siege_hp_reward_is_rejected():
+    """Reject the superseded HP-based siege reward instead of silently using an obsolete rule."""
     config = load_map('siege_train')
     config['siege_rewards']['spawn_hp'] = .05
     with pytest.raises(ValueError, match='siege_rewards.spawn_hp was replaced'):

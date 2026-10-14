@@ -56,6 +56,7 @@ def loot(names):
 
 
 def build(base, name):
+    """Translate a reference scenario and its layout into JAX armies, events, and rewards."""
     module = importlib.import_module('maps.'+name)
     from unit_revive_costs import REVIVE_PROFILE_IDS_BY_NAME
     config = module.MAP

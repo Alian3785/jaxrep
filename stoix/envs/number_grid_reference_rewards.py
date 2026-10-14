@@ -27,6 +27,7 @@ def _siege_kills(env, state, killed):
 
 
 def world(env, before, after, action, rest):
+    """Calculate strategic shaping, including the one-time living-level bonus when a siege spawns."""
     moved = jnp.any(before.position != after.position)
     engage = after.in_battle & ~after.summon_battle
     directional = (action >= 0) & (action < 8)

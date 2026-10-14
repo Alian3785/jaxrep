@@ -363,6 +363,7 @@ def test_summon_round_limit_keeps_existing_return_without_retreat_penalty(curren
     pytest.param(False, id='scalar', marks=pytest.mark.core), pytest.param(True, id='full-batch'),
 ])
 def test_batched_casts_match_single_transitions_and_mask_equals_step(current_game, compare_batch):
+    """Check cast legality against step and optionally compare full-map batch transitions."""
     env, initial, step, _ = current_game
     rules = env.casting
     mask = compiled_method(env, 'action_mask')

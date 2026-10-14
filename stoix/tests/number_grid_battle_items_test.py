@@ -125,9 +125,9 @@ def test_hero_revives_and_summons_on_its_turn(default_game, item_battle):
     assert revived.hp[0] == 50 and revived.last_event == BATTLE_ITEM and revived.actor != 1
     assert revived.battle_items.tolist() == [-1, rules.keys.index('zombie_talisman')]
     assert env.item_rules.keys.index('orb_of_life') not in revived.item_inventory.tolist()
-    # Zombie Talisman: an independent summon; one of five charges, once per battle.
+    # Zombie Talisman: a summon owned by the hero (slot 1); one of five charges, once per battle.
     summoned, _ = step(battle, jnp.int32(NAMES.index('item2_ally_3')))
-    assert summoned.unit_ids[3] == ids['g000uu0087'] and summoned.summon_owner[3] == 3 and summoned.hp[3] == 170
+    assert summoned.unit_ids[3] == ids['g000uu0087'] and summoned.summon_owner[3] == 1 and summoned.hp[3] == 170
     assert summoned.battle_item_charges.tolist() == [1, 4] and summoned.battle_item_used.tolist() == [False, True]
     again = summoned.replace(actor=jnp.int32(1), turn_phase=summoned.turn_phase.at[1].set(0))
     assert allowed(mask(again), rules.use_start, rules.end) == ['item1_ally_0']
@@ -161,9 +161,9 @@ def test_battle_potion_heals_and_is_drunk(default_game, item_battle):
 def test_battle_items_cannot_revive_summons(default_game, item_battle, item):
     env, _, step, mask = default_game
     rules = env.battle_item_rules
-    # Create the actual independent summon that previously came back with 85 HP.
+    # Create the actual item summon (owned by the hero) that previously came back with 85 HP.
     summoned, _ = step(item_battle, jnp.int32(NAMES.index('item2_ally_3')))
-    assert summoned.summon_owner[3] == 3
+    assert summoned.summon_owner[3] == 1
     life = env.potion_rules.keys.index('life')
     dead = slots(env, summoned, item, None).replace(actor=jnp.int32(1),
         hp=summoned.hp.at[3].set(0), potions=summoned.potions.at[life].set(1),
@@ -222,7 +222,7 @@ def test_item_summon_preserves_escaped_fighter_at_battle_end(default_game, item_
     action = jnp.int32(NAMES.index('item2_ally_0'))
     assert mask(before)[action]
     summoned, _ = step(before, action)
-    assert summoned.summon_saved_hp[0] == 37 and summoned.summon_owner[0] == 0
+    assert summoned.summon_saved_hp[0] == 37 and summoned.summon_owner[0] == 1
     assert not summoned.escaped[0] and summoned.hp[0] > 0
     if victory:
         ending = summoned.replace(actor=jnp.int32(1), hp=summoned.hp.at[6:].set(0),
@@ -237,6 +237,47 @@ def test_item_summon_preserves_escaped_fighter_at_battle_end(default_game, item_
     assert result.hp[0] == 37 and result.unit_ids[0] == before.unit_ids[0]
     assert result.unit_levels[0] == 2 and result.unit_xp[0] == 17 and result.last_xp[0] == 0
     assert not jnp.any(result.summon_saved_hp) and jnp.all(result.summon_owner == -1)
+
+
+@pytest.mark.parametrize('leaves', ['dies', 'flees'])
+def test_item_summon_vanishes_when_the_hero_leaves(default_game, item_battle, leaves):
+    """Original rule (user in-game check 2026-10-14): an orb/talisman summon is owned
+    by the hero who used it and disappears as soon as the hero dies or flees."""
+    env, _, step, _ = default_game
+    summoned, _ = step(item_battle, jnp.int32(NAMES.index('item2_ally_3')))
+    assert summoned.summon_owner[3] == 1 and summoned.hp[3] > 0
+    gone = (summoned.replace(hp=summoned.hp.at[1].set(0)) if leaves == 'dies'
+            else summoned.replace(escaped=summoned.escaped.at[1].set(True)))
+    hp = compiled_method(env, '_linked_summon_hp')(gone, gone.hp)
+    assert hp[3] == 0
+    assert hp.at[3].set(gone.hp[3]).tolist() == gone.hp.tolist()  # nobody else is affected
+
+
+def test_hero_death_ends_a_battle_the_summon_would_carry_on():
+    """Super Last Stand: once the lone hero falls, the Angel from the orb leaves too
+    and the battle is lost in that same step; the Angel cannot win it any more."""
+    from stoix.envs.number_grid import NumberGrid
+    env = NumberGrid(map_config=load_map('super_last_stand'))
+    rules = env.battle_item_rules
+    battle_step = compiled_method(env, '_battle_step')
+    state, _ = compiled_method(env, 'reset')(jax.random.PRNGKey(0))
+    hero = int(jnp.argmax(env.territory.heroes[state.unit_ids[:6]] & (state.unit_ids[:6] != 0)))
+    empty = next(i for i in range(6) if int(state.unit_ids[i]) == 0)
+    enemy = next(i for i in range(env.num_opponents) if bool(state.alive[i]))
+    state = state.replace(battle_items=state.battle_items.at[0].set(rules.keys.index('angel_orb')),
+                          enemy=jnp.int32(enemy))
+    battle = compiled_method(env, '_begin_battle')(state, jax.random.PRNGKey(1), jnp.full(env.random_size, .5))
+    battle = battle.replace(actor=jnp.int32(hero), activation_done=jnp.zeros(12, bool),
+                            turn_phase=jnp.zeros(12, jnp.int32), round=jnp.int32(1))
+    summoned, _ = battle_step(battle, jnp.int32(rules.use_start+empty), jax.random.PRNGKey(2),
+                              jnp.zeros(env.random_size))
+    assert int(summoned.summon_owner[empty]) == hero and int(summoned.hp[empty]) > 0
+    # The hero has fallen; whatever acts next, the Angel is removed in this step.
+    fallen =summoned.replace(hp=summoned.hp.at[hero].set(0), actor=jnp.int32(empty),
+                              activation_done=jnp.zeros(12, bool), turn_phase=jnp.zeros(12, jnp.int32))
+    after, reward = battle_step(fallen, jnp.int32(DEFEND), jax.random.PRNGKey(3), jnp.zeros(env.random_size))
+    assert after.lost and after.done and not after.won
+    assert after.hp[:6].tolist() == [0]*6 and float(reward) < 0
 
 
 def finish(step, state, action=DEFEND):
@@ -501,7 +542,7 @@ def test_reference_item_effects(effects):
     assert after.item_weakened[weak, 7] and after.weakened[weak, 7]
     assert after.primary_override[weak, 7] == jnp.rint(env._combat_stats(base)[7, 1]*.67)
     summon = row['elf_lord_orb']
-    assert after.unit_ids[summon, 3] == ids['g000uu8009'] and after.summon_owner[summon, 3] == 3
+    assert after.unit_ids[summon, 3] == ids['g000uu8009'] and after.summon_owner[summon, 3] == 1  # the hero
     life = row['orb_of_life']
     assert hp[life, 0] == 50 and after.battle_items[life].tolist() == [-1, -1]
     # Talismans spend one charge; orbs leave the slot.

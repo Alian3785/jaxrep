@@ -431,12 +431,15 @@ class BattleItemRules:
                 source = updates[dot+'_source']
                 updates[dot+'_source'] = jnp.where((source >= 0) & spawned[jnp.maximum(source, 0)], -1, source)
             updates.update(env._summon_backups(state, spawned))
-            # Independent summon (summon_owner = own slot): acts this round at its
-            # template initiative and leaves with the battle. The original fighter
-            # keeps its saved HP (zero for a corpse, positive for an escapee).
+            # The summon acts this round at its template initiative and leaves with
+            # the battle. Its owner is the hero who used the item: like the original
+            # (user check 2026-10-14), it vanishes as soon as the hero dies or flees.
+            # The original fighter keeps its saved HP (zero for a corpse, positive
+            # for an escapee).
             updates.update(unit_ids=jnp.where(spawned, uid, state.unit_ids),
                 unit_levels=jnp.where(spawned, level, state.unit_levels),
-                unit_xp=jnp.where(spawned, 0, state.unit_xp), summon_owner=jnp.where(spawned, slots, state.summon_owner),
+                unit_xp=jnp.where(spawned, 0, state.unit_xp),
+                summon_owner=jnp.where(spawned, state.actor, state.summon_owner),
                 turn_phase=jnp.where(spawned, 0, state.turn_phase),
                 activation_done=jnp.where(spawned, False, state.activation_done),
                 priority=jnp.where(spawned, env.progression.base_stats[uid, INITIATIVE], state.priority))

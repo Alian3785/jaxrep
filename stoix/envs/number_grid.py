@@ -2633,7 +2633,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
                 weakened=state.weakened.at[actor].set(state.weakened[actor] & ~transformed),
                 item_weakened=state.item_weakened.at[actor].set(state.item_weakened[actor] & ~transformed))
         another_strike = attack & self._actor_double_strike(state) & ~state.second_strike & ~escaping
-        if self.has_summons:
+        if self.has_linked_summons:
             hp = self._linked_summon_hp(state,hp)
         state = state.replace(waited=state.waited.at[actor].set(state.waited[actor] | (action == WAIT)))
         state = self._expire_powerups(state,(self.slots == actor) & ~another_strike & (action != WAIT))
@@ -2647,7 +2647,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             instant=(action==RETREAT)&(actor==self._equipment_hero(state))&jnp.any(self.item_rules.value(state,'instant_retreat')[:2])
             escaped=escaped.at[actor].set(escaped[actor]|instant)
             retreating=retreating.at[actor].set(retreating[actor]&~instant)
-        if self.has_summons:
+        if self.has_linked_summons:
             hp = self._linked_summon_hp(state.replace(escaped=escaped),hp)
         active = (hp > 0) & ~escaped
         normal, waiting = active & (phases == 0), active & (phases == 1)
@@ -2700,7 +2700,9 @@ class NumberGrid(Summoning, NumericNumberGrid):
             defended = defended.at[next_actor].set(False)
             active = (hp > 0) & ~escaped
         state = state.replace(slow_original=jnp.where(round_number != state.round,-1,state.slow_original))
-        if self.has_summons:
+        if self.has_linked_summons:
+            # Also catches an owner killed by a DOT tick when only item summons
+            # are present (the linked DOT queue runs only with summoner units).
             hp = self._linked_summon_hp(state,hp)
             active = (hp > 0) & ~escaped
             next_actor = jnp.where(active[next_actor],next_actor,jnp.argmax(jnp.where(

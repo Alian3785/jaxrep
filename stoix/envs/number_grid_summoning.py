@@ -87,6 +87,12 @@ def advance_linked_queue(hp, escaped, phases, priority, round_number, activated,
 
 
 class Summoning:
+    @property
+    def has_linked_summons(self):
+        """Battle summons that vanish with their owner: summoner units' creatures and
+        orb/talisman summons, whose owner is the hero who used the item."""
+        return self.has_summons or self.has_item_summons
+
     def _copy_targets(self, state):
         ids = self._effective_ids(state)
         return ((state.hp > 0) & ~state.escaped & (self.slots != state.actor)
@@ -309,7 +315,7 @@ class Summoning:
             battle_steps=state.battle_steps+1),jnp.float32(0)
 
     def _linked_summon_hp(self, state, hp):
-        if not self.has_summons:
+        if not self.has_linked_summons:
             return hp
         return linked_summon_hp(hp, state.escaped, state.summon_owner)
 

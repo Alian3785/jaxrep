@@ -549,3 +549,42 @@ def test_reference_item_effects(effects):
     assert after.battle_item_charges[row['talisman_of_thunder']].tolist() == [4, 0]
     assert after.battle_items[row['orb_of_fire']].tolist() == [-1, -1]
     assert int(rules.uses[rules.keys.index('talisman_of_thunder')]) == 5
+
+
+def test_summon_win_with_dead_party_is_defeat():
+    """Super Last Stand: an Angel Orb summon wins after the whole party has died.
+
+    User report 2026-10-14: the summon's HP hid the wiped party, so no defeat was
+    set, the last hit paid a victory and the dead party kept moving. The summon
+    leaves with the battle, so the battle must end in the party's defeat.
+    """
+    from stoix.envs.number_grid import NumberGrid
+    env = NumberGrid(map_config=load_map('super_last_stand'))
+    rules = env.battle_item_rules
+    battle_step = compiled_method(env, '_battle_step')
+    state, _ = compiled_method(env, 'reset')(jax.random.PRNGKey(0))
+    hero = int(jnp.argmax(env.territory.heroes[state.unit_ids[:6]] & (state.unit_ids[:6] != 0)))
+    empty = next(i for i in range(6) if int(state.unit_ids[i]) == 0)
+    enemy = next(i for i in range(env.num_opponents) if bool(state.alive[i]))
+    state = state.replace(battle_items=state.battle_items.at[0].set(rules.keys.index('angel_orb')),
+                          enemy=jnp.int32(enemy))
+    battle = compiled_method(env, '_begin_battle')(state, jax.random.PRNGKey(1), jnp.full(env.random_size, .5))
+    battle = battle.replace(actor=jnp.int32(hero), activation_done=jnp.zeros(12, bool),
+                            turn_phase=jnp.zeros(12, jnp.int32), round=jnp.int32(1))
+    use = rules.use_start+empty  # item slot 1 -> own empty cell
+    assert compiled_method(env, 'action_mask')(battle)[use]
+    summoned, _ = battle_step(battle, jnp.int32(use), jax.random.PRNGKey(2), jnp.zeros(env.random_size))
+    assert int(summoned.summon_owner[empty]) == empty and int(summoned.hp[empty]) > 0
+    target = int(jnp.argmax(summoned.hp[6:] > 0))
+    # Every permanent fighter has fallen; the Angel finishes the last enemy (1 HP).
+    hp = jnp.where(summoned.summon_owner >= 0, summoned.hp, 0).at[6+target].set(1)
+    last = summoned.replace(hp=hp, actor=jnp.int32(empty), activation_done=jnp.zeros(12, bool),
+                            turn_phase=jnp.zeros(12, jnp.int32))
+    after, reward = battle_step(last, jnp.int32(SHOOT+target), jax.random.PRNGKey(3), jnp.zeros(env.random_size))
+    assert after.lost and after.done and not after.won  # like any defeat, the episode ends here
+    assert after.hp[:6].tolist() == [0]*6 and after.summon_owner[:6].tolist() == [-1]*6
+    assert float(reward) < 0  # no victory payment for the summon's last hit
+    # With the hero still alive the same last hit is an ordinary victory.
+    wounded = last.replace(hp=last.hp.at[hero].set(1))
+    alive, reward = battle_step(wounded, jnp.int32(SHOOT+target), jax.random.PRNGKey(3), jnp.zeros(env.random_size))
+    assert not alive.lost and not alive.done and not alive.in_battle and float(reward) > 0

@@ -2716,6 +2716,15 @@ class NumberGrid(Summoning, NumericNumberGrid):
         withdrawal = ~jnp.any(active[:6]) & ~lost
         # Reference: a summon battle without a winner ends; the stack keeps its wounds.
         withdrawal |= summon_battle & (round_number > self.max_rounds) & ~victory
+        if self.has_summons or self.has_item_summons:
+            # Battle summons leave with the battle (_restore_roster). If no permanent
+            # fighter is alive (an escapee beneath a summon counts), a battle the
+            # summon won or retreated from still ends in the party's defeat.
+            permanent_hp = jnp.where(state.summon_owner[:6] >= 0, state.summon_saved_hp[:6], hp[:6])
+            wiped = (victory | withdrawal) & ~summon_battle & ~jnp.any(permanent_hp > 0)
+            lost |= wiped
+            victory &= ~wiped
+            withdrawal &= ~wiped
         # The decision boundary enforces max_steps after all automatic responses.
         # Internal unit activations never consume that budget.
         raw_ended = victory | withdrawal | lost

@@ -83,7 +83,7 @@
     return '';
   }
   function renderSpells(snap){
-    const info=spellInfo(),lord=construction()?.lord;
+    const info=spellInfo(),lord=construction()?.lord,map=currentMap();
     $('spells-view').hidden=!info;
     $('lord-summary').textContent=lord?'Правитель: '+lord.name+'. '+lord.description:'';
     const choice=construction()?.lords?.find(l=>l.id===$('lord-type').value);
@@ -91,12 +91,12 @@
     $('lord-type').disabled=busy||mode!=='manual';
     if(!info)return;
     $('spells-title').textContent='Заклинания · '+construction().name;
-    $('spell-rules').textContent=lord.description;
+    $('spell-rules').textContent=lord.description+(map.max_spell_level?' Ограничение сценария: изучение в башне до '+map.max_spell_level+' уровня.':'');
     const learned=(snap.spell_status||[]).filter(c=>c===1).length;
     const casting=castInfo(),quotes=snap.cast_quotes;
     $('spell-status').textContent='Изучено '+learned+' / '+info.spells.length+' · '+(snap.state.spell_researched_today?'Сегодня заклинание уже изучено.':'Дневной лимит свободен.')+(casting?' · Одно заклинание можно применить '+(casting.daily_limit===2?'дважды':'один раз')+' за ход.':'');
     const castLabels=['Можно применить','Не изучено','Лимит применений на этот ход исчерпан','Недостаточно маны','Нет цели или эффект уже действует','Недоступно во время боя','Игра завершена'];
-    const labels=['Можно изучить','Изучено','V уровень доступен только правителю-магу','Нужна башня магии','Недостаточно маны','Сегодня уже изучено заклинание','Недоступно во время боя','Игра завершена'];
+    const labels=['Можно изучить','Изучено','V уровень доступен только правителю-магу','Нужна башня магии','Недостаточно маны','Сегодня уже изучено заклинание','Недоступно во время боя','Игра завершена','Выше предела магии сценария'];
     $('spell-list').replaceChildren(...info.spells.map((spell,i)=>{
       const card=document.createElement('article');card.className='spell-card'+(snap.spell_status?.[i]===1?' is-learned':'');
       card.hidden=$('spell-level').value!=='all'&&Number($('spell-level').value)!==spell.level;
@@ -520,15 +520,16 @@
       roundRect(c*cell+1,r*cell+1,cell-2,cell-2,cell*.14,'#899088');
       ctx.fillStyle='#626c63';ctx.beginPath();ctx.moveTo((c+.16)*cell,(r+.8)*cell);ctx.lineTo((c+.48)*cell,(r+.2)*cell);ctx.lineTo((c+.84)*cell,(r+.8)*cell);ctx.fill();
     }
-    for(const capital of territoryInfo()?.enemy_capitals||[]){
+    for(const [capitalIndex,capital] of (territoryInfo()?.enemy_capitals||[]).entries()){
       const cells=capital.footprint||[];if(!cells.length)continue;
       const rows=cells.map(p=>p[0]),cols=cells.map(p=>p[1]),top=Math.min(...rows),left=Math.min(...cols);
       const {x:c,y:r,width:w,height:h}=displayRect([top,left],Math.max(...rows)-top+1,Math.max(...cols)-left+1,map.size);
       roundRect(c*cell+1,r*cell+1,w*cell-2,h*cell-2,cell*.2,'#ead0cd');
-      ctx.strokeStyle='#a5524f';ctx.lineWidth=1.5;ctx.strokeRect(c*cell+2,r*cell+2,w*cell-4,h*cell-4);
+      const objective=map.campaign_objective==='capital'&&capitalIndex===map.objective_capital;
+      ctx.strokeStyle=objective?'#d79a14':'#a5524f';ctx.lineWidth=objective?3:1.5;ctx.strokeRect(c*cell+2,r*cell+2,w*cell-4,h*cell-4);
       ctx.fillStyle='#7d2f2c';ctx.textAlign='center';ctx.textBaseline='middle';
       ctx.font='650 '+Math.round(cell*.7)+'px system-ui';ctx.fillText('Столица',(c+w/2)*cell,(r+h/2-.9)*cell);
-      ctx.font=Math.round(cell*.5)+'px system-ui';ctx.fillText('врага',(c+w/2)*cell,(r+h/2-.2)*cell);
+      ctx.font=Math.round(cell*.5)+'px system-ui';ctx.fillText(objective?'цель карты':'врага',(c+w/2)*cell,(r+h/2-.2)*cell);
     }
     for(const [i,mine] of (territoryInfo()?.mines||[]).entries()){
       const {x:c,y:r}=displayTile(mine.position,map.size),marker=manaMarkers[mine.kind];
@@ -599,6 +600,23 @@
       ctx.fillStyle='#604515';ctx.font='650 '+Math.round(cell*.62)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('♜',(x+.5)*cell,(y+.52)*cell);
       ctx.strokeStyle='#aa7623';ctx.lineWidth=2;ctx.strokeRect(x*cell+1,y*cell+1,cell-2,cell-2);
     }
+    if(map.campaign_objective==='reach_position'){
+      const {x,y}=displayTile(map.objective_position,map.size);
+      ctx.save();ctx.strokeStyle='#197d60';ctx.fillStyle='#b4f0ce';ctx.lineWidth=2;
+      const radius=map.objective_radius||0;
+      if(radius){
+        ctx.globalAlpha=.25;
+        for(let row=Math.max(1,map.objective_position[0]-radius);row<=Math.min(map.size-2,map.objective_position[0]+radius);row++){
+          for(let col=Math.max(1,map.objective_position[1]-radius);col<=Math.min(map.size-2,map.objective_position[1]+radius);col++){
+            const tile=displayTile([row,col],map.size);ctx.fillRect(tile.x*cell,tile.y*cell,cell,cell);
+          }
+        }
+        ctx.globalAlpha=1;
+      }
+      ctx.fillRect(x*cell,y*cell,cell,cell);ctx.strokeRect(x*cell,y*cell,cell,cell);
+      ctx.fillStyle='#07523d';ctx.font='800 '+Math.max(12,Math.round(cell*.85))+'px system-ui';
+      ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('⚑',(x+.5)*cell,(y+.5)*cell);ctx.restore();
+    }
     const agent=displayTile(s.position,map.size),x=(agent.x+.5)*cell,y=(agent.y+.5)*cell,radius=Math.max(16,cell*.85);
     ctx.save();
     ctx.shadowColor='#ff182899';ctx.shadowBlur=12;
@@ -624,11 +642,12 @@
     if(unit?.hero){
       const level=snap.unit_experience?.[i]?.[0]||1,skills=unit.hero_skills?.length?unit.hero_skills:unit.level_bonuses||[];
       const earned=skills.filter(b=>b.level<=level).map(b=>b.name);
-      const next=skills.find(b=>b.level>level);
-      return 'Герой: повышение без здания.'+(earned.length?(unit.hero_skills?.length?' Навыки: ':' Бонусы: ')+earned.join('; ')+'.':'')+
+      const next=skills.find(b=>b.level>level&&(!unit.max_level||b.level<=unit.max_level));
+      return (unit.max_level&&level>=unit.max_level?'Герой: достигнут предел сценария ('+unit.max_level+').':'Герой: повышение без здания.'+(unit.max_level?' Предел сценария: '+unit.max_level+'.':''))+(earned.length?(unit.hero_skills?.length?' Навыки: ':' Бонусы: ')+earned.join('; ')+'.':'')+
         (next?' На уровне '+next.level+': '+next.name+'.':'');
     }
     if(!choices)return '';
+    if(unit.scenario_dynamic)return 'Дальнейшие формы запрещены сценарием. Следующий уровень: рост характеристик без смены формы.';
     if(!choices.length)return 'Следующий уровень: рост характеристик без здания.';
     return choices.map(u=>{
       if(!u.supported)return u.name+': недоступно — '+u.reason.toLowerCase()+'.';
@@ -783,9 +802,9 @@
     renderSpells(snap);
     renderMapCommands(snap);
     $('phase-label').textContent=s.in_battle?'Бой · отряд № '+(s.enemy+1):'Карта '+map.size+' × '+map.size;
-    // A capital guard is not a victory goal; count only the stacks that must fall.
+    // Ordinary army goals exclude capitals; the capital challenge overrides this below.
     // With objective cities (reference "cities" goal) count those cities instead.
-    const guards=new Set((territoryInfo()?.enemy_capitals||[]).map(c=>c.guard));
+    const guards=new Set((territoryInfo()?.enemy_capitals||[]).flatMap(c=>c.guards||[c.guard]));
     const targetEnemy=Number.isInteger(map.objective_enemy)?map.objective_enemy:null;
     const targetName=targetEnemy===null?'':partyText(combatInfo()?.enemies[targetEnemy]);
     const goalCities=targetEnemy===null?(territoryInfo()?.cities||[]).map((c,i)=>c.objective?i:-1).filter(i=>i>=0):[];
@@ -793,13 +812,35 @@
     const waves=map.campaign_objective==='waves';
     $('remaining').textContent=targetEnemy!==null?Number(remainingEnemy(targetEnemy)):waves?(map.scheduled_enemies||[]).filter(e=>remainingEnemy(e.enemy)).length:goalCities.length?goalCities.filter(i=>!s.city_owned?.[i]).length:s.alive.filter((a,i)=>a&&!guards.has(i)).length;
     $('remaining-label').textContent=targetEnemy!==null?'цель: '+targetName+' · отряд № '+(targetEnemy+1):waves?'армий волн осталось, включая ещё не появившиеся':goalCities.length?'целевых городов осталось ('+goalCities.map(i=>territoryInfo().cities[i].name).join(', ')+')':'отрядов осталось';
+    if(map.campaign_objective==='reach_position'){
+      $('remaining').textContent=Number(!s.won);
+      $('remaining-label').textContent='цель: привести живого героя '+(map.objective_radius?'в зону ⚑ радиуса '+map.objective_radius:'к ⚑')+' · строка '+map.objective_position[0]+', столбец '+map.objective_position[1];
+      if(map.objective_after_event&&map.scenario_events_enabled!==false){
+        const event=map.scenario_events.findIndex(e=>e.id===map.objective_after_event);
+        const responded=s.script_events_fired?.[event]&&s.script_objective_ready;
+        const pending=(s.pending_encounters||[]).some((v,i)=>v&&s.alive[i]);
+        $('remaining-label').textContent+=!responded?' · нужно пережить ответный ход засады':pending||s.in_battle?' · завершите начатые бои':' · ответный ход засады состоялся';
+      }
+    }else if(map.campaign_objective==='capital'){
+      const capital=territoryInfo().enemy_capitals[map.objective_capital];
+      $('remaining').textContent=(capital.guards||[capital.guard]).filter(remainingEnemy).length;
+      $('remaining-label').textContent='защитников столицы '+capital.name+' осталось · +'+map.capital_survival_round_reward+' за полный пережитый раунд со стражем';
+      if(map.capital_guardian_reached_reward){
+        $('remaining-label').textContent+=' · первое вступление: +'+map.capital_guardian_reached_reward+(s.capital_rewarded?.[0]?' (получено)':'');
+      }
+      for(const [i,amount] of (map.capital_guardian_damage_rewards||[]).entries()){
+        if(amount)$('remaining-label').textContent+=' · снято '+(i+1)+'/3 HP стража: +'+amount+(s.capital_rewarded?.[i+1]?' (получено)':'');
+      }
+    }
     $('chest-status').hidden=!(map.chests||[]).length;
     $('chest-status').textContent=(s.last_event===21?eventText(snap)+' ':'')+'Сундуков осталось: '+(s.chest_alive||[]).filter(Boolean).length+' / '+(map.chests||[]).length+'. Подойдите на соседнюю клетку, включая диагональ: всё содержимое попадёт в инвентарь.';
     $('wins').textContent=s.alive.filter((v,i)=>!v&&s.scenario_spawned?.[i]!==false).length;
+    if(map.scenario_events?.length)$('wins').textContent=(s.reference_defeated||[]).filter(Boolean).length;
     $('steps').textContent=fmt(s.step_count);$('reward').textContent=fmt(snap.total_reward);
     $('gold').textContent=fmt(s.gold);
     const turns=turnRules(),points=s.movement_points;
     $('turn-summary').textContent='Ход '+s.day+' · '+points+' / '+movementCap(snap)+' очков перемещения';
+    if(map.scenario_events?.length)$('turn-summary').textContent+=map.scenario_events_enabled===false?' · события отключены':' · событий: '+(s.script_events_fired||[]).filter(Boolean).length+' / '+map.scenario_events.length;
     $('movement-summary').textContent=points+' / '+movementCap(snap)+' очков движения';
     const travel=snap.travel_costs||[2,1,4,6];
     $('terrain-summary').textContent=terrainNames.map((name,i)=>name+': '+travel[i]).join(' · ')+' очков. '+(travel.every(n=>n===2)?'Полёт: любая местность стоит 2 очка. ':travel[0]===4?'Герой погиб: стоимость движения удвоена. ':'')+'Последний шаг расходует остаток, если очков меньше цены клетки.';
@@ -823,7 +864,10 @@
     $('attack-hint').textContent=profile(s.actor)?.unit_type==='Succub'?'Массовое превращение в бесов без урона: выберите любого доступного живого противника.':profile(s.actor)?.unit_type==='Witch'?'Превращение: выберите живого противника.':profile(s.actor)?.unit_type==='Alchemist'?'Дополнительный ход: выберите живого союзника, кроме алхимика и отступающего.':profile(s.actor)?.unit_type==='Patriach'?'Выберите союзника: лечение живого или однократное воскрешение погибшего с 50% HP.':isPowerSupport(s.actor)?(['Dwarfdruid','Arhidruid'].includes(profile(s.actor)?.unit_type)?'Выберите союзника для усиления и очищения; себя — только для очищения.':'Усиление: выберите другого живого союзника.'):isMassHealer(s.actor)?'Массовое лечение всех живых союзников, кроме самого лекаря. Выберите любую доступную карточку.':isHealer(s.actor)?'Лечение: выберите живого союзника.':isMage(s.actor)?'Массовая атака: выберите любого живого врага.':isWarrior(s.actor)?(mask.slice(8,14).some(Boolean)?'Ход воина: выберите подсвеченного врага для удара мечом.':'Воин не достаёт до врагов. Можно защищаться, ждать или отступить.'):'Нажмите на живого противника, чтобы выстрелить.';
     if(isCopier(s.actor))$('attack-hint').textContent='Копирование: выберите доступного бойца любой стороны. Большие юниты и стражи недоступны.';
     if(isSummoner(s.actor))$('attack-hint').textContent='Призыв: выберите свободную клетку своего отряда. Большое существо занимает переднюю и заднюю клетки линии.';
-    const message=s.won?(targetEnemy!==null?'Победа! Цель повержена: '+targetName+'.':goalCities.length?'Победа! Целевые города захвачены.':'Победа! Карта очищена.'):s.lost?'Ваш отряд погиб. Начните новую игру.':s.done?'Достигнут лимит. Начните новую игру.':s.in_battle?'Выбирайте цели и берегите свой отряд.':!s.movement_points?'Очки перемещения закончились. Можно использовать зелья, строить или отдохнуть.':'Шаг на клетку врага — атака. Рядом с отрядом можно пройти без боя.';
+    const winText=map.campaign_objective==='reach_position'?'Победа! Герой достиг цели ⚑.'
+      :map.campaign_objective==='capital'?'Победа! Защитники столицы '+(territoryInfo()?.enemy_capitals?.[map.objective_capital]?.name||'противника')+' разгромлены.'
+      :targetEnemy!==null?'Победа! Цель повержена: '+targetName+'.':goalCities.length?'Победа! Целевые города захвачены.':'Победа! Карта очищена.';
+    const message=s.won?winText:s.lost?'Ваш отряд погиб. Начните новую игру.':s.done?'Достигнут лимит. Начните новую игру.':s.in_battle?'Выбирайте цели и берегите свой отряд.':!s.movement_points?'Очки перемещения закончились. Можно использовать зелья, строить или отдохнуть.':'Шаг на клетку врага — атака. Рядом с отрядом можно пройти без боя.';
     $('message').textContent=message;
     $('map-controls').hidden=s.in_battle||capitalOpen||potionsOpen||spellsOpen;$('battle-controls').hidden=!s.in_battle||capitalOpen||potionsOpen||spellsOpen;
     $('continue').hidden=!s.in_battle||!mask[17];

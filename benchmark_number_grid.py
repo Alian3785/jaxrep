@@ -28,10 +28,13 @@ from numbergrid_tracking import NumberGridTracking, add_tracking_arguments
 from stoix.envs.number_grid_metrics import summarize_campaign
 from stoix.envs.number_grid_episode_reports import compact_episode_events
 from numbergrid_episode_reports import EpisodeReports, read_episode_batch
+from numbergrid_warm_start import prepare_warm_start
 
 
 def save_json(path, value):
-    path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+    temporary = path.with_name(path.name + '.tmp')
+    temporary.write_text(json.dumps(value, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+    temporary.replace(path)
 
 
 def unreplicate(tree):
@@ -65,14 +68,25 @@ def make_evaluator(actor, episodes=1024, seed=1042, greedy=True, map_config=None
     return evaluate_params
 
 
-def save_checkpoint(output, params, steps):
+def save_checkpoint(output, params, steps, state=None):
     directory = output / 'checkpoints'
     directory.mkdir(exist_ok=True)
     checkpoint = serialization.to_bytes(params)
     path = directory / f'{steps:09d}.msgpack'
-    path.write_bytes(checkpoint)
-    return dict(training_steps=steps, path=str(path.relative_to(output)),
-                sha256=hashlib.sha256(checkpoint).hexdigest())
+    temporary = path.with_suffix('.tmp')
+    temporary.write_bytes(checkpoint)
+    temporary.replace(path)
+    record = dict(training_steps=steps, path=str(path.relative_to(output)),
+                  sha256=hashlib.sha256(checkpoint).hexdigest())
+    if state is not None:
+        learner = serialization.to_bytes(state)
+        learner_path = directory / f'{steps:09d}.learner.msgpack'
+        temporary = learner_path.with_suffix('.tmp')
+        temporary.write_bytes(learner)
+        temporary.replace(learner_path)
+        record.update(learner_state_path=str(learner_path.relative_to(output)),
+                      learner_state_sha256=hashlib.sha256(learner).hexdigest())
+    return record
 
 
 def checkpoint_score(candidate):
@@ -177,6 +191,19 @@ def run_training(args, tracking):
         # Training without party swaps: the map then has no swap actions at all (docs/UNIT_SWAPS.md).
         game_map = {**game_map, 'unit_swaps': False}
     config = make_config(total, seed, map_config=game_map)
+    initial_steps, warm_start, warm_bytes = 0, None, None
+    if getattr(args, 'warm_start', None):
+        warm_bytes, warm_start = prepare_warm_start(
+            args.warm_start, total, game_map, OmegaConf.to_container(config, resolve=True), ROOT)
+        initial_steps = warm_start['initial_training_steps']
+        config = make_config(total-initial_steps, seed, map_config=game_map)
+        for name, rate in warm_start['learning_rates'].items():
+            config.system[name] = rate
+        config.warm_start = warm_start
+    session_total = total-initial_steps
+    learner_block = config.arch.num_updates_per_eval * config.arch.num_envs * config.system.rollout_length
+    if tracking.summary_interval % learner_block:
+        raise ValueError(f'summary_interval must be a multiple of the learner block ({learner_block})')
     config.env.kwargs.episode_reports = bool(game_map.get('battle_mode')
         and game_map.get('unit_progression') and not getattr(args, 'no_episode_reports', False))
     run_name = f"number_grid-{game_map['size']}x{game_map['size']}" + ('-step-cost' if game_map.get('step_cost', 0) else '') + ('-smoke' if args.smoke else '')
@@ -197,6 +224,7 @@ def run_training(args, tracking):
     measured_sources = ['benchmark_number_grid.py', 'numbergrid_config.py', 'numbergrid_tracking.py',
                         'numbergrid_episode_reports.py', 'stoix/envs/number_grid_episode_reports.py',
                         'stoix/envs/number_grid_scenarios.py', 'stoix/envs/number_grid_reference_rewards.py',
+                        'stoix/envs/number_grid_script_events.py',
                         'stoix/envs/number_grid_hero_skills.py',
                         'numbergrid_campaign.py', 'numbergrid_comet_dashboard.py', 'stoix/envs/number_grid_metrics.py',
                         'stoix/envs/number_grid_buildings.py', 'stoix/envs/data/buildings.json',
@@ -207,9 +235,12 @@ def run_training(args, tracking):
                         'stoix/wrappers/number_grid_reset.py', 'stoix/systems/ppo/anakin/ff_ppo.py']
     source_hashes = {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
                      for name in measured_sources if (ROOT / name).exists()}
+    source_hashes['numbergrid_warm_start.py'] = hashlib.sha256((ROOT / 'numbergrid_warm_start.py').read_bytes()).hexdigest()
     save_json(output / 'source_hashes.json', source_hashes)
     save_json(output / 'config.json', OmegaConf.to_container(config, resolve=True))
     save_json(output / 'map.json', game_map)
+    if warm_start is not None:
+        save_json(output / 'warm_start.json', warm_start)
     packages = sorted(f'{d.metadata["Name"]}=={d.version}' for d in importlib.metadata.distributions())
     (output / 'packages.txt').write_text('\n'.join(packages) + '\n')
     tracking.start(output, OmegaConf.to_container(config, resolve=True), game_map, source_hashes)
@@ -223,6 +254,18 @@ def run_training(args, tracking):
                if config.env.kwargs.episode_reports else None)
     keys = tuple(jax.random.split(jax.random.PRNGKey(seed), 3))
     learner, actor, state = learner_setup(env, keys, config)
+    if warm_bytes is not None:
+        template = unreplicate(state.params)
+        restored = serialization.from_bytes(template, warm_bytes)
+        for expected, actual in zip(jax.tree.leaves(template), jax.tree.leaves(restored)):
+            if actual.shape != expected.shape or actual.dtype != expected.dtype:
+                raise ValueError('Warm-start parameter shape or dtype mismatch')
+            if not np.isfinite(np.asarray(actual)).all():
+                raise FloatingPointError('Non-finite warm-start parameter')
+        params = jax.tree.map(lambda reference, value: jnp.broadcast_to(
+            jnp.asarray(value), reference.shape), state.params, restored)
+        state = state._replace(params=params)
+        print(f'Loaded checkpoint at {initial_steps} steps; optimizer and episodes reset', flush=True)
     initial_params = jax.device_get(unreplicate(state.params))
     status('compiling')
     def chunk(s):
@@ -261,9 +304,9 @@ def run_training(args, tracking):
     episode_report_seconds = 0.0
     reported_expected = 0
     report_summary = None
-    status('training', training_steps=0, total_timesteps=total)
+    status('training', training_steps=initial_steps, total_timesteps=total, session_training_steps=0)
     loop_started = time.perf_counter()
-    for i in range(total // step_size):
+    for i in range(session_total // step_size):
         begin = time.perf_counter()
         state, metrics, packets = compiled(state)
         jax.block_until_ready((state, metrics, packets))
@@ -275,7 +318,7 @@ def run_training(args, tracking):
             count = int(host_metrics.pop('episode_report_events'))
             # One count and one populated batch per learner block, never per step.
             batch = read_episode_batch(packets, count)
-            reports.consume(batch, transition_base=i * step_size)
+            reports.consume(batch, transition_base=initial_steps + i * step_size)
             reported_expected += int(host_metrics['episodes'])
             if reports.completed != reported_expected:
                 raise AssertionError('Episode reports lost a terminal record')
@@ -286,25 +329,28 @@ def run_training(args, tracking):
         row = {k: float(v) for k, v in host_metrics.items()}
         if not row['all_finite']:
             raise FloatingPointError('Non-finite learner metric')
-        row.update(training_steps=(i + 1) * step_size, training_seconds=training_seconds)
+        row.update(training_steps=initial_steps + (i + 1) * step_size,
+                   session_training_steps=(i + 1) * step_size, training_seconds=training_seconds)
         rows.append(row)
         summary = tracking.log_training(row, step_size, elapsed,
                                         time.perf_counter() - loop_started,
-                                        final=(i + 1) * step_size == total)
+                                        final=(i + 1) * step_size == session_total)
         if summary is not None:
             if reports is not None:
                 report_started = time.perf_counter()
                 report_summary = reports.write_summary(expected_completed=reported_expected)
                 episode_report_seconds += time.perf_counter() - report_started
             status('training', training_steps=summary['training_steps'], total_timesteps=total,
-                   mean_steps_per_second=summary['training_steps']/training_seconds,
+                   session_training_steps=(i + 1) * step_size,
+                   mean_steps_per_second=(i + 1) * step_size/training_seconds,
                    mean_episode_return=summary['mean_episode_return'],
                    episode_success_rate=summary['episode_success_rate'],
                    mean_episode_length=summary['mean_episode_length'],
                    episodes=int(summary['episodes']), episode_wins=int(summary['episode_wins']))
             if getattr(args, 'save_checkpoints', False) or getattr(args, 'select_best', False):
                 checkpoint_started = time.perf_counter()
-                checkpoints.append(save_checkpoint(output, unreplicate(state.params), (i + 1) * step_size))
+                checkpoints.append(save_checkpoint(output, unreplicate(state.params),
+                    initial_steps + (i + 1) * step_size, state=state))
                 save_json(output / 'checkpoints.json', checkpoints)
                 intermediate_checkpoint_seconds += time.perf_counter() - checkpoint_started
     if reports is not None:
@@ -357,12 +403,14 @@ def run_training(args, tracking):
         environment=game_map['name'], algorithm='Stoix Anakin feedforward PPO', recurrent=False,
         device=jax.devices()[0].device_kind, backend=jax.default_backend(), jax=jax.__version__,
         cuda_runtime=(importlib.metadata.version('nvidia-cuda-runtime') if jax.default_backend() == 'gpu' else None), python=platform.python_version(),
-        training_steps=total, ppo_updates=config.arch.num_updates,
+        training_steps=total, initial_training_steps=initial_steps,
+        session_training_steps=session_total, warm_start=warm_start,
+        ppo_updates=config.arch.num_updates,
         actor_optimizer_updates=actual_actor_updates, critic_optimizer_updates=actual_critic_updates,
         seed=seed, training_seconds=training_seconds,
-        mean_steps_per_second=total/training_seconds, ppo_compile_seconds=compile_seconds,
+        mean_steps_per_second=session_total/training_seconds, ppo_compile_seconds=compile_seconds,
         training_loop_seconds=training_loop_seconds,
-        training_loop_steps_per_second=total/training_loop_seconds,
+        training_loop_steps_per_second=session_total/training_loop_seconds,
         tracking_logging_seconds=tracking.logging_seconds,
         episode_report_seconds=episode_report_seconds,
         episode_reports=(None if report_summary is None else {
@@ -382,6 +430,8 @@ def run_training(args, tracking):
         sampled_evaluation_seconds=sampled_evaluation_seconds,
         checkpoint_seconds=checkpoint_seconds,
         intermediate_checkpoint_seconds=intermediate_checkpoint_seconds,
+        summary_interval=tracking.summary_interval,
+        checkpoint_interval=(tracking.summary_interval if checkpoints else None),
         parameter_count=sum(x.size for x in jax.tree.leaves(params)),
         num_envs=config.arch.num_envs, rollout_length=config.system.rollout_length,
         observation_size=int((env.observation_space().spaces['observation']
@@ -422,13 +472,14 @@ if __name__ == '__main__':
     p.add_argument('--total-timesteps', type=int, help='Default: 1,000,000 in test mode, otherwise 5,000,000')
     p.add_argument('--seed', type=int, help='Training seed; omitted: generate a fresh random seed for each run')
     p.add_argument('--output')
+    p.add_argument('--warm-start', help='Intermediate checkpoint to continue from; total-timesteps is cumulative. Restores actor/critic weights, resets optimizer and episodes.')
     p.add_argument('--evaluate', action='store_true',
                    help='Opt in to final argmax and sampled evaluation after training; disabled by default')
     p.add_argument('--save-checkpoints', action='store_true',
-                   help='Save checkpoints at 1M summaries without requesting evaluation or best-model selection')
+                   help='Save checkpoints at summary boundaries without evaluation or best-model selection')
     p.add_argument('--select-best', action='store_true',
-                   help='Opt in to evaluation and checkpoint selection: save at 1M summaries, select on 128 fixed episodes, evaluate final and best on 1024 other episodes')
-    p.add_argument('--map', help='current, default, default-green-dragon, default-blue-dragon, small, small-green-dragon, small-blue-dragon, super_last_stand, siege_train, wotans_retribution, trade_train, mirror_match (mirrow_match), or a saved map JSON')
+                   help='Opt in to evaluation and checkpoint selection: save at summary boundaries, select on 128 fixed episodes, evaluate final and best on 1024 other episodes')
+    p.add_argument('--map', help='current, default, default-green-dragon, default-blue-dragon, small, small-green-dragon, small-blue-dragon, super_last_stand, siege_train, wotans_retribution, trade_train, mirror_match (mirrow_match), bethrezens_retreat, bethrezens_retreat_no_events, bethrezens_retreat_capital, or a saved map JSON')
     p.add_argument('--no-unit-swaps', action='store_true',
                    help='Remove the party swap actions and features from the map (unit_swaps: false)')
     p.add_argument('--no-episode-reports', action='store_true',

@@ -73,14 +73,19 @@ class RecruitmentRules:
         required = [buildings.get(r['game_data']['ENROLL_B'].lower(), -1) if i < 5 else -1 for i, r in enumerate(rows)]
         self.required = jnp.array(required, jnp.int32)
         self.heroes = jnp.array([bool(r.get('hero')) for r in progression.rows])
-        positions = game_map.get('recruitment_positions', [game_map['agent_position']])
+        self.base_capacity = game_map.get('hero_leadership_capacity', 3)
+        if type(self.base_capacity) is not int or not 1 <= self.base_capacity <= 5:
+            raise ValueError('Hero leadership capacity must be an integer from 1 to 5')
+        positions = game_map.get('recruitment_positions', [game_map.get('capital_position', game_map['agent_position'])])
         if not positions or any(len(p) != 2 or any(type(v) is not int or not 0 < v < game_map['size']-1 for v in p) for p in positions):
             raise ValueError('Recruitment positions must be interior map cells')
         self.positions = jnp.array(positions, jnp.int32)
         self.observation_size = 4+3*self.offer_count+2*len(positions)+(len(roster)+self.camp_count if roster else 0)
         self.scale = game_map['size']-1
+        ladder = [(level, min(5, self.base_capacity+i)) for i, level in enumerate((1, 3, 6))
+                  if progression.max_hero_level is None or level <= progression.max_hero_level]
         self.metadata = dict(positions=positions, dismiss_start=self.dismiss_start,
-            leadership_levels=[1, 3, 6], leadership_capacity=[3, 4, 5],
+            leadership_levels=[level for level, _ in ladder], leadership_capacity=[capacity for _, capacity in ladder],
             vacancy_penalty=.05, hire_reward=3., offers=[dict(
                 key=k, name=r['name'], unit_id=progression.ids[k], cost=int(self.costs[i]),
                 size=r.get('size', 1), action=start+i, mercenary=i >= 5,
@@ -96,7 +101,8 @@ class RecruitmentRules:
         levels = jnp.where(state.in_battle, state.native_levels, state.unit_levels)[:6]
         heroes = self.heroes[ids]
         level = jnp.max(jnp.where(heroes, levels, 0))
-        capacity = jnp.where(jnp.any(heroes), 3+(level >= 3).astype(jnp.int32)+(level >= 6), 0)
+        capacity = jnp.where(jnp.any(heroes), jnp.minimum(5,
+            self.base_capacity+(level >= 3).astype(jnp.int32)+(level >= 6)), 0)
         used = jnp.sum(jnp.where(heroes, 0, self.progression.sizes[ids]))
         return jnp.array([capacity, used, jnp.maximum(0, capacity-used), state.hire_rewarded_capacity])
 

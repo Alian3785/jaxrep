@@ -31,6 +31,7 @@ class TerrainRules:
             r,c = ruin['position']
             obstacles.update((r+dr,c+dc) for dr in range(3) for dc in range(3))
         objects = {tuple(game_map['agent_position']), *map(tuple, game_map['opponent_positions'])}
+        objects.add(tuple(game_map.get('capital_position', game_map['agent_position'])))
         objects.update(tuple(o['position']) for key in ('chests','cities','mines') for o in game_map.get(key, []))
         for kind, points in terrain.items():
             for point in points:

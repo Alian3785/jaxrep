@@ -93,6 +93,10 @@ class ProgressionRules:
                    zip(game_map['enemy_rosters'], enemy_overrides)]
         levels = [r['level'] for r in rows]
         self.rows = rows
+        self.max_hero_level = game_map.get('max_hero_level')
+        if self.max_hero_level is not None and (type(self.max_hero_level) is not int or self.max_hero_level < 1):
+            raise ValueError('max_hero_level must be a positive integer')
+        self.heroes = jnp.array([bool(r.get('hero')) for r in rows])
         self.doppelgangers = jnp.array([r.get('unit_type') == 'Doppelganger' for r in rows])
         self.copy_forbidden = jnp.array([r.get('game_data', {}).get('UNIT_CAT') == '8'
             or r.get('name') in ('Драллиаан','Лаклаан','Drulliaan','Laclaan') for r in rows])
@@ -308,6 +312,15 @@ class ProgressionRules:
         self.bot_targets = jnp.array([next((self.ids[k] for k in r['upgrades'] if k in self.ids), 0)
                                       for r in rows], jnp.int32)
         self.building_bits = jnp.array(bits, jnp.uint32)
+        # Sinfo.MAX_UNIT limits buildable evolution tiers, not numerical levels.
+        # A form whose every next tier exceeds that limit can grow in place.
+        # Merely lacking gold or an unbuilt, allowed building never enables this.
+        tier_limit = game_map.get('max_building_level', 5)
+        building_levels = {b['unit']: b['level'] for b in construction.rows}
+        self.scenario_dynamic = jnp.array([bool(r['upgrades'])
+            and r['faction'] == construction.faction and not r.get('hero')
+            and all(building_levels.get(UNITS[k]['name'], 0) > tier_limit for k in r['upgrades'])
+            for r in rows])
         # Preserve Python float/round for every possible damage (400 for heroes, 300 for other units).
         # Integer armour growth reaches its cap within this lookup. The first
         # ten levels use the early increment, all later levels the late one.
@@ -335,6 +348,8 @@ class ProgressionRules:
             self.metadata.append(None if i == 0 else dict(
                 name=row['name'], key=row['key'], faction=row['faction'], level=row['level'],
                 hero=row.get('hero', False), level_bonuses=row.get('level_bonuses', []),
+                max_level=self.max_hero_level if row.get('hero') else None,
+                scenario_dynamic=bool(self.scenario_dynamic[i]),
                 hero_skills=row.get('hero_skills', []),
                 unit_type=row.get('unit_type', ''),
                 secondary_attack_type=row.get('secondary_attack_type', ''),
@@ -358,6 +373,12 @@ class ProgressionRules:
 
     def required_xp(self, ids, levels):
         return self.required[ids] + jnp.maximum(levels-self.base_levels[ids], 0)*self.required_increment[ids]
+
+    def level_up_allowed(self, ids, levels):
+        """Imported leaders above the scenario ceiling keep their level, but cannot grow."""
+        if self.max_hero_level is None:
+            return jnp.ones_like(ids, bool)
+        return ~self.heroes[ids] | (levels < self.max_hero_level)
 
     def experience(self, ids, levels, current):
         killed = (self.kill_levels[jnp.minimum(levels, self.kill_anchor), ids]
@@ -397,6 +418,7 @@ class ProgressionRules:
             cutoffs = state.revival_xp_cutoff.reshape(2,6)
             masks = recipients.reshape(2,6)
             gains = jax.vmap(revival_xp_shares,in_axes=(None,0,0,None))(total,cutoffs,masks,scale).reshape(12)
+        gains = jnp.where(self.level_up_allowed(state.unit_ids, state.unit_levels), gains, 0)
         xp = state.unit_xp + gains
         ids, levels = state.unit_ids, state.unit_levels
         required = self.required_xp(ids, levels)
@@ -410,7 +432,8 @@ class ProgressionRules:
         if self.bot_enabled:
             target = jnp.where(state.bot_autobattle & (jnp.arange(12) < 6), self.bot_targets[ids], target)
         evolved = reached & (target != 0)
-        grown = reached & self.dynamic[ids]
+        scenario_growth = self.scenario_dynamic[ids] & (jnp.arange(12) < 6) & ~state.bot_autobattle
+        grown = reached & (self.dynamic[ids] | scenario_growth) & ~evolved
         changed = evolved | grown
         ids = jnp.where(evolved, target, ids)
         levels = jnp.where(evolved, self.base_levels[ids], levels + grown.astype(jnp.int32))

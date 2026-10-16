@@ -164,6 +164,20 @@ def test_empty_window_does_not_draw_false_zero_episode_means():
     assert 'episodes/win_rate_total' not in metrics
 
 
+def test_continuation_steps_affect_speed_but_do_not_appear_as_ppo_metrics():
+    """A warm-start summary uses session work for speed and cumulative steps for its axis."""
+    tracking = tracker()
+    tracking.run = Mock()
+    tracking.log_training(row(2, 1, 20_250_000, session_training_steps=250_000),
+                          250_000, .5, 2., final=True)
+    metrics = tracking.run.log.call_args.args[0]
+    assert metrics['training_steps'] == 20_250_000
+    assert metrics['performance/mean_steps_per_second'] == 250_000
+    assert metrics['performance/loop_steps_per_second'] == 125_000
+    assert 'ppo/session_training_steps' not in metrics
+    assert metrics['ppo/actor_loss'] == -.1
+
+
 def test_battle_wins_are_not_counted_as_whole_map_wins():
     tracking = tracker()
     metrics = tracking.training_metrics(

@@ -10,6 +10,9 @@ CAMPAIGN_MECHANICS = (
     'ruins_cleared', 'potions_used', 'merchant_sale_gold', 'spells_learned',
     'spell_casts', 'summoned_units', 'hired_units', 'mercenaries_hired', 'battle_items_equipped',
     'battle_items_used', 'unit_swaps', 'enemy_squads_defeated', 'cities_captured', 'trainer_uses',
+    'capital_defense_acquired', 'capital_defense_effects', 'capital_health_effects',
+    'capital_guardian_rounds', 'capital_guardian_battles',
+    'capital_entry_strength',
 )
 CAMPAIGN_CHARTS = (
     'campaign/victory_rate', 'campaign/defeat_rate', 'campaign/timeout_rate',
@@ -18,6 +21,12 @@ CAMPAIGN_CHARTS = (
     'campaign/window/victory_rate', 'campaign/window/battle_win_rate',
     'campaign/window/battle_victories_mean', 'campaign/window/unit_upgrades_mean',
     'campaign/window/dragon_reached_episodes_rate', 'campaign/victories_total',
+    'campaign/window/capital_defense_acquired_mean',
+    'campaign/window/capital_guardian_reached_episodes_rate',
+    'campaign/window/capital_defense_effects_when_reached_mean',
+    'campaign/window/capital_health_effects_when_reached_mean',
+    'campaign/window/capital_guardian_rounds_when_reached_mean',
+    'campaign/window/capital_entry_strength_when_reached_mean',
 )
 CHART_TITLES = {
     'campaign/victory_rate': 'Доля побед на карте — с начала обучения',
@@ -52,6 +61,18 @@ CHART_TITLES = {
     'campaign/window/unit_upgrades_mean': 'Улучшений юнитов на эпизод — последние 100 эпизодов',
     'campaign/window/dragon_reached_episodes_rate': 'Доля эпизодов с боем против дракона — последние 100 эпизодов',
     'campaign/victories_total': 'Побед на карте — всего с начала обучения',
+    'campaign/completed/capital_defense_acquired_mean': 'Получено защитных зелий, включая HP — на эпизод',
+    'campaign/completed/capital_defense_effects_mean': 'Защитных эффектов у Мизраэля, включая HP — на эпизод',
+    'campaign/completed/capital_health_effects_mean': 'Эффектов постоянного HP у Мизраэля — на эпизод',
+    'campaign/completed/capital_guardian_rounds_mean': 'Новых раундов с Мизраэлем — на эпизод',
+    'campaign/completed/capital_guardian_battles_mean': 'Вступлений в бой с Мизраэлем — на эпизод',
+    'campaign/window/capital_defense_acquired_mean': 'Получено защитных зелий, включая HP — последние 100 эпизодов',
+    'campaign/window/capital_guardian_reached_episodes_rate': 'Дошли до Мизраэля — последние 100 эпизодов',
+    'campaign/window/capital_defense_effects_when_reached_mean': 'Защитных эффектов — в эпизодах с Мизраэлем (последние 100)',
+    'campaign/window/capital_health_effects_when_reached_mean': 'Эффектов постоянного HP — в эпизодах с Мизраэлем (последние 100)',
+    'campaign/window/capital_guardian_rounds_when_reached_mean': 'Новых раундов — в эпизодах с Мизраэлем (последние 100)',
+    'campaign/completed/capital_entry_strength_mean': 'Сила армии при первом входе к Мизраэлю — на эпизод',
+    'campaign/window/capital_entry_strength_when_reached_mean': 'Сила армии при первом входе — среди дошедших (последние 100)',
 }
 ROLLOUT_CHARTS = ('rollout/ep_rew_mean', 'rollout/ep_len_mean')
 VIEW_NAME = 'Disciples II'

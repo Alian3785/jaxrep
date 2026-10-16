@@ -11,6 +11,7 @@ PARTICIPATION_NAMES = {
     'battle_items_equipped': 'battle_item_equip', 'battle_items_used': 'battle_item_use',
     'unit_swaps': 'unit_swap', 'trainer_uses': 'trainer_use',
     'potions_used': 'potion_use', 'dragon_battles': 'dragon_reached',
+    'capital_guardian_battles': 'capital_guardian_reached',
 }
 
 
@@ -76,6 +77,19 @@ class CampaignMetrics:
             dragon = CAMPAIGN_FIELDS.index('dragon_battles')
             data['campaign/window/dragon_reached_episodes_rate'] = sum(
                 record[dragon] > 0 for record in self.recent) / len(self.recent)
+            guardian = CAMPAIGN_FIELDS.index('capital_guardian_battles')
+            reached = [record for record in self.recent if record[guardian] > 0]
+            data['campaign/window/capital_guardian_reached_episodes_rate'] = len(reached) / len(self.recent)
+            if reached:
+                for name in ('capital_defense_effects', 'capital_health_effects', 'capital_guardian_rounds'):
+                    index = CAMPAIGN_FIELDS.index(name)
+                    data[f'campaign/window/{name}_when_reached_mean'] = sum(r[index] for r in reached) / len(reached)
+            first = CAMPAIGN_FIELDS.index('capital_first_contacts')
+            contacts = [record for record in self.recent if record[first] > 0]
+            if contacts:
+                strength = CAMPAIGN_FIELDS.index('capital_entry_strength')
+                data['campaign/window/capital_entry_strength_when_reached_mean'] = (
+                    sum(r[strength] for r in contacts) / len(contacts))
         if reset_window:
             self.window = dict.fromkeys(CAMPAIGN_FIELDS, 0.)
         return data

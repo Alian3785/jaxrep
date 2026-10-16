@@ -50,7 +50,7 @@ def test_reference_layout_and_objective(trade_game):
     assert not bool(env._goals_left(jnp.zeros_like(state.alive), state.scenario_spawned))
     assert env.num_actions == len(action_names(config)) == 195
     observation = compiled_method(env, 'observation')(state)
-    assert observation.shape == (1308,) and bool(jnp.all(jnp.isfinite(observation)))
+    assert observation.shape == (1314,) and bool(jnp.all(jnp.isfinite(observation)))
 
 
 def test_every_site_approach_is_reachable_without_a_forced_battle(trade_game):

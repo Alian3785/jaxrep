@@ -74,7 +74,7 @@ def scenario_potions(game_map):
     if not isinstance(ruins,list):
         raise ValueError('ruins must be a list')
     totals = dict(initial)
-    for chest in chests+ruins:
+    for chest in chests+ruins+game_map.get('enemy_loot', []):
         if not isinstance(chest, dict):
             raise ValueError('Each chest must contain position and potions')
         contents = potion_counts(chest.get('potions',{}), 'Chest potions')
@@ -113,15 +113,6 @@ class PotionRules:
         self.temporary = jnp.array([p['duration'] == 'temporary' for p in self.items],bool)
         self.permanent = jnp.array([p['duration'] == 'permanent' for p in self.items],bool)
         self.bits = jnp.array([1 << POTIONS.index(p) for p in self.items],jnp.uint32)
-        totals=dict(game_map.get('initial_potions',{}))
-        for chest in game_map.get('chests',[])+game_map.get('ruins',[]):
-            for key,count in chest.get('potions',{}).items():
-                totals[key]=totals.get(key,0)+count
-        for merchant in merchants(game_map):
-            for key,count in merchant.get('potions',{}).items():
-                totals[key]=totals.get(key,0)+count
-        self.max_permanent_doses=max((totals.get(p['key'],0) for p in self.items
-                                      if p['duration']=='permanent'),default=0)
         source_bits = {'ward_Fire':4,'ward_Water':8,'ward_Earth':2,'ward_Air':256}
         self.wards = jnp.array([source_bits.get(p['effect'],0) for p in self.items],jnp.uint32)
         # Python reference multiplies all distinct temporary doses before rounding.
@@ -158,6 +149,9 @@ class PotionRules:
         target = jnp.where(self.reviving[potion], can_revive(state, slot),
             (hp > 0) & (~self.healing[potion] | (hp < maximum)))
         unused = ~self.temporary[potion] | ((state.potion_active[slot] & self.bits[potion]) == 0)
+        # Original-game check by the user, 2026-10-17: each permanent kind once
+        # per unit per episode. The catalogue has exactly one permanent kind per stat.
+        unused &= ~self.permanent[potion] | (state.potion_doses[slot, self.stats[potion]] == 0)
         return (~state.done & ~state.in_battle & (state.potions[potion] > 0)
                 & (maximum > 0) & target & unused)
 
@@ -177,7 +171,7 @@ class PotionRules:
             health_hp=jnp.rint(state.hp[slot].astype(jnp.float64)*1.15).astype(jnp.int32)
         hp = jnp.where(health,health_hp,hp)
         hp = jnp.where((using & (revive | heal)) | health,hp,state.hp[slot])
-        # Round each permanent dose separately; replay on new intrinsic stats after growth.
+        # One dose per permanent kind; rebuild from new intrinsic stats after growth.
         current = intrinsic+state.potion_bonus[slot]
         columns = jnp.arange(7)
         affected = (columns == stat) | ((stat == DAMAGE) & (columns == 5)) | ((stat == ACCURACY) & (columns == 6))
@@ -210,23 +204,15 @@ class PotionRules:
             potion_wards=jnp.where(resting,jnp.uint32(0),state.potion_wards))
 
     def rebuild(self, intrinsic, doses):
-        """Replay doses after evolution/level growth, never over old bonuses."""
-        counts = jnp.concatenate((doses,doses[:,1:3]),axis=1)
-        def dose(i,values):
-            with jax.enable_x64(True):
-                factors=jnp.array([1.15,1.1,1.1,1.,1.1,1.1,1.1],jnp.float64)
-                grown=jnp.rint(values.astype(jnp.float64)*factors).astype(jnp.float32)
-            grown = grown.at[:,HP].set(jnp.maximum(values[:,HP]+1,grown[:,HP]))
-            grown = grown.at[:,ARMOR].set(values[:,ARMOR]+10)
-            grown = grown.at[:,ACCURACY].min(100).at[:,6].min(100)
-            return jnp.where(i < counts,grown,values)
-        # This scenario has a finite bottle supply. Small static bounds fuse
-        # into the battle kernel, avoiding a batched device while/reduction on
-        # every combat turn. Large custom inventories retain the dynamic loop.
-        bound=self.max_permanent_doses
-        if bound <= 4:
-            return jax.lax.fori_loop(0,bound,dose,intrinsic,unroll=True)-intrinsic
-        return jax.lax.fori_loop(0,jnp.max(doses),dose,intrinsic)-intrinsic
+        """Reapply each used permanent kind once after evolution/level growth."""
+        used = jnp.concatenate((doses,doses[:,1:3]),axis=1) > 0
+        with jax.enable_x64(True):
+            factors=jnp.array([1.15,1.1,1.1,1.,1.1,1.1,1.1],jnp.float64)
+            grown=jnp.rint(intrinsic.astype(jnp.float64)*factors).astype(jnp.float32)
+        grown = grown.at[:,HP].set(jnp.maximum(intrinsic[:,HP]+1,grown[:,HP]))
+        grown = grown.at[:,ARMOR].set(intrinsic[:,ARMOR]+10)
+        grown = grown.at[:,ACCURACY].min(100).at[:,6].min(100)
+        return jnp.where(used,grown-intrinsic,0.)
 
     def observation(self, state):
         stock = state.potions/jnp.maximum(self.initial_counts,1)

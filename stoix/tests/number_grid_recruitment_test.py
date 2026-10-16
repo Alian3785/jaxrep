@@ -15,8 +15,8 @@ def test_initial_roster_leadership_and_observation(current_game):
     assert env.map_config['hero_roster'] == ['possessed', 'duke', 'possessed', 'cultist', None, None]
     assert int(jnp.sum(state.hp[:6] > 0)) == 4
     assert ACTIONS == len(ACTION_NAMES) == env.num_actions == 244
-    assert env.observation_size == 1802
-    assert compiled_method(env, 'observation')(state).shape == (1802,)
+    assert env.observation_size == 1808
+    assert compiled_method(env, 'observation')(state).shape == (1808,)
     composition = jax.jit(env.recruitment.composition)
     for level, capacity in ((1,3), (2,3), (3,4), (5,4), (6,5), (20,5)):
         s = state.replace(unit_levels=state.unit_levels.at[1].set(level))
@@ -74,7 +74,7 @@ def test_all_faction_offers_prices_buildings_and_placement(current_game, faction
 def test_dismiss_rehire_rewards_and_effect_cleanup(current_game):
     env, initial, advance, _ = current_game
     rules = env.recruitment
-    s = initial.replace(gold=jnp.int32(1000), potion_doses=initial.potion_doses.at[0].set(2),
+    s = initial.replace(gold=jnp.int32(1000), potion_doses=initial.potion_doses.at[0].set(1),
         potion_bonus=initial.potion_bonus.at[0].set(10), potion_active=initial.potion_active.at[0].set(7))
     out,ts = advance(s,jnp.int32(rules.dismiss_start))
     assert out.last_event == DISMISSED and out.gold == 1000 and out.hp[0] == 0 and out.unit_ids[0] == 0

@@ -14,7 +14,7 @@ EMPTY, MELEE, RANGED, AREA, HEALER = range(5)
 ROLES = {'melee': MELEE, 'ranged': RANGED, 'area': AREA, 'healer': HEALER}
 UNITS = json.loads((Path(__file__).parent / 'data/units.json').read_text(encoding='utf-8'))
 PROFILE_FIELDS = set(STAT_NAMES) | {'size', 'role', 'attack_type', 'immunities', 'protections', 'exp_kill', 'exp_required', 'exp_current', 'hero',
-                                  'secondary_attack_type', 'secondary_accuracy', 'secondary_damage'}
+                                  'secondary_attack_type', 'secondary_accuracy', 'secondary_damage', 'regeneration', 'level_bonuses'}
 
 
 def can_revive(state, slots):
@@ -115,11 +115,16 @@ def build_combat_tables(game_map):
             index += 1
             if not isinstance(override, dict) or set(override) - (PROFILE_FIELDS | {'exp_increment', 'name'}):
                 raise ValueError('Unknown combat profile fields')
+            if 'level_bonuses' in override and override['level_bonuses'] != []:
+                raise ValueError('Scenario overrides may only disable the automatic hero skill ladder')
             values = {**defaults, **override}
             if not isinstance(values['name'], str) or not values['name'].strip():
                 raise ValueError('Combat name must be a nonempty string')
             if type(values.get('hero', False)) is not bool:
                 raise ValueError('Combat hero flag must be boolean')
+            if (type(values.get('regeneration', 0)) is not int
+                    or not 0 <= values.get('regeneration', 0) <= 100):
+                raise ValueError('Combat regeneration must be an integer from 0 to 100')
             if values.get('upgrade_unavailable_reason'):
                 raise ValueError(values['upgrade_unavailable_reason'])
             if not isinstance(values['role'], str) or values['role'] not in ROLES:

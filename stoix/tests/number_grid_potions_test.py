@@ -25,8 +25,10 @@ def stocked(env,state,count=5):
 def test_scenario_actions_only_include_obtainable_potions(current_game):
     env,state,_,_=current_game
     assert len(POTIONS)==24 and len({p['game_id'] for p in POTIONS})==24
+    # The five history columns identify permanent kinds, not a shared limit for all buffs.
+    assert sorted(p['stat'] for p in POTIONS if p['duration']=='permanent')==list(range(5))
     assert env.potion_rules.count==18 and env.num_actions==244
-    assert env.observation_size==1802 and compiled_method(env,'observation')(state).shape==(1802,)
+    assert env.observation_size==1808 and compiled_method(env,'observation')(state).shape==(1808,)
     assert state.potions[:4].tolist()==[5,5,5,10] and not jnp.any(state.potions[4:])
     assert not {'protection','bark','striking','swiftness','speed','vigor'} & set(env.potion_rules.keys)
     rules=PotionRules(dict(initial_potions={'speed':0},chests=[dict(potions={'celerity':5})]))
@@ -151,23 +153,26 @@ def test_temporary_lifetime_stack_rules_and_secondary_stats(current_game):
 
 
 @pytest.mark.core
-def test_permanent_doses_replay_on_promotion_and_hero_growth(current_game):
+def test_permanent_doses_survive_promotion_and_hero_growth(current_game):
     env,state,_,_=current_game
     state=stocked(env,state)
     for slot in (0,1):
-        for _ in range(2):
-            state=use(env,state,'highfather',slot)
-            state=use(env,state,'titan',slot)
-    assert compiled_method(env,'max_hp')(state)[0]==round(round(120*1.15)*1.15)
+        state=use(env,state,'highfather',slot)
+        state=use(env,state,'titan',slot)
+    assert compiled_method(env,'max_hp')(state)[0]==round(120*1.15)
     battle=compiled_method(env,'_begin_battle')(state.replace(enemy=jnp.int32(0))).replace(actor=jnp.int32(0),buildings=jnp.uint32(1))
     battle=battle.replace(hp=battle.hp.at[0].set(1).at[1].set(1).at[6].set(1),
         unit_xp=battle.unit_xp.at[0].set(94).at[1].set(149))
     won,_=compiled_method(env,'_battle_step')(battle,jnp.int32(SHOOT),battle.battle_key,jnp.zeros(env.random_size))
     assert won.unit_ids[0]==env.progression.ids['berserker'] and won.unit_levels[1]==2
-    assert won.hp[0]==round(round(170*1.15)*1.15) and won.hp[0]==compiled_method(env,'max_hp')(won)[0]
+    assert won.hp[0]==round(170*1.15) and won.hp[0]==compiled_method(env,'max_hp')(won)[0]
     assert won.hp[1]==compiled_method(env,'max_hp')(won)[1]
-    assert compiled_method(env,'unit_stats')(won)[0,1]==round(round(50*1.1)*1.1)
+    assert compiled_method(env,'unit_stats')(won)[0,1]==round(50*1.1)
     chex.assert_trees_all_equal(won.potion_doses,state.potion_doses)
+    mask=compiled_method(env,'action_mask')(won)
+    for slot in (0,1):
+        for key in ('highfather','titan'):
+            assert not mask[POTION_START+6*env.potion_rules.keys.index(key)+slot]
 
 
 def test_secondary_attacks_copy_and_transformed_stat_layers(current_game):
@@ -181,6 +186,7 @@ def test_secondary_attacks_copy_and_transformed_stat_layers(current_game):
     chex.assert_trees_all_equal(env._secondary_stats(state,jnp.int32(3)),jnp.array([round(permanent[0]*1.5),permanent[1]]))
     battle=compiled_method(env,'_begin_battle')(state.replace(enemy=jnp.int32(0))).replace(actor=jnp.int32(0))
     copied=compiled_method(env,'_copy_unit')(battle,jnp.int32(3),jnp.bool_(True))
+    chex.assert_trees_all_equal(copied.potion_doses,battle.potion_doses)
     chex.assert_trees_all_equal(copied.copy_secondary[0],jnp.array(permanent))
     chex.assert_trees_all_equal(env._secondary_stats(copied,jnp.int32(0)),jnp.array(permanent))
     # Witch form hides the potion's combat stats; cleansing restores them exactly.
@@ -188,6 +194,7 @@ def test_secondary_attacks_copy_and_transformed_stat_layers(current_game):
     imp=battle.replace(imp=battle.imp.at[3].set(True))
     assert compiled_method(env,'unit_stats')(imp)[3,1]==20 and env._secondary_stats(imp,jnp.int32(3))[0]==0
     cured,_,_=compiled_method(env,'_cleanse')(imp,imp.hp,imp.wards_used,jnp.arange(12)==3)
+    chex.assert_trees_all_equal(cured.potion_doses,battle.potion_doses)
     chex.assert_trees_all_equal(compiled_method(env,'unit_stats')(cured)[3],native[3])
 
     # Duke's intrinsic damage exceeds the attack cap at high levels. Both
@@ -229,6 +236,7 @@ def test_autoreset_restores_inventory_and_potion_layers(current_game,training_au
     def injure(s):
         if isinstance(s,BattleState):
             return s.replace(hp=s.hp.at[:,0].set(1),potions=s.potions.at[:,0].set(2),
+                potion_doses=s.potion_doses.at[:,0,:].set(1),
                 potion_active=s.potion_active.at[:,0].set(jnp.uint32(1<<14)))
         return s.replace(base_env_state=injure(s.base_env_state))
     state=injure(state)

@@ -1,7 +1,7 @@
 """Equipment on-hit effects, sharing temporary forms with native unit attacks."""
 import jax.numpy as jnp
 from stoix.envs.number_grid_combat import HP, INITIATIVE
-from stoix.envs.number_grid_effects import source_protection
+from stoix.envs.number_grid_effects import source_protection, disable_attack_accuracy
 
 
 def transform_imp(env,state,used,slots,selected,long=True):
@@ -93,7 +93,8 @@ def equipment_attack(env,state,hp,used,target,connected,inflicted,random_values)
     for i in range(2):
         item=state.equipped[i]
         kind=kind_table[item+1]
-        hit=connected & (hp[target]>0) & (item>=0) & (random_values[80+2*i]<chances[item+1])
+        chance=disable_attack_accuracy(chances[item+1], kind==1, state.round)
+        hit=connected & (hp[target]>0) & (item>=0) & (random_values[80+2*i]<chance)
         if i:
             hit &= item!=state.equipped[0]
         # Soul Crystal uses the finite-paralysis helper; the Incubus horn uses

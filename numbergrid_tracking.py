@@ -113,6 +113,10 @@ class NumberGridTracking:
             'mercenaries_hired': 'successful hires from mercenary camps only; completed-episode mean',
             'trainer_uses': 'successful XP purchases for individual fighters; completed-episode mean',
             'dragon_reached': 'hero army entered the objective dragon battle at least once in an episode',
+            'capital_defense': ('new defensive bottles acquired; peak simultaneous living recipients per potion kind '
+                'during the guardian battle, including permanent HP; peaks and new rounds are counted once per episode'),
+            'capital_entry_strength': ('sum of max(level-1, 0) over living permanent fighters at the first hero '
+                'encounter with the guardian; zero-strength contacts count, repeats do not'),
             'unavailable': {'scripted_bot': 'Scripted capital bot is not implemented in the JAX environment'},
             'local_series': 'charts.jsonl',
         }

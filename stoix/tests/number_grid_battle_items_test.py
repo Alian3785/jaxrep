@@ -588,3 +588,23 @@ def test_summon_win_with_dead_party_is_defeat():
     wounded = last.replace(hp=last.hp.at[hero].set(1))
     alive, reward = battle_step(wounded, jnp.int32(SHOOT+target), jax.random.PRNGKey(3), jnp.zeros(env.random_size))
     assert not alive.lost and not alive.done and not alive.in_battle and float(reward) > 0
+
+
+@pytest.mark.parametrize('key', ['orb_of_fear', 'talisman_of_fear'])
+def test_magic_item_paralysis_misses_after_round_40_and_keeps_wards(effects, key):
+    env, base, *_ = effects
+    rules = env.battle_item_rules
+    target = 7
+    action = jnp.int32(rules.use_start + 12 + target - 6)
+    before = slots(env, base, key, None).replace(round=jnp.int32(40))
+    apply = jax.jit(lambda s: rules.use(env, s, s.hp, s.wards_used, action,
+        jnp.zeros(env.random_size), env._combat_stats(s), env._combat_traits(s)))
+    assert apply(before)[0].long_paralyzed[target]
+    kind = rules.keys.index(key)
+    source = jnp.left_shift(jnp.uint32(1), rules.source[kind].astype(jnp.uint32)-1)
+    late = before.replace(round=jnp.int32(41), potion_wards=before.potion_wards.at[target].set(source))
+    after, hp, used, info = apply(late)
+    assert not jnp.any(after.long_paralyzed | after.paralyzed)
+    assert not used[target] and not info['ward'] and info['applied'] == 0
+    assert jnp.array_equal(hp, late.hp)
+    assert after.battle_item_charges[0] < before.battle_item_charges[0]

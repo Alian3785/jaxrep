@@ -16,7 +16,7 @@ PENALTY = .004
 UNITS_SWAPPED = 55
 # Every state field whose leading axis is the twelve battle slots; the hero's six come first.
 SLOT_FIELDS = (
-    'unit_ids', 'unit_levels', 'unit_xp', 'hp', 'native_ids', 'native_levels', 'native_xp', 'last_xp',
+    'unit_ids', 'unit_levels', 'unit_xp', 'hp', 'native_ids', 'native_levels', 'native_xp', 'last_xp', 'mercenary_units',
     'effect_rounds', 'disable_source', 'transform_long', 'powerup_long', 'saved_powerup_long',
     'copied', 'copy_stats', 'copy_secondary', 'copy_traits', 'summon_owner', 'summon_saved_hp', 'preparation',
     'initiative_override', 'saved_initiative_override', 'slow_original', 'waited', 'bonus_turns',

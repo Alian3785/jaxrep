@@ -206,8 +206,8 @@ def validate_geometry(game_map):
     if reserved & blocked:
         raise ValueError(f'Obstacle overlaps an object: {sorted(reserved & blocked)}')
     approaches = []
-    for kind in ('ruins', 'merchants', 'spell_shops'):
-        for obj in game_map[kind]:
+    for kind in ('ruins', 'merchants', 'spell_shops', 'mercenaries', 'trainers'):
+        for obj in game_map.get(kind, []):
             r, c = obj['position']
             cells = {(r+i, c+j) for i in range(3) for j in range(3)}
             allowed = {tuple(obj['entrance'])} if kind == 'ruins' else set()
@@ -215,7 +215,7 @@ def validate_geometry(game_map):
                 raise ValueError('Building footprint overlaps another object: '+obj['name'])
             blocked.update(cells)
             reserved -= allowed
-            if kind == 'ruins':
+            if kind == 'ruins' and obj['entrance'] != [r+2, c+2]:
                 candidates = [(r+3, obj['entrance'][1]+dc) for dc in (-1, 0, 1)]
             else:
                 candidates = [(r+i, c+j) for i, j in ((1, 3), (2, 3), (3, 1), (3, 2), (3, 3))]

@@ -42,7 +42,7 @@ def test_initial_experience_and_observation_contract(env):
     enemy = battle(env, 11)
     chex.assert_trees_all_equal(compiled_method(env,'unit_experience')(enemy)[6:],
         jnp.array([[1,20,70,0],[1,20,80,0]]+[[1,20,70,0]]*4))
-    assert ts.observation.shape == (1802,) and env.observation_size == 1802
+    assert ts.observation.shape == (1808,) and env.observation_size == 1808
     encoded = ts.observation[160+5*env.num_opponents:220+5*env.num_opponents].reshape(12,5)
     chex.assert_trees_all_close(encoded[:4,2], jnp.array([.025,.06,.025,.02]))
     chex.assert_trees_all_equal(encoded[4:], jnp.zeros((8,5)))
@@ -204,6 +204,76 @@ def test_terminal_form_growth_and_regeneration_use_new_maximum(env):
     assert next_battle.unit_ids[0] == out.unit_ids[0] and next_battle.hp[0] == rest.hp[0]
     fresh, _ = compiled_method(env,'reset')(jax.random.PRNGKey(43))
     assert fresh.unit_levels[0] == 1 and not jnp.any(fresh.unit_xp)
+
+
+def test_current_progression_rewards_pay_once_and_charge_only_discarded_xp(env):
+    """User request 2026-10-16: +2 per level, -.05 per blocked XP recipient."""
+    s = battle(env).replace(actor=jnp.int32(0))
+    s = s.replace(hp=s.hp.at[:5].set(10).at[6].set(1),
+                  unit_xp=s.unit_xp.at[jnp.array([0, 2])].set(94))
+    advance = compiled_method(env, '_battle_step')
+    capped, penalty = advance(s, jnp.int32(SHOOT), s.battle_key, jnp.zeros(env.random_size))
+    assert float(penalty) == pytest.approx(1.-2*.05)
+    assert not capped.last_promoted and capped.unit_xp[0] == 94
+    ready = s.replace(buildings=jnp.uint32(1))
+    won, reward = advance(ready, jnp.int32(SHOOT), s.battle_key, jnp.zeros(env.random_size))
+    assert float(reward) == pytest.approx(1.+2*2.)
+    assert won.last_promoted & 5 == 5
+    rested, ts = compiled_method(env, 'step')(won, jnp.int32(REST))
+    assert not rested.last_promoted and float(ts.reward) <= 0.
+    # Heroes and final forms also earn +2; enemy-only promotions never do.
+    rules = env.progression
+    zero = jnp.zeros(12, jnp.int32)
+    reward_fn = compiled_method(rules, 'training_reward')
+    assert float(reward_fn(s, zero, jnp.uint32(2), jnp.bool_(True))) == 2.
+    assert float(reward_fn(s, zero, jnp.uint32(64), jnp.bool_(True))) == 0.
+    assert float(reward_fn(s, zero, jnp.uint32(0), jnp.bool_(True))) == 0.
+    for changes in ({'summon_battle': jnp.bool_(True)}, {'bot_autobattle': jnp.bool_(True)}):
+        assert float(reward_fn(s.replace(**changes), zero, jnp.uint32(1), jnp.bool_(True))) == 0.
+    assert float(reward_fn(s, zero, jnp.uint32(1), jnp.bool_(False))) == 0.
+    for key, level, xp in (('duke', 1, 149), ('infernal_knight', 10, 1724)):
+        growing = s.replace(unit_ids=s.unit_ids.at[0].set(rules.ids[key]),
+            unit_levels=s.unit_levels.at[0].set(level), unit_xp=zero.at[0].set(xp),
+            hp=s.hp.at[:6].set(0).at[0].set(10))
+        grown, amount = advance(growing, jnp.int32(SHOOT), s.battle_key, jnp.zeros(env.random_size))
+        assert grown.unit_levels[0] == level+1 and float(amount) == pytest.approx(3.)
+
+
+def test_magistrate_clears_six_slot_xp_blocking_observation(default_game):
+    """Expose the actual Inquisitor cap and clear it immediately on construction."""
+    env, initial, step, _ = default_game
+    rules = env.progression
+    slots = jnp.array([0, 2])
+    inquisitor = rules.ids['inquisitor']
+    prerequisites = sum(1 << i for i, b in enumerate(env.construction.rows)
+                        if b['name'] in ('Темница', 'Пыточная камера'))
+    capped = initial.replace(unit_ids=initial.unit_ids.at[slots].set(inquisitor),
+        unit_levels=initial.unit_levels.at[slots].set(3),
+        unit_xp=initial.unit_xp.at[slots].set(949), gold=jnp.int32(1500),
+        buildings=jnp.uint32(prerequisites))
+    flags = compiled_method(rules, 'blocked_xp_observation')
+    chex.assert_trees_all_equal(flags(capped), jnp.array([1., 0., 1., 0., 0., 0.]))
+    almost = capped.replace(unit_xp=capped.unit_xp.at[slots].set(948))
+    assert not jnp.any(flags(almost))
+    observe = compiled_method(env, 'observation')
+    delta = observe(capped)-observe(almost)
+    assert observe(capped).shape == (env.observation_size,)
+    assert int(jnp.sum(delta == 1.)) == 2  # two new flags, distinct from XP fractions
+    magistrate = next(i for i, b in enumerate(env.construction.rows) if b['name'] == 'Магистрат')
+    built, ts = step(capped, jnp.int32(18+magistrate))
+    assert float(ts.reward) == pytest.approx(.049)
+    assert not jnp.any(flags(built))
+    chex.assert_trees_all_equal(built.unit_levels, capped.unit_levels)
+    chex.assert_trees_all_equal(built.unit_xp, capped.unit_xp)
+    # Unfixable scenario bans, dead slots and transient copies are not requests to build.
+    banned = capped.replace(blocked_buildings=capped.blocked_buildings | jnp.uint32(1 << magistrate))
+    assert not jnp.any(flags(banned))
+    assert not jnp.any(flags(capped.replace(hp=capped.hp.at[slots].set(0))))
+    copied = capped.replace(copied=capped.copied.at[slots].set(True),
+        native_ids=capped.native_ids.at[slots].set(initial.unit_ids[1]),
+        native_levels=capped.native_levels.at[slots].set(1),
+        native_xp=capped.native_xp.at[slots].set(149))
+    assert not jnp.any(flags(copied))
 
 
 def test_dynamic_armor_damage_retains_python_rounding(env):

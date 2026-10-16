@@ -43,27 +43,48 @@ def unreplicate(tree):
 
 def make_evaluator(actor, episodes=1024, seed=1042, greedy=True, map_config=None):
     """Compile once and evaluate multiple checkpoints on the same episodes."""
-    env = wrap_wall_action_mask(NumberGrid(map_config=map_config))
+    base_env = NumberGrid(map_config=map_config)
+    env = wrap_wall_action_mask(base_env)
+    target = base_env.objective_enemy
+    track_damage = target is not None and base_env.spell_casting_enabled
     @jax.jit
     def run(p):
         states, ts = jax.vmap(env.reset)(jax.random.split(jax.random.PRNGKey(seed), episodes))
+        target_hp = (jnp.sum(jax.vmap(base_env.casting.enemy_max_hp)(states)[:, target], axis=-1)
+                     if track_damage else jnp.ones(episodes))
         def condition(carry):
             return ~jnp.all(carry[0].done)
         def advance(carry):
-            states, ts, returns, key = carry
+            states, ts, returns, key, reached, damage = carry
             key, subkey = jax.random.split(key)
             dist = actor.apply(p, ts.observation)
             actions = dist.mode() if greedy else dist.sample(seed=subkey)
             states, ts = jax.vmap(env.step)(states, actions)
-            return states, ts, returns + ts.reward, key
-        states, ts, returns, _ = jax.lax.while_loop(
-            condition, advance, (states, ts, jnp.zeros(episodes), jax.random.PRNGKey(seed + 1)))
-        return states.won, states.step_count, returns
+            if target is not None:
+                reached |= states.enemy == target
+            if track_damage:
+                wounds = jnp.sum(states.enemy_wounds[:, target], axis=-1)
+                in_target_battle = states.in_battle & (states.enemy == target)
+                remaining = jnp.where(in_target_battle, jnp.sum(states.hp[:, 6:], axis=-1), target_hp-wounds)
+                fraction = jnp.clip(1.-remaining/jnp.maximum(1, target_hp), 0., 1.)
+                fraction = jnp.where(states.alive[:, target], fraction, 1.)
+                damage = jnp.maximum(damage, fraction)
+            return states, ts, returns + ts.reward, key, reached, damage
+        states, ts, returns, _, reached, damage = jax.lax.while_loop(
+            condition, advance, (states, ts, jnp.zeros(episodes), jax.random.PRNGKey(seed + 1),
+                                 jnp.zeros(episodes, bool), jnp.zeros(episodes)))
+        return (states.won, states.step_count, returns, reached, damage,
+                jnp.sum(~states.alive & states.scenario_spawned, axis=-1), states.lost)
     def evaluate_params(params):
-        won, lengths, returns = jax.device_get(run(params))
+        won, lengths, returns, reached, damage, defeated, lost = jax.device_get(run(params))
         return dict(episodes=episodes, successes=int(won.sum()), success_rate=float(won.mean()),
                     mean_return=float(returns.mean()), mean_length=float(lengths.mean()),
                     min_length=int(lengths.min()), max_length=int(lengths.max()),
+                    defeats=int(lost.sum()), timeouts=int((~won & ~lost).sum()),
+                    target_reached_episodes=int(reached.sum()),
+                    mean_target_damage_fraction=float(damage.mean()),
+                    maximum_target_damage_fraction=float(damage.max()),
+                    mean_defeated_armies=float(defeated.mean()), max_defeated_armies=int(defeated.max()),
                     action_selection='argmax' if greedy else 'sample', seed=seed)
     return evaluate_params
 
@@ -226,6 +247,8 @@ def run_training(args, tracking):
                         'stoix/envs/number_grid_scenarios.py', 'stoix/envs/number_grid_reference_rewards.py',
                         'stoix/envs/number_grid_script_events.py',
                         'stoix/envs/number_grid_hero_skills.py',
+                        'stoix/envs/number_grid_capital_training.py', 'stoix/envs/number_grid_bitsets.py',
+                        'stoix/envs/number_grid_enemy_loot.py',
                         'numbergrid_campaign.py', 'numbergrid_comet_dashboard.py', 'stoix/envs/number_grid_metrics.py',
                         'stoix/envs/number_grid_buildings.py', 'stoix/envs/data/buildings.json',
                         'stoix/envs/number_grid_spells.py', 'stoix/envs/number_grid_casting.py', 'stoix/envs/number_grid_unit_swaps.py', 'stoix/envs/number_grid_lords.py', 'stoix/envs/data/spells.json',
@@ -438,6 +461,7 @@ def run_training(args, tracking):
                               if hasattr(env.observation_space(), 'spaces')
                               else env.observation_space()).shape[0]),
         weights_changed=changed, checkpoint_roundtrip_verified=True,
+        initial_checkpoint_sha256=hashlib.sha256(serialization.to_bytes(initial_params)).hexdigest(),
         checkpoint_sha256=hashlib.sha256(checkpoint).hexdigest(),
         learner_source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
         total_runner_seconds=time.perf_counter()-started,
@@ -479,7 +503,7 @@ if __name__ == '__main__':
                    help='Save checkpoints at summary boundaries without evaluation or best-model selection')
     p.add_argument('--select-best', action='store_true',
                    help='Opt in to evaluation and checkpoint selection: save at summary boundaries, select on 128 fixed episodes, evaluate final and best on 1024 other episodes')
-    p.add_argument('--map', help='current, default, default-green-dragon, default-blue-dragon, small, small-green-dragon, small-blue-dragon, super_last_stand, siege_train, wotans_retribution, trade_train, mirror_match (mirrow_match), bethrezens_retreat, bethrezens_retreat_no_events, bethrezens_retreat_capital, or a saved map JSON')
+    p.add_argument('--map', help='current, default, default-green-dragon, default-blue-dragon, default-capital, small, small-green-dragon, small-blue-dragon, super_last_stand, siege_train, wotans_retribution, trade_train, mirror_match (mirrow_match), bethrezens_retreat, bethrezens_retreat_no_events, bethrezens_retreat_capital, empire_alliance_war, or a saved map JSON')
     p.add_argument('--no-unit-swaps', action='store_true',
                    help='Remove the party swap actions and features from the map (unit_swaps: false)')
     p.add_argument('--no-episode-reports', action='store_true',

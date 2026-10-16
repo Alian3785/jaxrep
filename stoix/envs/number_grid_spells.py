@@ -2,7 +2,7 @@
 
 The 101 supported reference spells are catalogued in data/spells.json. Original
 English descriptions are preserved verbatim; descriptions shown in Russian are
-translations. No casting action or spell effect is implemented in this stage.
+translations. Casting is implemented separately in number_grid_casting.
 """
 import json
 from pathlib import Path
@@ -11,6 +11,7 @@ import jax.numpy as jnp
 
 from stoix.envs.number_grid_buildings import DEFAULT_FACTION
 from stoix.envs.number_grid_territory import MANA_KINDS
+from stoix.envs.number_grid_bitsets import PackedBits
 
 SPELL_LEARNED = 47
 CATALOG = json.loads((Path(__file__).parent / 'data/spells.json').read_text(encoding='utf-8'))
@@ -37,8 +38,6 @@ def spell_book(game_map):
     rows = CATALOG['factions'][game_map.get('faction', DEFAULT_FACTION)]
     own = {row['id'] for row in rows}
     extras = [SPELL_BY_ID[i] for i in shop_spell_ids(game_map) if i not in own]
-    if len(rows) + len(extras) > 32:
-        raise ValueError('At most 32 spells fit the learned-spell bitset')
     return rows, extras
 
 
@@ -53,7 +52,9 @@ class SpellResearchRules:
         self.rows = CATALOG['factions'][construction.faction]
         self.count = len(self.rows)
         self.start, self.end = start, start + self.count
-        self.bits = jnp.left_shift(jnp.uint32(1), jnp.arange(self.count, dtype=jnp.uint32))
+        own, extras = spell_book(game_map)
+        self.bitset = PackedBits(len(own) + len(extras))
+        self.bits = self.bitset.bits[:self.count]
         self.levels = jnp.array([r['level'] for r in self.rows], jnp.int32)
         self.costs = jnp.array([r['research_mana'] for r in self.rows], jnp.int32) // construction.lord['research_divisor']
         self.scenario_max_level = game_map.get('max_spell_level', 5)
@@ -71,7 +72,7 @@ class SpellResearchRules:
         bits, costs, allowed = self.bits, self.costs, self.allowed
         if index is not None:
             bits, costs, allowed = bits[index], costs[index], allowed[index]
-        return (allowed & ((state.learned_spells & bits) == 0)
+        return (allowed & ~self.bitset.contains(state.learned_spells, bits)
                 & ((state.buildings & self.tower_bit) != 0)
                 & jnp.all(state.mana >= costs, axis=-1) & ~state.spell_researched_today
                 & ~state.in_battle & ~state.done)
@@ -87,7 +88,7 @@ class SpellResearchRules:
             last_event=jnp.where(valid, SPELL_LEARNED, state.last_event)), valid.astype(jnp.float32)
 
     def observation(self, state):
-        return jnp.concatenate((((state.learned_spells & self.bits) != 0).astype(jnp.float32),
+        return jnp.concatenate((self.bitset.contains(state.learned_spells, self.bits).astype(jnp.float32),
                                 jnp.array([state.spell_researched_today], jnp.float32)))
 
     def status(self, state):
@@ -98,4 +99,4 @@ class SpellResearchRules:
         code = jnp.where((state.buildings & self.tower_bit) == 0, 3, code)
         code = jnp.where(self.allowed, code, 2)
         code = jnp.where(self.levels > self.scenario_max_level, 8, code)
-        return jnp.where((state.learned_spells & self.bits) != 0, 1, code)
+        return jnp.where(self.bitset.contains(state.learned_spells, self.bits), 1, code)

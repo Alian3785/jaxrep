@@ -14,6 +14,7 @@ from stoix.envs.number_grid_combat import ATTACK_TYPES, HP
 from stoix.envs.number_grid_spell_items import (LORE_LEVEL, SCROLL_MAGE_COST, SCROLL_MAGE_HIRED,
                                                 scenario_spell_items, spell_item_action_names)
 from stoix.envs.number_grid_spells import SPELL_BY_ID, shop_spell_ids, spell_book
+from stoix.envs.number_grid_bitsets import PackedBits
 from stoix.envs.number_grid_territory import CAPITAL_REGENERATION, CITY_BONUS
 
 SPELL_CAST, SPELL_KILL, SUMMON_CAST = 48, 49, 50
@@ -41,8 +42,6 @@ def _rows(game_map):
         if item['spell'] not in ids:
             ids.add(item['spell'])
             rows.append(SPELL_BY_ID[item['spell']])
-    if len(rows) > 32:
-        raise ValueError('At most 32 book, scroll and staff spells fit the spell-effect bitset')
     return rows
 
 
@@ -79,8 +78,10 @@ class SpellCastRules:
         self.item_start = self.hire_action + 1
         self.end = self.item_start + self.item_count if self.item_count else self.hire_action
         self.limit = 2 if construction.lord['id'] == 'mage' else 1
-        self.bits = jnp.left_shift(jnp.uint32(1), jnp.arange(self.count, dtype=jnp.uint32))
-        self.book_bits = self.bits[:self.book_count]
+        self.bitset = PackedBits(self.count)
+        self.book_bitset = PackedBits(self.book_count)
+        self.bits = self.bitset.bits
+        self.book_bits = self.book_bitset.bits
         sold = set(shop_spell_ids(game_map))
         if sold:
             # A purchase bypasses the ruler's level limit for casting, never research
@@ -118,11 +119,11 @@ class SpellCastRules:
                 wards[i] = 1 << ATTACK_TYPES.index(c['element'])
         self.mods = jnp.array(mods)
         self.ward_bits = jnp.array(wards, jnp.uint32)
-        self.forest_bits, self.water_bits = jnp.uint32(forest), jnp.uint32(water)
+        self.forest_bits, self.water_bits = self.bitset.masks(forest), self.bitset.masks(water)
         # A support effect cannot be renewed; terrain spells also exclude the same terrain.
         blockers = [1 << i | (forest if forest >> i & 1 else 0) | (water if water >> i & 1 else 0)
                     for i in range(self.count)]
-        self.blockers = jnp.array(blockers, jnp.uint32)
+        self.blockers = self.bitset.masks(blockers)
         self.persistent = jnp.array([k in (BUFF, WARD, HEALTH) for k in kinds])
         self.has_mods = bool((mods != np.array(NEUTRAL)).any())
         self.has_health = HEALTH in kinds
@@ -251,13 +252,13 @@ class SpellCastRules:
         kind = sel(self.kinds)
         support = jnp.any(living) & jnp.where(kind == MOVES, state.movement_points < cap,
             jnp.where(kind == HEAL, jnp.any(living & (state.hp[:6] < max_hp[:6])),
-                      (state.spell_effects & sel(self.blockers)) == 0))
+                      ~self.bitset.contains(state.spell_effects, sel(self.blockers))))
         offense = jnp.where(sel(self.field_only), field_target >= 0, any_target >= 0)
         return jnp.where(sel(self.offensive), offense, support) & ~state.in_battle & ~state.done
 
     def _book(self, state, index=None):
         sel = (lambda x: x) if index is None else (lambda x: x[index])
-        learned = (state.learned_spells & sel(self.book_bits)) != 0
+        learned = self.book_bitset.contains(state.learned_spells, sel(self.book_bits))
         limits = self.limits if isinstance(self.limits, int) else sel(self.limits)
         return (sel(self.allowed) & learned & (sel(state.spell_casts) < limits)
                 & jnp.all(state.mana >= sel(self.costs), axis=-1))
@@ -327,7 +328,7 @@ class SpellCastRules:
 
     def status(self, state, effect):
         """0 ready, 1 unknown, 2 used today, 3 mana, 4 no target/effect, 5 battle, 6 done."""
-        learned = self.allowed & ((state.learned_spells & self.book_bits) != 0)
+        learned = self.allowed & self.book_bitset.contains(state.learned_spells, self.book_bits)
         code = jnp.where(effect[:self.book_count], 0, 4)
         code = jnp.where(jnp.all(state.mana >= self.costs, axis=-1), code, 3)
         code = jnp.where(state.spell_casts < self.limits, code, 2)
@@ -460,7 +461,7 @@ class SpellCastRules:
 
     # Battles -------------------------------------------------------------
     def modifiers(self, bits):
-        active = (bits & self.bits) != 0
+        active = self.bitset.contains(bits, self.bits)
         additive = jnp.sum(jnp.where(active[:, None], self.mods, 0.), axis=0)
         product = jnp.prod(jnp.where(active[:, None], self.mods, 1.), axis=0)
         return jnp.array([additive[0], product[1], product[2], additive[3], product[4]])
@@ -473,7 +474,7 @@ class SpellCastRules:
         blue = self.modifiers(state.spell_effects)
         red = self.modifiers(state.enemy_spell_effects[jnp.maximum(state.enemy, 0)])
         mods = jnp.where(buffed[:, None], blue, jnp.where(debuffed[:, None], red, neutral))
-        wards = jnp.bitwise_or.reduce(jnp.where((state.spell_effects & self.bits) != 0, self.ward_bits, jnp.uint32(0)))
+        wards = jnp.bitwise_or.reduce(jnp.where(self.bitset.contains(state.spell_effects, self.bits), self.ward_bits, jnp.uint32(0)))
         if self.has_health:
             hp = hp + jnp.where(buffed, mods[:, 0], 0).astype(jnp.int32)
         return state.replace(spell_mods=mods, spell_wards=jnp.where(buffed, wards, jnp.uint32(0))), hp
@@ -523,16 +524,17 @@ class SpellCastRules:
 
     # Terrain/observation -------------------------------------------------
     def terrain(self, state):
-        return (state.spell_effects & self.forest_bits) != 0, (state.spell_effects & self.water_bits) != 0
+        return (self.bitset.contains(state.spell_effects, self.forest_bits),
+                self.bitset.contains(state.spell_effects, self.water_bits))
 
     def observation(self, state):
         any_target, field_target, distance = self.targets(state)
         scale = self.size - 1
         parts = [
             state.spell_casts / self.limits,
-            ((state.spell_effects & self.bits) != 0).astype(jnp.float32),
+            self.bitset.contains(state.spell_effects, self.bits).astype(jnp.float32),
             jnp.sum(state.enemy_wounds, axis=1) / self.base_totals,
-            ((state.enemy_spell_effects != 0) + 2. * state.summon_marks) / 3.,
+            (self.bitset.any(state.enemy_spell_effects) + 2. * state.summon_marks) / 3.,
             jnp.array([state.summon_battle, any_target >= 0, field_target >= 0,
                        jnp.where(any_target >= 0, distance[jnp.maximum(any_target, 0)] / scale, 1.),
                        jnp.where(field_target >= 0, distance[jnp.maximum(field_target, 0)] / scale, 1.)], jnp.float32)]

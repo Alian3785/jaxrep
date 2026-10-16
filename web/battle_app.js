@@ -2,6 +2,7 @@
   'use strict';
   const data=JSON.parse(document.getElementById('run-data').textContent);
   const $=id=>document.getElementById(id), fmt=n=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:3}).format(n);
+  const hasSpell=(bits,index)=>((Array.isArray(bits)?bits[Math.floor(index/32)]:bits) >>> (index%32))&1;
   const canvas=$('board'), ctx=canvas.getContext('2d');
   const manaMarkers={
     infernal:{letter:'П',color:'#c65320'},life:{letter:'Ж',color:'#25833c'},
@@ -114,7 +115,7 @@
     }));
     // Spells of another faction bought in a spell shop: no research, one cast per day.
     $('spell-list').append(...(casting?.spells||[]).slice(info.spells.length).filter(c=>!c.item_only).map((cast,k)=>{
-      const i=info.spells.length+k,learned=(snap.state.learned_spells>>>i)&1;
+      const i=info.spells.length+k,learned=hasSpell(snap.state.learned_spells,i);
       const card=document.createElement('article');card.className='spell-card'+(learned?' is-learned':'');
       card.hidden=$('spell-level').value!=='all'&&Number($('spell-level').value)!==cast.level;
       const title=document.createElement('h3');title.textContent=cast.name+' · '+['','I','II','III','IV','V'][cast.level];
@@ -209,7 +210,8 @@
     $('recruitment-services').hidden=!info;$('leadership').hidden=!info;
     if(!info||!q)return;
     const [capacity,used,free]=q.leadership;
-    $('leadership').textContent='Лидерство: '+used+' / '+capacity+' · свободно '+free+(free?' · штраф −'+fmt(free*.05)+' за шаг':'');
+    const vacancies=q.reward_vacancies??free;
+    $('leadership').textContent='Лидерство: '+used+' / '+capacity+' · свободно '+free+(vacancies?' · штраф −'+fmt(vacancies*.05)+' за шаг':'');
     const at=snap.territory_quotes?.at_owned_fort??info.positions.some(p=>p.every((v,i)=>v===s.position[i]));
     $('recruitment-status').textContent=s.done?'Эпизод завершён.':s.in_battle?'Найм доступен после боя.':!at?'Для найма войдите в столицу или захваченный город.':'Найм за золото, без расхода очков перемещения. Герой не занимает лидерство; большой юнит занимает 2 очка и обе клетки своей линии.';
     $('recruitment-offers').replaceChildren(...info.offers.map((offer,i)=>{
@@ -237,12 +239,12 @@
     for(const [id,kind] of [['merchant-site','merchant'],['trainer-site','trainer'],['spell-shop','spell_shop']])$(id).hidden=!info.sites.some(x=>x.kind===kind);
     const recruits=recruitmentInfo(),quotes=snap.recruitment_quotes;
     $('mercenary-camp').hidden=!recruits?.offers.some(o=>o.mercenary);
-    $('mercenary-status').textContent=ready('mercenary')+' Нужен живой герой; запас не пополняется.';
+    $('mercenary-status').textContent=ready('mercenary')+' Нужен живой герой. Доступное количество указано у каждого бойца.';
     $('mercenary-offers').replaceChildren(...(recruits?.offers||[]).flatMap((offer,i)=>{
       if(!offer.mercenary||!quotes)return [];
       const card=document.createElement('article');card.className='site-offer';
       const stock=s.mercenary_stock[offer.stock_index],price=quotes.prices[i];
-      const name=document.createElement('b');name.textContent=offer.name+' · осталось '+stock+siteName('mercenary',offer.camp);
+      const name=document.createElement('b');name.textContent=offer.name+(offer.unlimited?' · без ограничения количества':' · осталось '+stock)+siteName('mercenary',offer.camp);
       const detail=document.createElement('small');detail.textContent='Лидерство '+offer.size+' · '+(offer.row==='front'?'передний ряд':'задний ряд');
       const reason=document.createElement('small');reason.textContent=!stock?'Все бойцы наняты':quotes.leadership[2]<offer.size?'Недостаточно лидерства':quotes.targets[i]<0?'Нет места в нужном ряду':s.gold<price?'Недостаточно золота':'';
       card.append(name,detail,button('Нанять · '+fmt(price)+' золота',offer.action),reason);return [card];
@@ -270,13 +272,19 @@
     $('spell-shop-offers').replaceChildren(...(info.spells||[]).map((offer,i)=>{
       const card=document.createElement('article');card.className='site-offer';
       const stock=s.spell_stock?.[i]??0,index=book.findIndex(c=>c.id===offer.spell),cast=book[index];
-      const learned=index>=0&&((s.learned_spells>>>index)&1);
+      const learned=index>=0&&hasSpell(s.learned_spells,index);
       const name=document.createElement('b');name.textContent=offer.name+' · '+['','I','II','III','IV','V'][cast?.level||0]+' · осталось '+stock;
       const detail=document.createElement('small');detail.textContent=cast?castEffect(cast)+' Применение: '+cast.cast_mana.map((n,j)=>n?manaNames[j]+' '+fmt(n):null).filter(Boolean).join(' · ')+'.':'';
       const reason=document.createElement('small');reason.textContent=!stock?'Продано':learned?'Уже изучено':s.gold<offer.price?'Недостаточно золота':'';
       card.append(name,detail,button('Купить · '+fmt(offer.price)+' золота',info.spell_start+i),reason);return card;
     }));
     $('trainer-status').textContent=ready('trainer')+' Последний XP до повышения нужно заработать в бою.';
+    $('spell-shop-offers').append(...(info.sites||[]).flatMap(site=>(site.unavailable_spells||[]).map(offer=>{
+      const card=document.createElement('article');card.className='site-offer';
+      const name=document.createElement('b');name.textContent=offer.name+' · '+site.name;
+      const detail=document.createElement('small');detail.textContent=offer.reason+' · исходная цена '+fmt(offer.price)+' золота';
+      card.append(name,detail);return card;
+    })));
     $('trainer-units').replaceChildren(...Array.from({length:6},(_,slot)=>{
       const q=snap.site_quotes?.train?.[slot];if(!snap.max_hp[slot]||!q||info.train_start==null)return null;
       const card=document.createElement('div');card.className='site-offer';

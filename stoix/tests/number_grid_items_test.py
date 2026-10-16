@@ -54,7 +54,7 @@ def test_complete_catalogue_and_scenario_inventory(current_game):
     assert [sum(p['category']==c for p in ITEMS) for c in range(8)]==[21,11,8,5,10,85,101,14]
     assert [sum(c['items'].values()) for c in MAP['chests']]==[3]*5
     assert env.item_rules.capacity==15 and env.item_rules.count==15
-    assert env.num_actions==244 and compiled_method(env,'observation')(state).shape==(1802,)
+    assert env.num_actions==244 and compiled_method(env,'observation')(state).shape==(1808,)
     assert not jnp.any(state.item_inventory>=0) and jnp.all(state.equipped==-1)
     valuables=[p for p in ITEMS if p['category']==VALUABLE]
     # Original Tglobal item descriptions give the merchant payout, not GItem.VALUE.
@@ -267,3 +267,18 @@ def test_artifact_drain_poison_refresh_and_wight(all_items):
         unit_levels=start.unit_levels.at[6].set(env.progression.base_levels[upgraded]))
     result=attack(before,jnp.int32(6),jnp.bool_(True),jnp.int32(10),jnp.zeros(84))[0]
     assert result.decay_form[6]==env.progression.lower_forms[upgraded] and result.decay_form[6]>0
+
+
+@pytest.mark.parametrize('key,source', [('soul_crystal', 64), ('horn_of_incubus', 2)])
+def test_equipment_disable_misses_after_round_40_without_spending_wards(all_items, key, source):
+    env, state, refresh, attack = all_items
+    start = compiled_method(env, '_begin_battle')(state.replace(enemy=jnp.int32(0)))
+    before = refresh(inventory(env, start, key)).replace(actor=jnp.int32(1), round=jnp.int32(40))
+    rolls = jnp.zeros(84)
+    early = attack(before, jnp.int32(6), jnp.bool_(True), jnp.int32(10), rolls)
+    assert early[0].paralyzed[6]
+    late = before.replace(round=jnp.int32(41), potion_wards=before.potion_wards.at[6].set(source))
+    after, hp, used, immune, ward = attack(late, jnp.int32(6), jnp.bool_(True), jnp.int32(10), rolls)
+    assert not after.paralyzed[6] and not after.long_paralyzed[6]
+    assert not used[6] and not immune and not ward
+    assert jnp.array_equal(hp, late.hp)

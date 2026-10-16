@@ -1,20 +1,25 @@
-"""Target-only level rewards, requested 2026-10-14; not original game rules.
+"""Target-only level rewards, requested 2026-10-14; Default Capital added 2026-10-16.
 
 Extended CUDA regressions. Run only on explicit request through scripts/run_gpu.sh.
-See docs/DEFAULT_MAP.md and docs/REFERENCE_CAMPAIGNS.md.
+These rewards are training rules, not original game rules. Sources: docs/DEFAULT_MAP.md
+(reference maps/default.py for Mizrael and the green dragon), docs/REFERENCE_CAMPAIGNS.md.
 """
+import json
+
 import jax
 import jax.numpy as jnp
 import pytest
 
-from stoix.envs.number_grid import DEFEND, NumberGrid, load_map
+from stoix.envs.number_grid import DEFEND, REST, NumberGrid, action_names, load_map
+from stoix.envs.number_grid_casting import SUMMON
 from stoix.tests.number_grid_fixtures import compiled_method, hero_roster_state
 
 
-@pytest.fixture(scope='module')
-def target_game():
-    """Share the blue-dragon campaign and reset state for objective-level reward scenarios."""
-    env = NumberGrid(map_config=load_map('default-blue-dragon'))
+@pytest.fixture(scope='module', params=['default-blue-dragon', 'default-capital'])
+def target_game(request):
+    """Share each target campaign and reset state across the extended reward cases."""
+    assert jax.default_backend() == 'gpu', 'Use scripts/run_gpu.sh with CUDA'
+    env = NumberGrid(map_config=load_map(request.param))
     state, _ = compiled_method(env, 'reset')(jax.random.PRNGKey(42))
     return env, state
 
@@ -57,7 +62,7 @@ def developed_party(env, initial):
         ['defender_of_faith', 'duke', None, 'white_mage', None, None])
 
 
-def test_target_snapshot_is_observable_and_paid_only_on_victory(target_game):
+def test_victory_snapshot_is_observable_and_paid_only_on_victory(target_game):
     """Freeze living entry levels, expose the snapshot, and pay it exactly once on target victory."""
     env, initial = target_game
     target = env.objective_enemy
@@ -70,6 +75,7 @@ def test_target_snapshot_is_observable_and_paid_only_on_victory(target_game):
         unit_levels=base.unit_levels.at[2].set(99),
         potion_bonus=base.potion_bonus.at[0, 0].add(100).at[3, 0].add(500))
     before, action = near_enemy(env, base, target)
+    assert compiled_method(env, 'action_mask')(before)[action]
     arrived, entry_reward = enter(env, before, action)
     claimed, plain_entry = enter(env, before.replace(
         army_victory_rewarded=before.army_victory_rewarded.at[target].set(True)), action)
@@ -124,14 +130,19 @@ def test_unsuccessful_target_battle_discards_snapshot(target_game, outcome):
 def test_other_armies_and_invalid_moves_cannot_earn_target_bonus(target_game):
     """Prevent unrelated encounters, stale snapshots, and rejected movement from earning the bonus."""
     env, initial = target_game
-    before, action = near_enemy(env, developed_party(env, initial), 0)
+    # Capital keeps the green dragon as an ordinary enemy, with no goal bonus.
+    other = 30 if env.map_config['campaign_objective'] == 'capital_guardian' else 0
+    before, action = near_enemy(env, developed_party(env, initial), other)
     arrived, _ = enter(env, before, action)
-    assert arrived.in_battle and int(arrived.enemy) == 0
+    assert compiled_method(env, 'action_mask')(before)[action]
+    assert arrived.in_battle and int(arrived.enemy) == other
     assert int(arrived.army_battle_level_strength) == 0
     # The payment boundary also checks the target, even with a stale snapshot.
     after, reward = finish(env, arrived.replace(army_battle_level_strength=jnp.int32(99)))
     _, plain = finish(env, arrived)
     assert float(reward) == pytest.approx(float(plain))
+    assert float(reward) == pytest.approx(1.)
+    assert not after.won and not after.done and not after.alive[other]
     assert not jnp.any(after.army_victory_rewarded)
     near, action = near_enemy(env, developed_party(env, initial), env.objective_enemy)
     invalid, _ = compiled_method(env, 'step')(near.replace(movement_points=jnp.int32(0)), action)
@@ -143,10 +154,19 @@ def test_summoned_army_cannot_earn_target_level_bonus(target_game):
     """Exclude spell-created armies from the hero's objective-level victory reward."""
     env, initial = target_game
     near, _ = near_enemy(env, initial, env.objective_enemy)
-    spell_id = 'g000ss0117'
-    spell = next(i for i, row in enumerate(env.casting.rows) if row['id'] == spell_id)
+    spell = next(i for i in range(env.casting.book_count) if int(env.casting.kinds[i]) == SUMMON)
     near = near.replace(learned_spells=jnp.uint32(1 << spell), mana=jnp.full(5, 5000, jnp.int32))
-    battle, _ = enter(env, near, jnp.int32(env.casting.start+spell))
+    action = jnp.int32(env.casting.start+spell)
+    if not bool(env.casting.field[env.objective_enemy]):
+        # Capital guardians remain protected from map spells and separate summons.
+        near = near.replace(alive=jnp.zeros_like(near.alive).at[env.objective_enemy].set(True))
+        assert not compiled_method(env, 'action_mask')(near)[action]
+        after, _ = compiled_method(env, 'step')(near, action)
+        assert not after.in_battle and not after.won and not after.done
+        assert after.alive.tolist() == near.alive.tolist()
+        assert not jnp.any(after.army_victory_rewarded)
+        return
+    battle, _ = enter(env, near, action)
     assert battle.summon_battle and int(battle.enemy) == env.objective_enemy
     assert int(battle.army_battle_level_strength) == 0
     after, reward = finish(env, battle.replace(army_battle_level_strength=jnp.int32(99)))
@@ -174,6 +194,11 @@ def test_unrelated_maps_keep_level_rewards_disabled():
     """Keep target-level shaping disabled on campaigns that did not opt into it."""
     for name in ('default', 'default-green-dragon', 'super_last_stand', 'wotans_retribution', 'siege_train'):
         assert not load_map(name).get('army_victory_level_reward', 0.)
+        assert not load_map(name).get('capital_entry_level_reward', 0.)
+        assert not load_map(name).get('recruitment_reward_faction_only', False)
+    assert not load_map('default-blue-dragon').get('capital_entry_level_reward', 0.)
+    assert not load_map('default-blue-dragon').get('recruitment_reward_faction_only', False)
+    assert not load_map('empire_alliance_war').get('recruitment_reward_faction_only', False)
     assert not load_map('trade_train').get('army_victory_level_objective_only', False)
 
 
@@ -190,4 +215,59 @@ def test_target_bonus_grows_with_entry_levels(target_game, levels, expected):
     won, reward = finish(env, battle)
     _, plain = finish(env, battle.replace(army_victory_rewarded=won.army_victory_rewarded))
     assert float(reward-plain) == pytest.approx(expected)
+    assert float(reward) == pytest.approx(4.+expected)
     assert bool(won.army_victory_rewarded[env.objective_enemy])
+    assert not jnp.any(compiled_method(env, 'action_mask')(won))
+    again, ts = compiled_method(env, 'step')(won, jnp.int32(REST))
+    assert again.won and again.done and float(ts.reward) == 0.
+
+
+def test_default_capital_preserves_simpler_times_and_blue_reward_settings(tmp_path):
+    """User request 2026-10-16: only Mizrael is the goal; no events or dragon replacement."""
+    base, capital, blue = (load_map(name) for name in ('default', 'default-capital', 'default-blue-dragon'))
+    changed = {'name', 'display_name', 'campaign_objective', 'objective_enemy',
+               'objective_reward_hero_only', 'army_victory_level_reward',
+               'army_victory_level_objective_only', 'scenario_events_enabled', 'cities', 'faction', 'lord_type',
+               'capital_defense_acquisition_reward', 'capital_defense_effect_reward',
+               'capital_guardian_round_reward', 'episode_timeout_penalty', 'battle_round_limit_penalty',
+               'capital_entry_level_reward', 'recruitment_reward_faction_only'}
+    assert {k: v for k, v in capital.items() if k not in changed} == {
+        k: v for k, v in base.items() if k not in changed}
+    assert capital['cities'] == [{**city, 'objective': False} for city in base['cities']]
+    assert sum(c['objective'] for c in load_map('default')['cities']) == 2
+    assert capital['display_name'] == 'Default — Capital'
+    assert capital['objective_enemy'] == capital['enemy_capitals'][0]['guard'] == 74
+    assert capital['opponent_positions'][74] == [11, 27]
+    assert capital['enemy_rosters'][74] == [None, None, None, None, 'g000uu3001', None]
+    assert capital['enemy_rosters'][30] == [None, 'g000uu5023', None, None, None, None]
+    assert capital['enemy_full_regeneration'] == [30]
+    assert capital['scenario_events_enabled'] is False
+    assert not capital.get('scenario_events') and not capital.get('scheduled_enemies')
+    assert not capital.get('scripted_bot')
+    for key in ('objective_reward_hero_only', 'army_victory_level_reward', 'army_victory_level_objective_only'):
+        assert capital[key] == blue[key]
+    assert capital['faction'] == 'legions' and capital['lord_type'] == 'warrior'
+    assert capital['capital_entry_level_reward'] == 2.
+    assert capital['recruitment_reward_faction_only'] is True
+    assert action_names(capital) == action_names({**base, 'faction': 'legions', 'lord_type': 'warrior'})
+    saved = tmp_path / 'map.json'
+    saved.write_text(json.dumps(capital), encoding='utf-8')
+    assert load_map(saved) == capital
+
+
+def test_only_the_selected_target_finishes_the_campaign(target_game):
+    """All other armies and cities are optional, including the green dragon in Capital."""
+    env, initial = target_game
+    target = env.objective_enemy
+    assert jnp.flatnonzero(env.goal_enemies).tolist() == [target]
+    assert not jnp.any(env.territory.goal_cities)
+    assert not env.script_events.enabled and not env.scenario.enabled and not env.bot.enabled
+    won = compiled_method(env, '_campaign_won')
+    only_target_left = initial.replace(city_owned=jnp.ones_like(initial.city_owned),
+        alive=jnp.zeros_like(initial.alive).at[target].set(True))
+    assert not bool(won(only_target_left))
+    after, _ = compiled_method(env, 'step')(only_target_left, jnp.int32(REST))
+    assert not after.won and not after.done
+    only_target_defeated = initial.replace(alive=initial.alive.at[target].set(False))
+    assert bool(won(only_target_defeated))
+    assert not bool(won(only_target_defeated.replace(lost=jnp.bool_(True))))

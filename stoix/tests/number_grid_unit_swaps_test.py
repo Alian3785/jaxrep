@@ -38,7 +38,7 @@ def test_reference_layout_and_the_disabled_flag():
     off = {**MAP, 'unit_swaps': False}
     assert action_names(off) == names[:-15] and not any(n.startswith('swap_') for n in action_names(off))
     env = NumberGrid(map_config=off)
-    assert (env.num_actions, env.observation_size) == (229, 1678) and not hasattr(env, 'unit_swaps')
+    assert (env.num_actions, env.observation_size) == (229, 1684) and not hasattr(env, 'unit_swaps')
     with pytest.raises(ValueError, match='unit_swaps'):
         NumberGrid(map_config={**MAP, 'unit_swaps': 1})
     with pytest.raises(ValueError, match='version 42'):

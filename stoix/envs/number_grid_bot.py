@@ -208,7 +208,7 @@ class ScriptedBotRules:
             unit_levels=state.unit_levels.at[:6].set(progress[:, 0]),
             unit_xp=state.unit_xp.at[:6].set(progress[:, 1]), hp=state.hp.at[:6].set(hp),
             done=jnp.bool_(False), won=jnp.bool_(False), lost=jnp.bool_(False),
-            summon_battle=jnp.bool_(False), spell_effects=jnp.uint32(0),
+            summon_battle=jnp.bool_(False), spell_effects=jnp.zeros_like(state.spell_effects),
             potion_bonus=jnp.zeros_like(state.potion_bonus), potion_doses=jnp.zeros_like(state.potion_doses),
             potion_temporary=jnp.zeros_like(state.potion_temporary), potion_active=jnp.zeros_like(state.potion_active),
             potion_wards=jnp.zeros_like(state.potion_wards),

@@ -20,6 +20,19 @@ def _item(key, name, gid, category, price, label, **effects):
 
 
 ITEMS = (
+    # Empire-Alliance War: native quest objects remain inert when events are off.
+    _item('ocean_charm', 'Ocean Charm', '7112', VALUABLE, 0, 'Сценарный предмет: события отключены'),
+    _item('holy_artifact', 'Holy Artifact', '7115', VALUABLE, 0, 'Сценарный предмет: события отключены'),
+    _item('doragons_eye', "Doragon’s Eye", '7118', VALUABLE, 0, 'Глаз Дорагона: в режиме Capital не является целью'),
+    # Preserve these native items and prices; never substitute an unrelated cast.
+    _item('staff_of_paralyzing', 'Staff of Paralyzing', '6004', STAFF, 1800,
+          'Лишает отряд движения на день; эффект ещё не реализован в JAX'),
+    _item('staff_of_light', 'Staff of Light', '6007', STAFF, 1200,
+          'Рассеивает туман войны; эффект ещё не реализован в JAX'),
+    _item('staff_of_invisibility', 'Staff of Invisibility', '6008', STAFF, 1800,
+          'Невидимость отряда; эффект ещё не реализован в JAX'),
+    _item('staff_of_foliage', 'Staff of Foliage', '6019', STAFF, 1200,
+          'Создаёт деревья; эффект ещё не реализован в JAX'),
     # S101 trophies: invisibility is not implemented; the zero-value quest totem
     # must survive automatic sales until its scripted exchange.
     _item('sanctuera_scroll', 'Sanctuera scroll', '5051', VALUABLE, 600,
@@ -123,6 +136,7 @@ class ItemRules:
         from stoix.envs.number_grid_potions import merchants
         stock = [item_counts(m.get('items',{}),'Merchant items') for m in merchants(game_map)]
         stock += [item_counts(game_map.get('event_items', {}), 'Event items')]
+        stock += [item_counts(row.get('items', {}), 'Enemy loot items') for row in game_map.get('enemy_loot', [])]
         used = {key for contents in inventories+stock for key,count in contents.items() if count}
         self.items = tuple(p for p in ITEMS if p['key'] in used)
         self.keys = tuple(p['key'] for p in self.items)

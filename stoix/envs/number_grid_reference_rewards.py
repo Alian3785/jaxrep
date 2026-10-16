@@ -45,7 +45,9 @@ def world(env, before, after, action, rest):
     penalty = jnp.minimum(.08, .015*visits)+.03*jnp.all(after.position == before.reference_previous)
     reward -= moved*penalty
     reward -= rest*env.rest_penalty(before)
-    reward += .25*engage
+    target_battle = (after.enemy == env.objective_enemy
+                     if env.reference_preserve_target_reward else jnp.bool_(False))
+    reward += .25*engage*~target_battle
     if env.scenario.enabled:
         reward += _wave_bonus(env, before, after)
     if env.siege_rewards:
@@ -67,7 +69,7 @@ def world(env, before, after, action, rest):
     if env.spell_casting_enabled:
         reward += .005*(after.last_cast_spell >= 0)
         reward += .05*engage*before.summon_marks[jnp.maximum(after.enemy, 0)]
-    reward += (jax.lax.population_count(after.learned_spells & ~before.learned_spells)).astype(jnp.float32)
+    reward += jnp.sum(jax.lax.population_count(after.learned_spells & ~before.learned_spells)).astype(jnp.float32)
     reward += 12.*(after.hire_rewarded_capacity > before.hire_rewarded_capacity)
     healing = jnp.maximum(0, jnp.sum(after.hp[:6]-before.hp[:6]))
     reward += jnp.where(after.last_event == CAPITAL_HEAL,
@@ -96,7 +98,7 @@ def world(env, before, after, action, rest):
     return after, reward.astype(jnp.float32)
 
 
-def battle(env, before, after, hp, victory, lost, withdrawal, item_using):
+def battle(env, before, after, hp, victory, lost, withdrawal, item_using, base_reward=None):
     summon = before.summon_battle
     ended = victory | lost | withdrawal
     multiplier = (jnp.where(before.enemy == env.objective_enemy,
@@ -129,6 +131,13 @@ def battle(env, before, after, hp, victory, lost, withdrawal, item_using):
         reward += bonus
     defeated = before.reference_defeated.at[before.enemy].set(
         before.reference_defeated[before.enemy] | real_victory)
+    if env.reference_preserve_target_reward:
+        # Paired Capital experiment: preserve the complete tactical target reward,
+        # including +1 for victory and +3 for the objective. Level shaping is
+        # applied by NumberGrid afterwards, identically in both reward profiles.
+        if base_reward is None:
+            raise ValueError('Preserving target rewards requires the base battle reward')
+        reward = jnp.where(before.enemy == env.objective_enemy, base_reward, reward)
     return after.replace(reference_defeated=defeated), reward.astype(jnp.float32)
 
 
@@ -146,7 +155,7 @@ def finish(env, before, after):
         reward += env.objective_position_reward*(after.won & ~before.won)
     elif env.capital_objective:
         reward += env.capital_objective_reward*(after.won & ~before.won)
-    else:
+    elif not env.reference_preserve_target_reward:
         multiplier = env.siege_rewards['victory_multiplier'] if env.siege_rewards else 1.
         reward += 8.*multiplier*(after.won & ~before.won)
     milestones = jnp.max(env.max_hp(after)[:6]) > jnp.array([200, 250])

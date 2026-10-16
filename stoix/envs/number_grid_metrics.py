@@ -17,6 +17,9 @@ CAMPAIGN_FIELDS = (
     'summoned_units', 'hired_units', 'battle_items_equipped', 'battle_items_used',
     'unit_swaps', 'enemy_squads_defeated', 'cities_captured',
     'potions_used', 'dragon_battles', 'mercenaries_hired', 'trainer_uses',
+    'capital_defense_acquired', 'capital_defense_effects', 'capital_health_effects',
+    'capital_guardian_rounds', 'capital_guardian_battles',
+    'capital_first_contacts', 'capital_entry_strength',
 )
 EPISODE_WINDOW = 100
 
@@ -49,6 +52,18 @@ def campaign_events(env, before, world, after, action, valid, battle_counts):
             + jnp.where(world_action & (action != REST), jnp.sum(before.alive & ~world.alive), 0))
     if env.basic_combat:
         values['buildings_built'] = jax.lax.population_count(world.buildings & ~before.buildings)
+    if env.capital_training.enabled:
+        rules = env.capital_training
+        effects = after.capital_defense_peak - before.capital_defense_peak
+        values['capital_defense_acquired'] = after.capital_defense_acquired - before.capital_defense_acquired
+        values['capital_defense_effects'] = jnp.sum(effects)
+        values['capital_health_effects'] = jnp.sum(jnp.where(rules.health, effects, 0))
+        values['capital_guardian_rounds'] = after.capital_rounds_rewarded - before.capital_rounds_rewarded
+        values['capital_guardian_battles'] = (world_action & world.in_battle & ~world.summon_battle
+                                              & (world.enemy == rules.enemy))
+        first_contact = (before.capital_entry_strength < 0) & (after.capital_entry_strength >= 0)
+        values['capital_first_contacts'] = first_contact
+        values['capital_entry_strength'] = jnp.where(first_contact, after.capital_entry_strength, 0)
     if env.capital_enabled:
         healing = world_action & (action >= HEAL_START) & (action < REVIVE_START)
         healed = jnp.sum(jnp.maximum(world.hp[:6] - before.hp[:6], 0))
@@ -74,7 +89,7 @@ def campaign_events(env, before, world, after, action, valid, battle_counts):
             # One successful purchase for one fighter, regardless of XP bought.
             values['trainer_uses'] = world_action & (action >= start) & (action < start + 6)
     if env.spell_research_enabled:
-        values['spells_learned'] = jax.lax.population_count(world.learned_spells & ~before.learned_spells)
+        values['spells_learned'] = jnp.sum(jax.lax.population_count(world.learned_spells & ~before.learned_spells))
     if env.spell_casting_enabled:
         cast = world_action & (world.last_cast_spell >= 0)
         values['spell_casts'] = cast

@@ -19,6 +19,11 @@ from stoix.envs.number_grid_battle_items import battle_item_unit_keys
 from stoix.envs.number_grid_recruitment import OFFERS, mercenary_offers
 from stoix.envs import number_grid_hero_skills as hero_skills
 
+# User-requested current-profile shaping (2026-10-16), not original game rules.
+LEVEL_UP_REWARD = 2.
+BLOCKED_XP_PENALTY = .05
+BLOCKED_XP_FEATURES = 6
+
 
 @lru_cache(maxsize=8)
 def _damage_rolls(armors):
@@ -373,6 +378,40 @@ class ProgressionRules:
 
     def required_xp(self, ids, levels):
         return self.required[ids] + jnp.maximum(levels-self.base_levels[ids], 0)*self.required_increment[ids]
+
+    def missing_upgrade_building(self, state, ids, levels):
+        """An own-faction, permitted evolution is waiting for its building."""
+        bits = self.building_bits[ids]
+        allowed = (bits != 0) & ((state.blocked_buildings & bits) == 0)
+        built = allowed & ((state.buildings & bits) == bits)
+        return ((ids != 0) & ~self.capital_guards[ids] & self.level_up_allowed(ids, levels)
+                & ~self.dynamic[ids] & ~self.scenario_dynamic[ids]
+                & jnp.any(allowed, axis=-1) & ~jnp.any(built, axis=-1))
+
+    def blocked_xp_observation(self, state):
+        """Six flags for living permanent fighters capped by an unbuilt building."""
+        native = state.copied[:6] | (state.summon_owner[:6] >= 0)
+        ids = jnp.where(native, state.native_ids[:6], state.unit_ids[:6])
+        levels = jnp.where(native, state.native_levels[:6], state.unit_levels[:6])
+        xp = jnp.where(native, state.native_xp[:6], state.unit_xp[:6])
+        hp = jnp.where(state.summon_owner[:6] >= 0, state.summon_saved_hp[:6], state.hp[:6])
+        party = jnp.where(state.summon_battle, state.spell_party, jnp.stack((ids, levels, xp, hp)))
+        ids, levels, xp, hp = party
+        required = self.required_xp(ids, levels)
+        blocked = (self.missing_upgrade_building(state, ids, levels)
+                   & (required > 0) & (xp >= required-1) & (hp > 0) & ~state.bot_autobattle)
+        return blocked.astype(jnp.float32)
+
+    def training_reward(self, state, gains, promoted, victory):
+        """Pay real party promotions; charge once per fighter/battle for discarded XP."""
+        ids, levels = state.unit_ids[:6], state.unit_levels[:6]
+        required = self.required_xp(ids, levels)
+        wasted = (self.missing_upgrade_building(state, ids, levels)
+                  & (required > 0) & (gains[:6] > 0)
+                  & (state.unit_xp[:6]+gains[:6] >= required))
+        reward = (LEVEL_UP_REWARD*jax.lax.population_count(promoted & jnp.uint32(63))
+                  - BLOCKED_XP_PENALTY*jnp.sum(wasted))
+        return jnp.where(victory & ~state.summon_battle & ~state.bot_autobattle, reward, 0.)
 
     def level_up_allowed(self, ids, levels):
         """Imported leaders above the scenario ceiling keep their level, but cannot grow."""

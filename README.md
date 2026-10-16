@@ -1,5 +1,11 @@
 # NumberGrid 48×48 — отряды Disciples II
 
+[Empire-Alliance War — Capital](docs/EMPIRE_ALLIANCE_WAR.md):
+`--map empire_alliance_war`, игрок — Империя, цель — Иллюмиэлль в столице
+Эльфийского Альянса. 144×144 игровых клеток, исходные отряды и предметы,
+сценарные события отключены. Ручная игра: `open-numbergrid.cmd -Map empire_alliance_war`.
+Ограничения переноса и статус проверок приведены в документе карты.
+
 [Бегство Бетрезена](docs/BETHREZENS_RETREAT.md): `--map bethrezens_retreat`,
 Windows: `open-numbergrid.cmd -Map bethrezens_retreat`. Исходный отряд Бетрезена,
 лорд-воин, сценарные события; победа в точке `[2,30]` после ответного хода
@@ -21,12 +27,14 @@ Windows: `open-numbergrid.cmd -Map bethrezens_retreat`. Исходный отр�
 
 Проект восстановлен из описания Alian3785/jaxrep и работает на NVIDIA GeForce GTX 1660 Ti (6 ГБ), Windows + WSL2 Ubuntu 24.04. Среда и обычный Stoix Anakin feedforward PPO выполняются end-to-end на JAX/GPU.
 
-[Карта Default](docs/DEFAULT_MAP.md) поддерживает три цели: `--map default`
+[Карта Default](docs/DEFAULT_MAP.md) поддерживает четыре режима: `--map default`
 (два города), `--map default-green-dragon` и `--map default-blue-dragon`
-(дракон №31). Эти же имена используются при запуске сервера ручной игры.
+(дракон №31), `--map default-capital` (Мизраэль, страж столицы).
+В Capital зелёный дракон — обычный враг, события отключены, награда за Мизраэля
+совпадает с синим драконом. Эти же имена используются при запуске сервера ручной игры.
 
 [Карта Small](docs/SMALL_MAP.md) — уменьшенное поле 24×24 из Python-референса
-(26×26 с рамкой JAX), 37 отрядов. Доступны те же три цели:
+(26×26 с рамкой JAX), 37 отрядов. Доступны три цели:
 `--map small`, `--map small-green-dragon`, `--map small-blue-dragon`.
 Исправлены пересечения объектов и подходы к зданиям при масштабировании.
 

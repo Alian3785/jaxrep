@@ -6,7 +6,7 @@ and battle_env hero-item actions. Item IDs and prices: installed GItem.dbf.
 import jax.numpy as jnp
 
 from stoix.envs.number_grid_combat import HP, DAMAGE, ARMOR, INITIATIVE, UNITS, accuracy_hits, can_revive
-from stoix.envs.number_grid_effects import source_protection, vampiric_heal
+from stoix.envs.number_grid_effects import source_protection, vampiric_heal, disable_attack_accuracy
 
 SLOTS, TALISMAN_USES, TARGETS = 2, 5, 6
 ACTIONS = 2*SLOTS*TARGETS  # own slots 1..6 for both items, then enemy slots
@@ -143,7 +143,7 @@ def _scenario_magic_keys(game_map):
     from stoix.envs.number_grid_potions import merchants
     keys = set()
     sources = [game_map.get('initial_items', {})]+[c.get('items', {}) for c in game_map.get('chests', [])
-                                                     + game_map.get('ruins', [])+merchants(game_map)
+                                                     + game_map.get('ruins', [])+game_map.get('enemy_loot', [])+merchants(game_map)
                                                      if isinstance(c, dict)]
     for contents in sources:
         keys.update(key for key, count in contents.items() if count and key in MAGIC_BY_KEY)
@@ -502,7 +502,8 @@ class BattleItemRules:
                 bonus_turns=state.bonus_turns+extra.astype(jnp.int32))
             status |= extra[:6]  # an ally-only effect
         if PARALYSIS in self.kinds:
-            affected, used, blocked, ward = protect(PARALYSIS, alive & ~state.long_paralyzed, used)
+            accuracy = disable_attack_accuracy(100., jnp.bool_(True), state.round)
+            affected, used, blocked, ward = protect(PARALYSIS, alive & ~state.long_paralyzed & (accuracy > 0), used)
             immune |= blocked
             warded |= ward
             status |= affected

@@ -135,12 +135,17 @@ def battle(env, before, after, hp, victory, lost, withdrawal, item_using):
 def finish(env, before, after):
     """Once per decision: city/episode completion and permanent HP milestones."""
     terminal = after.done & ~before.done
-    reward = -6.*(after.lost & ~before.lost) - 8.*(terminal & ~after.won & ~after.lost)
-    reward += terminal*5.*jnp.mean(after.reference_defeated.astype(jnp.float32))
+    reward = (-6.*(after.lost & ~before.lost)
+              - env.reference_timeout_penalty*(terminal & ~after.won & ~after.lost))
+    reward += terminal*5.*jnp.sum(after.reference_defeated)/max(1, env.reference_enemy_count)
     if env.territory.objective_cities:
         old = jnp.sum(before.city_owned & env.territory.goal_cities)
         new = jnp.sum(after.city_owned & env.territory.goal_cities)
         reward += 40.*(new-old)-32.*((old == 0) & (new > 0))
+    elif env.position_objective:
+        reward += env.objective_position_reward*(after.won & ~before.won)
+    elif env.capital_objective:
+        reward += env.capital_objective_reward*(after.won & ~before.won)
     else:
         multiplier = env.siege_rewards['victory_multiplier'] if env.siege_rewards else 1.
         reward += 8.*multiplier*(after.won & ~before.won)

@@ -56,12 +56,15 @@ class SpellResearchRules:
         self.bits = jnp.left_shift(jnp.uint32(1), jnp.arange(self.count, dtype=jnp.uint32))
         self.levels = jnp.array([r['level'] for r in self.rows], jnp.int32)
         self.costs = jnp.array([r['research_mana'] for r in self.rows], jnp.int32) // construction.lord['research_divisor']
-        self.allowed = self.levels <= construction.lord['max_spell_level']
+        self.scenario_max_level = game_map.get('max_spell_level', 5)
+        if type(self.scenario_max_level) is not int or not 1 <= self.scenario_max_level <= 5:
+            raise ValueError('max_spell_level must be an integer from 1 to 5')
+        self.allowed = self.levels <= min(construction.lord['max_spell_level'], self.scenario_max_level)
         tower = next(i for i, r in enumerate(construction.rows) if r['name'] == 'Башня магии')
         self.tower_bit = jnp.uint32(1 << tower)
         self.observation_size = self.count + 1
         self.metadata = dict(faction=construction.faction, mana_kinds=MANA_KINDS,
-            tower_action=18 + tower, reward=1., daily_limit=1,
+            tower_action=18 + tower, reward=1., daily_limit=1, max_level=self.scenario_max_level,
             spells=[dict(row, action=start+i, cost=self.costs[i].tolist()) for i, row in enumerate(self.rows)])
 
     def available(self, state, index=None):
@@ -88,10 +91,11 @@ class SpellResearchRules:
                                 jnp.array([state.spell_researched_today], jnp.float32)))
 
     def status(self, state):
-        # 0 ready, 1 learned, 2 ruler, 3 tower, 4 mana, 5 day, 6 battle, 7 done.
+        # 0 ready, 1 learned, 2 ruler, 3 tower, 4 mana, 5 day, 6 battle, 7 done, 8 scenario.
         code = jnp.where(state.done, 7, jnp.where(state.in_battle, 6,
             jnp.where(state.spell_researched_today, 5,
                 jnp.where(jnp.all(state.mana >= self.costs, axis=-1), 0, 4))))
         code = jnp.where((state.buildings & self.tower_bit) == 0, 3, code)
         code = jnp.where(self.allowed, code, 2)
+        code = jnp.where(self.levels > self.scenario_max_level, 8, code)
         return jnp.where((state.learned_spells & self.bits) != 0, 1, code)

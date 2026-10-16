@@ -20,6 +20,12 @@ def _item(key, name, gid, category, price, label, **effects):
 
 
 ITEMS = (
+    # S101 trophies: invisibility is not implemented; the zero-value quest totem
+    # must survive automatic sales until its scripted exchange.
+    _item('sanctuera_scroll', 'Sanctuera scroll', '5051', VALUABLE, 600,
+          'Свиток невидимости: эффект пока недоступен, продажа за 120 золота', sell_price=120),
+    _item('agshlisga_totem', 'Agshlisga Totem', '7101', VALUABLE, 0,
+          'Тотем Агшлисга: сценарный предмет для обмена'),
     # GItem G000IG5092. Its invisibility spell is unavailable in both campaign
     # catalogues; preserve the Wotan trophy and its 20% resale value.
     _item('illudere_terra_scroll', 'Illudere terra scroll', '5092', VALUABLE, 2000,
@@ -116,6 +122,7 @@ class ItemRules:
         # Every merchant copy may end up in the inventory; validated by number_grid_sites.
         from stoix.envs.number_grid_potions import merchants
         stock = [item_counts(m.get('items',{}),'Merchant items') for m in merchants(game_map)]
+        stock += [item_counts(game_map.get('event_items', {}), 'Event items')]
         used = {key for contents in inventories+stock for key,count in contents.items() if count}
         self.items = tuple(p for p in ITEMS if p['key'] in used)
         self.keys = tuple(p['key'] for p in self.items)

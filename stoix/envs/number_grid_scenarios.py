@@ -41,7 +41,8 @@ class ScenarioRules:
             raise ValueError('Scheduled armies require unique enemy indices')
         if any(type(e[k]) is not int or e[k] < 1 for e in self.events for k in ('spawn_turn', 'moves_per_turn')):
             raise ValueError('Scheduled spawn turns and movement must be positive integers')
-        self.scheduled = jnp.array([i in enemies for i in range(count)])
+        self.scheduled = jnp.array([i in enemies or i in game_map.get('scenario_event_enemies', [])
+                                    for i in range(count)])
         self.indices = jnp.array(enemies, jnp.int32)
         self.spawn_turns = jnp.array([e['spawn_turn'] for e in self.events], jnp.int32)
         self.moves = jnp.array([e['moves_per_turn'] for e in self.events], jnp.int32)

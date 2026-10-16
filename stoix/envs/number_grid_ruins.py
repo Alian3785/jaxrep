@@ -31,6 +31,7 @@ class RuinRules:
         self.ruins = ruin_geometry(game_map)
         self.count = len(self.ruins)
         occupied = {tuple(game_map['agent_position'])}
+        occupied.add(tuple(game_map.get('capital_position', game_map['agent_position'])))
         occupied.update(tuple(c['position']) for c in game_map.get('chests',[])+game_map.get('cities',[])+game_map.get('mines',[]))
         occupied.update(tuple(p) for p in game_map.get('obstacles',[]))
         if sites is not None:

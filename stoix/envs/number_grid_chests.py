@@ -18,6 +18,7 @@ class ChestRules:
         positions, loot = [], []
         occupied = {tuple(p) for p in game_map['opponent_positions']}
         occupied.add(tuple(game_map['agent_position']))
+        occupied.add(tuple(game_map.get('capital_position', game_map['agent_position'])))
         for chest in chests:
             if not isinstance(chest, dict):
                 raise ValueError('Each chest must contain position and potions')

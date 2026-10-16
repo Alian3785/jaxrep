@@ -33,7 +33,9 @@ def write_viewer(payload):
     (ROOT/'viewer.html').write_text(html,encoding='utf-8')
 
 
-def build(output=None):
+def build(output=None, episodes=3):
+    if episodes < 1:
+        raise ValueError('episodes must be positive')
     if output is None:
         env = NumberGrid()
         write_viewer({'map':MAP,'records':[],'result':None, 'construction':env.construction.metadata(), 'turn_rules':env.turn_metadata(), 'combat':env.combat_info, 'capital':env.capital.metadata(), 'potions':env.potion_rules.metadata(), 'equipment':env.item_rules.metadata if env.items_enabled else None, 'sites':env.site_rules.metadata if env.sites_enabled else None, 'recruitment':env.recruitment.metadata if env.recruitment_enabled else None, 'territory':env.territory.metadata if env.territory_enabled else None, 'ruins':env.ruins.metadata if env.ruins_enabled else None, 'spell_research':env.spell_research.metadata if env.spell_research_enabled else None, 'spell_casting':env.casting.metadata if env.spell_casting_enabled else None, 'battle_items':env.battle_item_rules.metadata if env.battle_items_enabled else None, 'unit_swaps':env.unit_swaps.metadata if env.unit_swaps_enabled else None})
@@ -81,7 +83,7 @@ def build(output=None):
             env.cast_quotes(state)))(states)
 
     records=[]
-    for index in range(3):
+    for index in range(episodes):
         seed=42+index
         device_rollout = rollout(jnp.int32(seed),index==0)
         (initial,mask,max_hp),final,(states,actions,rewards,masks,max_hps)=jax.device_get(device_rollout)
@@ -139,4 +141,7 @@ def build(output=None):
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--results',type=Path)
-    build(parser.parse_args().results)
+    parser.add_argument('--episodes', type=int, default=3,
+                        help='Replay count: first is argmax, subsequent episodes sample actions')
+    args = parser.parse_args()
+    build(args.results, episodes=args.episodes)

@@ -72,8 +72,9 @@ class TerritoryRules:
     def __init__(self, game_map, progression, start, site_rules=None, ruin_rules=None):
         """Prepare settlement, resource, obstacle, and faction growth tables from the map."""
         self.size = int(game_map['size'])
-        self.moving_enemies = bool(game_map.get('scheduled_enemies') or game_map.get('scripted_bot'))
-        self.capital = tuple(game_map['agent_position'])
+        self.moving_enemies = bool(game_map.get('scheduled_enemies') or game_map.get('scripted_bot')
+                                   or game_map.get('scenario_events'))
+        self.capital = tuple(game_map.get('capital_position', game_map['agent_position']))
         self.cities = list(game_map.get('cities', []))
         self.count = len(self.cities)
         self.start, self.end = start, start+self.count
@@ -95,7 +96,7 @@ class TerritoryRules:
         self.fort_bonus = jnp.array(CITY_BONUS,jnp.int32)
         self.costs = jnp.array(CITY_COST,jnp.int32)//lord['city_cost_divisor']
         obstacles = {tuple(p) for p in game_map.get('obstacles',[])}
-        reserved = {self.capital, *(tuple(c['position']) for c in self.cities),
+        reserved = {self.capital, tuple(game_map['agent_position']), *(tuple(c['position']) for c in self.cities),
                     *(tuple(m['position']) for m in self.mines),
                     *(tuple(p) for p in game_map['opponent_positions']),
                     *(tuple(c['position']) for c in game_map.get('chests',[]))}
@@ -176,17 +177,19 @@ class TerritoryRules:
         self.objective_cities = any(c.get('objective',False) for c in self.cities)
         if self.objective_cities:
             self.goal_cities = jnp.array([c.get('objective',False) for c in self.cities])
-        if game_map.get('objective_enemy') is not None or game_map.get('campaign_objective') == 'waves':
-            # Hunting scenarios finish when the target falls; cities remain usable.
+        if game_map.get('objective_enemy') is not None or game_map.get('campaign_objective') in ('waves', 'reach_position', 'capital'):
+            # Army/location objectives leave cities usable without requiring capture.
             self.objective_cities = False
             self.goal_cities = jnp.zeros(self.count, bool)
         self.enemy_city = jnp.array([next((i for i,c in enumerate(self.cities) if tuple(p)==tuple(c['position'])),-1) for p in enemy_positions],jnp.int32)
-        # Enemy capitals: an obstacle footprint and one guard stack on its open tile.
-        # The guard is never a victory goal and has no scripted bot or land spread.
+        # Enemy capitals may contain a garrison and a visiting army on one entrance.
+        # Guards are not ordinary army goals and have no scripted bot or land spread.
         self.enemy_capitals = list(game_map.get('enemy_capitals', []))
-        guards = [c.get('guard') for c in self.enemy_capitals]
-        if any(type(g) is not int or not 0 <= g < self.enemy_count
-               or list(enemy_positions[g]) != list(c.get('position', [])) for g, c in zip(guards, self.enemy_capitals)):
+        guard_pairs = [(g, c) for c in self.enemy_capitals for g in c.get('guards', [c.get('guard')])]
+        guards = [g for g, _ in guard_pairs]
+        if (any(not c.get('guards', [c.get('guard')]) for c in self.enemy_capitals)
+                or any(type(g) is not int or not 0 <= g < self.enemy_count
+                       or list(enemy_positions[g]) != list(c.get('position', [])) for g, c in guard_pairs)):
             raise ValueError('Each enemy capital needs a guard stack on its position')
         if len(set(guards)) != len(guards) or any(self.enemy_city[g] >= 0 for g in guards):
             raise ValueError('Capital guards must be distinct stacks outside cities')

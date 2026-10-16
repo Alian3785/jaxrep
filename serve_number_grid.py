@@ -247,7 +247,18 @@ def make_handler(service, port):
             filename = 'viewer.html' if path in ('/', '/viewer.html') else path.lstrip('/')
             if filename not in ('viewer.html', 'web/battle_app.js', 'web/battle.css'):
                 return self.send_error(404)
-            content = (ROOT / filename).read_bytes()
+            if filename == 'viewer.html' and service.agent is None:
+                # A newly selected manual map must not inherit a saved model's
+                # replay or its embedded, older UI. Metadata arrives via reset.
+                payload = json.dumps({'map': MAP, 'records': [], 'result': None},
+                                     ensure_ascii=False).replace('<', '\\u003c')
+                html = (ROOT/'web/battle.template.html').read_text(encoding='utf-8')
+                html = html.replace('__DATA__', payload)
+                html = html.replace('<style>/*__CSS__*/</style>', '<link rel="stylesheet" href="/web/battle.css">')
+                html = html.replace('<script>/*__APP__*/</script>', '<script src="/web/battle_app.js"></script>')
+                content = html.encode('utf-8')
+            else:
+                content = (ROOT / filename).read_bytes()
             kind = 'text/html' if filename.endswith('.html') else 'text/css' if filename.endswith('.css') else 'text/javascript'
             self.send_response(200)
             self.send_header('Content-Type', kind+'; charset=utf-8')
@@ -296,7 +307,7 @@ def make_handler(service, port):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', type=int, default=8769)
-    parser.add_argument('--map', help='current, default, default-green-dragon, default-blue-dragon, small, small-green-dragon, small-blue-dragon, super_last_stand, siege_train, wotans_retribution, trade_train, mirror_match (mirrow_match), or a map JSON path')
+    parser.add_argument('--map', help='current, default, default-green-dragon, default-blue-dragon, small, small-green-dragon, small-blue-dragon, super_last_stand, siege_train, wotans_retribution, trade_train, mirror_match (mirrow_match), bethrezens_retreat, bethrezens_retreat_no_events, bethrezens_retreat_capital, or a map JSON path')
     parser.add_argument('--model', help='Results folder with params.msgpack: enables agent hints and moves')
     parser.add_argument('--allow-cpu', action='store_true', help='Run human mode on the JAX CPU backend')
     args = parser.parse_args()

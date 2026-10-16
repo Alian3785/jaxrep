@@ -14,6 +14,8 @@ TAGS = ['numbergrid', 'ppo', 'jax']
 
 
 def add_tracking_arguments(parser):
+    parser.add_argument('--summary-interval', type=int, default=SUMMARY_INTERVAL,
+                        help='Transitions per console/cloud summary and optional checkpoint (default: 1000000)')
     parser.add_argument('--tracking', choices=('auto', 'wandb', 'wandb-offline', 'comet', 'disabled'),
                         default=os.environ.get('NUMBERGRID_TRACKING', 'auto'),
                         help='Auto: W&B cloud when it accepts the saved login, otherwise Comet with a saved '
@@ -62,6 +64,9 @@ class CometRun:
 class NumberGridTracking:
     def __init__(self, args):
         self.args = args
+        self.summary_interval = getattr(args, 'summary_interval', SUMMARY_INTERVAL)
+        if self.summary_interval <= 0:
+            raise ValueError('summary_interval must be positive')
         self.run = None
         self.output = None
         self.episodes = 0
@@ -98,7 +103,7 @@ class NumberGridTracking:
         self.output = Path(output)
         requested = self.args.tracking
         self.metadata = {'requested': requested, 'service': None, 'mode': 'disabled', 'url': None,
-                         'skipped': [], 'status': 'running', 'summary_interval': SUMMARY_INTERVAL}
+                         'skipped': [], 'status': 'running', 'summary_interval': self.summary_interval}
         self.metadata['campaign_metrics'] = {
             'source': 'Python reference Big_map/train_campaign.py::CampaignMetricsCallback',
             'episode_window': 100,
@@ -113,7 +118,7 @@ class NumberGridTracking:
         }
         name = self.args.run_name or self.output.name
         settings = {'training': config, 'environment': game_map, 'source_hashes': source_hashes,
-                    'logging': {'summary_interval': SUMMARY_INTERVAL,
+                    'logging': {'summary_interval': self.summary_interval,
                                 'campaign_metrics': self.metadata['campaign_metrics']}}
         begin = time.perf_counter()
         if requested in ('auto', 'wandb'):
@@ -215,7 +220,7 @@ class NumberGridTracking:
         """Combine existing host summaries; leave learner chunk sizes unchanged."""
         self.pending.append((row, step_size, elapsed))
         steps = sum(item[1] for item in self.pending)
-        if steps < SUMMARY_INTERVAL and not final:
+        if steps < self.summary_interval and not final:
             return None
         rows = [item[0] for item in self.pending]
         counts = ('episodes', 'episode_wins', 'battle_transition', 'player_battle_transition',
@@ -232,7 +237,7 @@ class NumberGridTracking:
         summary['episode_success_rate'] = summary['episode_wins'] / max(episodes, 1)
         summary['all_finite'] = all(item['all_finite'] for item in rows)
         excluded = {*counts, *means, 'episode_success_rate', 'all_finite',
-                    'training_steps', 'training_seconds'}
+                    'training_steps', 'session_training_steps', 'training_seconds'}
         for key in row.keys() - excluded:
             summary[key] = sum(item[key] * count for item, count, _ in self.pending) / steps
         seconds = sum(item[2] for item in self.pending)
@@ -255,9 +260,9 @@ class NumberGridTracking:
             'episodes/wins': wins,
             'episodes/wins_total': self.wins,
             'performance/steps_per_second': step_size / elapsed,
-            'performance/mean_steps_per_second': row['training_steps'] / row['training_seconds'],
+            'performance/mean_steps_per_second': row.get('session_training_steps', row['training_steps']) / row['training_seconds'],
             'performance/training_seconds': row['training_seconds'],
-            'performance/loop_steps_per_second': row['training_steps'] / loop_seconds,
+            'performance/loop_steps_per_second': row.get('session_training_steps', row['training_steps']) / loop_seconds,
         }
         if episodes:
             data.update({

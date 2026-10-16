@@ -50,6 +50,7 @@ def site_layout(game_map):
     sites = []
     occupied = {tuple(p) for p in game_map['opponent_positions']}
     occupied.add(tuple(game_map['agent_position']))
+    occupied.add(tuple(game_map.get('capital_position', game_map['agent_position'])))
     occupied.update(ruin_cells)
     occupied.update(tuple(c['position']) for c in game_map.get('chests', []))
     occupied.update(tuple(c['position']) for c in game_map.get('cities', [])+game_map.get('mines', []))
@@ -236,6 +237,7 @@ class SiteRules:
         cap = jnp.maximum(0, self.progression.required_xp(ids, levels)-1)
         missing = jnp.maximum(0, cap-state.unit_xp[:6])
         eligible = (ids != 0) & (state.hp[:6] > 0) & (price > 0)
+        eligible &= self.progression.level_up_allowed(ids, levels)
         amount = jnp.where(eligible, jnp.minimum(missing, state.gold//jnp.maximum(price, 1)), 0)
         # Price/XP, cap, missing XP, affordable XP, total cost (even when away).
         return jnp.stack((price, cap, missing, amount, amount*price), axis=-1)
@@ -265,6 +267,7 @@ class SiteRules:
             return state
         ids = state.item_inventory
         remove = ((ids >= 0) & (self.items.tables['category'][ids+1] == VALUABLE)
+                  & (self.items.tables['price'][ids+1] > 0)
                   & self.at(state, 'merchant') & ~state.in_battle & ~state.done)
         gold = jnp.sum(jnp.where(remove, self.items.tables['price'][ids+1]*SELL_PERCENT//100, 0))
         return remove_items(state, remove).replace(gold=state.gold+gold,

@@ -7,10 +7,25 @@ Run only on explicit request through scripts/run_gpu.sh; not part of core.
 import jax
 import jax.numpy as jnp
 import pytest
+import json
 
 from stoix.envs.number_grid import CONTINUE, DEFEND, SHOOT, NumberGrid, load_map
 from stoix.envs import number_grid_reference_rewards as rewards
 from stoix.tests.number_grid_fixtures import compiled_method
+
+
+def test_generator_reproduces_both_maps_without_leaking_retreat_limits():
+    """Regeneration must preserve the separate Capital rules and serialized maps."""
+    from scripts.build_bethrezens_retreat import ROOT, SNAPSHOT, build, capital_variant, dump
+    assert jax.default_backend() == 'gpu', 'Use scripts/run_gpu.sh with CUDA'
+    retreat = build(json.loads(SNAPSHOT.read_text(encoding='utf-8')))
+    generated = capital_variant(retreat)
+    assert retreat['max_building_level'] == retreat['max_spell_level'] == 3
+    assert retreat['max_hero_level'] == 5 and retreat['hero_leadership_capacity'] == 3
+    assert generated['max_building_level'] == generated['hero_leadership_capacity'] == 5
+    assert 'max_spell_level' not in generated and 'max_hero_level' not in generated
+    for name, game_map in (('bethrezens_retreat', retreat), ('bethrezens_retreat_capital', generated)):
+        assert dump(game_map) == (ROOT / 'maps' / f'{name}.json').read_text(encoding='utf-8')
 
 
 @pytest.fixture(scope='module')

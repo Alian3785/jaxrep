@@ -237,15 +237,16 @@ def validate_geometry(game_map):
 
 
 def capital_variant(game_map):
-    """User-requested alternative goal; retain the original armies and events."""
+    """Keep the Capital challenge's limits independent of the ordinary retreat."""
     result = deepcopy(game_map)
     if len(result['enemy_capitals']) != 1:
         raise ValueError('S101 capital mode expects the single Undead capital')
     for key in ('objective_position', 'objective_radius', 'objective_position_reward', 'objective_hero',
-                'objective_after_event'):
+                'objective_after_event', 'max_spell_level', 'max_hero_level'):
         result.pop(key)
     result.update(name='NumberGrid-74x74-bethrezens_retreat_capital',
                   display_name='Бегство Бетрезена — Capital', campaign_objective='capital',
+                  max_building_level=5, hero_leadership_capacity=5,
                   objective_capital=0, capital_objective_reward=102., capital_survival_round_reward=3.,
                   capital_guardian_reached_reward=10., capital_guardian_damage_rewards=[10., 10.],
                   reference_timeout_penalty=100.)

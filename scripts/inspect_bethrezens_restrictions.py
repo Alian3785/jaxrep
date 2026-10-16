@@ -11,13 +11,15 @@ from inspect_unit_sources import dbf
 
 
 def inspect(game):
-    files = {str(p.relative_to(game)).lower(): p for folder in ('Scens', 'Globals')
+    """Read S101 limits with platform-independent relative paths in the source manifest."""
+    files = {p.relative_to(game).as_posix().lower(): p for folder in ('Scens', 'Globals')
              for p in (game/folder).iterdir() if p.suffix.lower() == '.dbf'}
     hashes = {}
 
     def read(name):
+        """Read one DBF and retain its source digest under a portable path."""
         path = files[name]
-        hashes[str(path.relative_to(game))] = hashlib.sha256(path.read_bytes()).hexdigest()
+        hashes[path.relative_to(game).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
         return dbf(path)
 
     info = next(r for r in read('scens/sinfo.dbf') if r['NO_SCEN'] == 'S101SC0000')
@@ -32,7 +34,7 @@ def inspect(game):
     delta = sum(int(e['NUMBER']) for m in modifiers for e in effects
                 if e['BELONGS_TO'].lower() == m['MODIF_ID'].lower() and e['TYPE'] == '2')
     manual = game/'Scenedit manual/Disciples 2 Scenario Editor Manual.htm'
-    hashes[str(manual.relative_to(game))] = hashlib.sha256(manual.read_bytes()).hexdigest()
+    hashes[manual.relative_to(game).as_posix()] = hashlib.sha256(manual.read_bytes()).hexdigest()
     return dict(scenario='S101SC0000', name=info['NAME'],
         scenario_limits={key: int(info[key]) for key in ('MAX_UNIT', 'MAX_LEADER', 'MAX_CITY', 'MAX_SPELL')},
         bethrezen_instance=instance, bethrezen_profile=profile, modifiers=modifiers,

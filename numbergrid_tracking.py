@@ -291,7 +291,7 @@ class NumberGridTracking:
             data['turns/rest_penalty'] = float(row['rest_penalty'])
             data['turns/rest_penalty_total'] = self.rest_penalty_total
         excluded = {'all_finite', 'episodes', 'episode_wins', 'episode_success_rate',
-                    'mean_episode_length', 'mean_episode_return', 'training_steps', 'training_seconds',
+                    'mean_episode_length', 'mean_episode_return', 'training_steps', 'session_training_steps', 'training_seconds',
                     'battle_transition', 'player_battle_transition', 'enemy_battle_transition', 'automatic_battle_transition',
                     'battle_victory', 'building_constructed', 'turn_ended', 'rest_penalty'}
         data.update({f'ppo/{key}': value for key, value in row.items() if key not in excluded})

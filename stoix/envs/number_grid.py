@@ -784,6 +784,22 @@ class NumberGrid(Summoning, NumericNumberGrid):
             self.goal_enemies = jnp.zeros(self.territory.enemy_count, bool)
         elif self.territory_enabled and self.territory.has_capital_guards:
             self.goal_enemies = ~self.territory.capital_guards
+        # User request 2026-10-17: listed armies stay on the map, like capital
+        # guards, but clearing the map does not require defeating them.
+        optional = game_map.get('optional_enemies', [])
+        count = len(self.opponent_positions)
+        if (not isinstance(optional, list) or len(set(optional)) != len(optional)
+                or any(type(i) is not int or not 0 <= i < count for i in optional)):
+            raise ValueError('optional_enemies must list distinct valid enemy indices')
+        if optional:
+            if (self.objective_enemy is not None or self.position_objective or self.scripted_bot_objective
+                    or game_map.get('campaign_objective') == 'waves'
+                    or (self.territory_enabled and self.territory.objective_cities)):
+                raise ValueError('optional_enemies apply only to maps won by defeating every army')
+            required = jnp.ones(count, bool) if self.goal_enemies is None else self.goal_enemies
+            self.goal_enemies = required.at[jnp.array(optional)].set(False)
+            if not bool(jnp.any(self.goal_enemies)):
+                raise ValueError('At least one enemy army must remain a victory goal')
         self.reference_preserve_target_reward = game_map.get('reference_preserve_target_reward', False)
         if type(self.reference_preserve_target_reward) is not bool:
             raise ValueError('reference_preserve_target_reward must be true or false')

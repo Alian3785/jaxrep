@@ -25,9 +25,9 @@ def stack(states):
     return jax.tree.map(lambda *values: jnp.stack(values), *states)
 
 
-def test_48x48_map_with_46_squads_and_reference_profiles(env):
-    assert env.size == 48 and env.num_opponents == 46
-    assert len(set(map(tuple, MAP['opponent_positions']))) == 44
+def test_48x48_map_with_51_squads_and_reference_profiles(env):
+    assert env.size == 48 and env.num_opponents == 51
+    assert len(set(map(tuple, MAP['opponent_positions']))) == 49
     assert MAP['enemy_rosters'][24:27] == [
         ['orc','orc',None,None,None,None],
         ['goblin','orc','goblin',None,None,None],
@@ -53,7 +53,7 @@ def test_48x48_map_with_46_squads_and_reference_profiles(env):
             if key and UNITS[key].get('size', 1) == 2:
                 assert slot < 3 and roster[slot+3] is None
     initial, ts = compiled_method(env,'reset')(jax.random.PRNGKey(1))
-    assert ts.observation.shape == (1808,) and env.num_actions == 244
+    assert ts.observation.shape == (1843,) and env.num_actions == 244
     chex.assert_trees_all_equal(ts.observation[441+5*env.num_opponents:453+5*env.num_opponents], jnp.array([.5]*4+[0]*8))
     state = battle(env, 21)
     obs = compiled_method(env,'observation')(state)
@@ -62,6 +62,20 @@ def test_48x48_map_with_46_squads_and_reference_profiles(env):
     assert obs[traits_start+10*4] == 1  # role HEALER normalized by 4
     assert env.unit_traits(state)[10, 0] == HEALER
     assert jnp.all(jnp.isfinite(obs)) and initial.hp.shape == (12,)
+
+
+@pytest.mark.core
+def test_optional_laclaan_army_does_not_block_victory(env):
+    """User request 2026-10-17 (docs/MAP_48X48.md): Dark Laclaan stays on the map, not as a goal."""
+    initial, _ = compiled_method(env,'reset')(jax.random.PRNGKey(42))
+    goals = compiled_method(env,'_goals_left')
+    nobody = jnp.zeros_like(initial.alive)
+    assert jnp.flatnonzero(~env.goal_enemies).tolist() == [50]
+    assert not bool(goals(nobody.at[50].set(True), initial.scenario_spawned))
+    assert bool(goals(nobody.at[49].set(True), initial.scenario_spawned))
+    for changes in ({'optional_enemies': [51]}, {'objective_enemy': 0}):
+        with pytest.raises(ValueError, match='optional_enemies'):
+            NumberGrid(map_config={**MAP, **changes})
 
 
 def test_large_unit_formation_rejects_overlap_and_rear_anchors():

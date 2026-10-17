@@ -19,17 +19,20 @@ from stoix.envs.number_grid_unit_swaps import (
 from stoix.tests.number_grid_fixtures import compiled_method, hero_roster_state
 
 DEFAULT = load_map('default')
-# Both maps start with the reference party of a warrior ruler (docs/STARTING_PARTIES.md).
+# Default starts with the reference party of a warrior ruler (docs/STARTING_PARTIES.md); since
+# map v88 the current map starts with a mage, whose occupied slots come first in its own order.
 CURRENT_PARTY = with_starting_party(MAP)['hero_roster']
+WARRIOR_PARTY = with_starting_party({**MAP, 'lord_type': 'warrior'})['hero_roster']
 DEFAULT_PARTY = with_starting_party(DEFAULT)['hero_roster']
 
 
 def test_reference_layout_and_the_disabled_flag():
     # Occupied starting positions 7, 8, 9, 11 first, then 10 and 12 with every included position.
-    assert swap_pairs(DEFAULT_PARTY) == swap_pairs(CURRENT_PARTY) == (
+    assert swap_pairs(DEFAULT_PARTY) == swap_pairs(WARRIOR_PARTY) == (
         (0, 1), (0, 2), (0, 4), (1, 2), (1, 4), (2, 4), (0, 3), (1, 3), (2, 3), (3, 4),
         (0, 5), (1, 5), (2, 5), (3, 5), (4, 5))
-    for roster in (CURRENT_PARTY, DEFAULT_PARTY, ['titan', None, None, None, None, None], [None]*6):
+    assert swap_pairs(CURRENT_PARTY)[:6] == ((0, 2), (0, 3), (0, 5), (2, 3), (2, 5), (3, 5))
+    for roster in (CURRENT_PARTY, WARRIOR_PARTY, DEFAULT_PARTY, ['titan', None, None, None, None, None], [None]*6):
         assert sorted(swap_pairs(roster)) == list(combinations(range(6), 2))
     names = action_names(MAP)
     assert names[-15:] == unit_swap_action_names(with_starting_party(MAP)) == tuple(
@@ -38,7 +41,7 @@ def test_reference_layout_and_the_disabled_flag():
     off = {**MAP, 'unit_swaps': False}
     assert action_names(off) == names[:-15] and not any(n.startswith('swap_') for n in action_names(off))
     env = NumberGrid(map_config=off)
-    assert (env.num_actions, env.observation_size) == (229, 1684) and not hasattr(env, 'unit_swaps')
+    assert (env.num_actions, env.observation_size) == (229, 1827) and not hasattr(env, 'unit_swaps')
     with pytest.raises(ValueError, match='unit_swaps'):
         NumberGrid(map_config={**MAP, 'unit_swaps': 1})
     with pytest.raises(ValueError, match='version 42'):

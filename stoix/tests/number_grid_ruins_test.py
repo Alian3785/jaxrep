@@ -9,6 +9,7 @@ from stoix.envs.number_grid import MAP, SHOOT, CONTINUE, REST, POTION_START
 from stoix.envs.number_grid_combat import DAMAGE
 from stoix.envs.number_grid_items import ItemRules
 from stoix.envs.number_grid_potions import PotionRules
+from stoix.envs.number_grid_progression import BLOCKED_XP_PENALTY
 from stoix.envs.number_grid_ruins import RuinRules
 from stoix.tests.number_grid_fixtures import compiled_method, hero_roster_state
 
@@ -73,7 +74,10 @@ def test_ruin_victory_loot_once_strength_effect_and_reset(current_game):
     before = at_ruin(env,s)
     won,reward = finish(env,before,fight)
     strength = env.potion_rules.keys.index('strength')
-    assert reward == pytest.approx(1.25) and won.last_ruin == 0
+    # 1 for the battle and 0.25 for the ruin, minus the 2026-10-16 shaping penalty
+    # for each fighter whose victory XP is capped by an unbuilt upgrade building.
+    blocked = int(jnp.sum(env.progression.blocked_xp_observation(won)))
+    assert reward == pytest.approx(1.25-BLOCKED_XP_PENALTY*blocked) and won.last_ruin == 0
     assert won.ruin_looted.tolist() == [True] and not won.alive[45]
     assert won.potions[strength] == 1 and won.last_loot[strength] == 1
     assert won.gold == before.gold and not won.in_battle
@@ -163,7 +167,7 @@ def test_ruin_validation_and_observable_metadata(current_game,human_service):
     with pytest.raises(ValueError):
         PotionRules(dict(initial_potions={},ruins=[dict(potions={'unknown':1})]))
     observation = compiled_method(env,'observation')
-    assert observation(s).shape == (1808,) and env.num_actions == 244
+    assert observation(s).shape == (1843,) and env.num_actions == 244
     assert not jnp.array_equal(observation(s),observation(s.replace(ruin_looted=jnp.array([True]))))
     game = human_service.create(42,'legions')
     assert game['ruins']['ruins'][0]['enemy'] == 45

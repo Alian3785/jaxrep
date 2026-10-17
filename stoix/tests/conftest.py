@@ -71,6 +71,7 @@ def training_autoreset(request):
 def elemental_attack_game():
     config = copy.deepcopy(MAP)
     config['fear_paralysis_teams'] = ['red']
+    config['lord_type'] = 'warrior'
     config['hero_roster'] = ['possessed','duke','possessed','sentry','watcher',None]
     config['hero_units'] = 5
     config['hero_combat_stats'] = [{},{},{},dict(attack_type='weapon'),dict(attack_type='weapon')]

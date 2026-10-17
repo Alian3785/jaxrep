@@ -135,7 +135,8 @@ def test_native_flags_wards_and_retreating_summoner(current_game):
     summoned = state.replace(summon_owner=state.summon_owner.at[1].set(0),escaped=state.escaped.at[0].set(True))
     from types import SimpleNamespace
     from stoix.envs.number_grid_summoning import Summoning
-    linked = jax.jit(lambda s: Summoning._linked_summon_hp(SimpleNamespace(has_summons=True),s,s.hp))
+    linked = jax.jit(lambda s: Summoning._linked_summon_hp(
+        SimpleNamespace(has_summons=True, has_linked_summons=True),s,s.hp))
     assert linked(summoned)[1] == 0
 
 

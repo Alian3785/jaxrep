@@ -46,7 +46,8 @@ def test_maps_take_the_rulers_party_unless_the_roster_is_fixed():
     assert resolved['hero_roster'] == fixed and resolved['hero_units'] == 5
     legacy = load_map(str(ROOT/'maps/number_grid-24x24-v9-warrior-24-squads.json'))
     assert with_starting_party(legacy) is legacy
-    assert swap_pairs(with_starting_party(MAP)['hero_roster'])[:6] == ((0, 1), (0, 2), (0, 4), (1, 2), (1, 4), (2, 4))
+    assert swap_pairs(with_starting_party({**MAP, 'lord_type': 'warrior'})['hero_roster'])[:6] == (
+        (0, 1), (0, 2), (0, 4), (1, 2), (1, 4), (2, 4))
     with pytest.raises(ValueError, match='faction'):
         with_starting_party({**MAP, 'faction': 'unknown'})
 

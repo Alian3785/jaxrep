@@ -110,7 +110,7 @@ def act(env,state,action):
 
 
 @pytest.mark.core
-def test_complete_catalog_is_traceable_and_map_does_not_add_new_types():
+def test_complete_catalog_is_traceable_and_map_has_every_type():
     manifest = json.loads((Path(__file__).parents[2]/'docs/validation/unit-catalog.json').read_text())
     assert len(UNITS) == manifest['unit_count'] == 356
     assert len({r['game_id'] for r in UNITS.values()}) == 356
@@ -125,8 +125,14 @@ def test_complete_catalog_is_traceable_and_map_does_not_add_new_types():
         assert row['neutral'] == (row['faction'] == 'neutral')
         assert not row['upgrade_unavailable_reason']
         assert all(key in UNITS for key in row['upgrades']+row['summon_pool'])
-    excluded = {'Doppelganger','Summoner','Occultmaster','Lyf','Laclaan'}
-    assert all(UNITS[key]['unit_type'] not in excluded for roster in MAP['enemy_rosters'] for key in roster if key)
+    # Map v88 (user request 2026-10-17): every catalogue type fights for the enemy. The five
+    # types added last have one single-unit army each; Dark Laclaan is optional for victory.
+    on_map = [UNITS[key]['unit_type'] for roster in MAP['enemy_rosters'] for key in roster if key]
+    assert set(on_map) == {r['unit_type'] for r in UNITS.values()}
+    added = [roster[4] for roster in MAP['enemy_rosters'][46:]]
+    assert added == ['occultist','doppelganger','lyf','occultmaster','laclaan']
+    assert all(sum(k is not None for k in roster) == 1 for roster in MAP['enemy_rosters'][46:])
+    assert MAP['optional_enemies'] == [50] and MAP['lord_type'] == 'mage' and MAP['faction'] == 'legions'
     # Reference unit_dynamic_stats.py moves these secondary heals into the
     # runtime primary amount. Aleman's secondary amount grows but shatter
     # deliberately does not use that amount as its armor-reduction strength.

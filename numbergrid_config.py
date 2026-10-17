@@ -19,6 +19,9 @@ def make_config(total_timesteps=5_000_000, seed=42, chunk_updates=10, map_config
     })
     config.system.rollout_length = 100
     config.system.num_minibatches = 10
+    if game_map.get('target_rewards') is not None:
+        if game_map['target_rewards']['gamma'] != config.system.gamma:
+            raise ValueError('Target shaping gamma must equal the PPO discount')
     config.network.actor_network.pre_torso.layer_sizes = [128, 128]
     config.network.critic_network.pre_torso.layer_sizes = [128, 128]
     config.network.actor_network.pre_torso.activation = 'tanh'

@@ -4,7 +4,32 @@ import json
 from pathlib import Path
 
 
-def prepare_warm_start(checkpoint, total, game_map, config, root):
+def _reward_transfer(manifest_path, checkpoint_hash, old_map, game_map, hashes, changed, root):
+    """Accept only a recorded, reviewed reward/objective migration, never a silent bypass."""
+    manifest = json.loads(Path(manifest_path).read_text(encoding='utf-8'))
+    if manifest.get('kind') != 'reward-objective-transfer' or manifest.get('checkpoint_sha256') != checkpoint_hash:
+        raise ValueError('Reward transfer manifest does not identify this checkpoint')
+    map_changes = {key: dict(before=old_map.get(key), after=game_map.get(key))
+                   for key in old_map.keys() | game_map.keys() if old_map.get(key) != game_map.get(key)}
+    if (set(map_changes) - {'name', 'optional_enemies', 'target_rewards'}
+            or map_changes != manifest.get('map_changes') or not game_map.get('target_rewards')):
+        raise ValueError('Reward transfer changes something other than recorded rewards/goals')
+    allowed = {'stoix/envs/number_grid.py', 'stoix/envs/number_grid_casting.py', 'numbergrid_config.py',
+               'stoix/envs/number_grid_target_rewards.py'}
+    if set(changed) - allowed:
+        raise ValueError(f'Unrelated source changes in reward transfer: {changed}')
+    actual = {name: dict(before=hashes[name], after=hashlib.sha256((root / name).read_bytes()).hexdigest())
+              for name in changed}
+    if actual != manifest.get('source_changes'):
+        raise ValueError('Reward transfer source hashes differ from the reviewed manifest')
+    new_source = 'stoix/envs/number_grid_target_rewards.py'
+    new_hash = hashlib.sha256((root / new_source).read_bytes()).hexdigest()
+    if manifest.get('target_reward_source_sha256') != new_hash:
+        raise ValueError('Target reward implementation differs from the reviewed manifest')
+    return dict(manifest=str(Path(manifest_path).resolve()), **manifest)
+
+
+def prepare_warm_start(checkpoint, total, game_map, config, root, reward_transfer=None):
     """Validate a checkpoint and continue its LR schedule without restoring optimizer state."""
     path = Path(checkpoint).resolve()
     if path.name == 'params.msgpack' and (path.parent / 'results.json').exists():
@@ -25,7 +50,8 @@ def prepare_warm_start(checkpoint, total, game_map, config, root):
     initial = record['training_steps']
     if not 0 < initial < total:
         raise ValueError('Total budget must exceed the checkpoint training steps')
-    if json.loads((parent / 'map.json').read_text()) != game_map:
+    old_map = json.loads((parent / 'map.json').read_text())
+    if old_map != game_map and reward_transfer is None:
         raise ValueError('Warm-start map differs from the saved training map')
     hashes = json.loads((parent / 'source_hashes.json').read_text())
     # Only orchestration/logging changed to support this continuation. All
@@ -35,7 +61,12 @@ def prepare_warm_start(checkpoint, total, game_map, config, root):
                      'numbergrid_comet_dashboard.py', 'numbergrid_wandb_dashboard.py'}
     changed = [name for name, digest in hashes.items()
                if hashlib.sha256((root / name).read_bytes()).hexdigest() != digest]
-    if any(name not in orchestration for name in changed):
+    transfer = None
+    incompatible = [name for name in changed if name not in orchestration]
+    if reward_transfer is not None:
+        transfer = _reward_transfer(reward_transfer, record['sha256'], old_map, game_map,
+                                    hashes, incompatible, root)
+    elif incompatible:
         raise ValueError(f'Warm-start source incompatibility: {changed}')
     previous = json.loads((parent / 'config.json').read_text())
     rate_names = ('actor_lr', 'critic_lr')
@@ -72,5 +103,5 @@ def prepare_warm_start(checkpoint, total, game_map, config, root):
         checkpoint=str(path), parent_results=str(parent), checkpoint_sha256=record['sha256'],
         initial_training_steps=initial, target_training_steps=total,
         session_training_steps=total-initial, optimizer_restored=False,
-        environment_state_restored=False, source_changes=changed,
+        environment_state_restored=False, source_changes=changed, reward_transfer=transfer,
         base_learning_rates=base_rates, learning_rates=rates, learning_rate_schedule=schedule)

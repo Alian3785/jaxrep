@@ -42,6 +42,7 @@ from stoix.envs.number_grid_episode_reports import empty_event, episode_event
 from stoix.envs.number_grid_scenarios import ScenarioRules
 from stoix.envs.number_grid_script_events import ScriptEventRules
 from stoix.envs.number_grid_bot import ScriptedBotRules
+from stoix.envs.number_grid_target_rewards import TargetRewardRules
 from stoix.envs import number_grid_reference_rewards as reference_rewards
 from stoix.envs.number_grid_effects import effect_tables, effect_breaks, POISON, FROSTBITE, BLISTER, DISABLE, TRANSFORM, SHORT, LONG, armor_after_shreds, source_protection, advance_poison_queue, advance_periodic_queue, vampiric_heal
 from stoix.envs.number_grid_effects import disable_attack_accuracy
@@ -269,6 +270,8 @@ class BattleState(NumberGridState):
     enemy_spell_effects: jax.Array  # active debuff bitset per enemy stack
     enemy_wounds: jax.Array  # [stacks,6] HP lost by map stacks between battles
     summon_marks: jax.Array  # stacks a summon fought today: one hero-engage bonus
+    target_rewarded: jax.Array  # once-per-episode destruction bonuses for configured targets
+    target_potential: jax.Array  # cached progress at the previous decision boundary
     summon_battle: jax.Array  # the blue side is a lone summoned unit
     spell_party: jax.Array  # [4,6] stashed hero ids/levels/xp/hp during a summon battle
     spell_mods: jax.Array  # [12,5] battle modifiers fixed at engagement
@@ -870,6 +873,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         if self.basic_combat:
             self.terrain = TerrainRules(game_map, self.progression if self.progression_enabled else None)
         self.script_events = ScriptEventRules(game_map, self)
+        self.target_rewards = TargetRewardRules(self, game_map)
         self.reference_enemy_count = self.num_opponents - (
             len(game_map.get('scenario_event_enemies', [])) if not self.script_events.enabled else 0)
         self.restored_hp = jnp.concatenate((self.hero_full, jnp.zeros(6, jnp.int32)))
@@ -1022,6 +1026,8 @@ class NumberGrid(Summoning, NumericNumberGrid):
             siege_rewarded_kills=jnp.uint32(0),
             army_victory_rewarded=jnp.zeros(self.num_opponents if self.army_victory_level_reward else 0, bool),
             army_battle_level_strength=jnp.int32(0),
+            target_rewarded=jnp.zeros(self.target_rewards.count, bool),
+            target_potential=jnp.float32(0.),
             native_ids=jnp.zeros(12,jnp.int32), native_levels=jnp.zeros(12,jnp.int32),
             native_xp=jnp.zeros(12,jnp.int32), copied=jnp.zeros(12,bool),
             copy_stats=jnp.zeros((12,5),jnp.float32), copy_traits=jnp.zeros((12,4),jnp.uint32),
@@ -3097,8 +3103,10 @@ class NumberGrid(Summoning, NumericNumberGrid):
             final_win = self._campaign_won(next_state)
             next_state = next_state.replace(won=final_win,done=next_state.done|final_win)
             won = final_win
-        # reward_magic_enemy_defeat_multiplier=0: a summon victory pays no defeat/ruin reward.
-        reward = ((victory & ~summon_battle).astype(jnp.float32)
+        # Ordinary summon victories have no base bonus. Configured target rewards
+        # replace the hero's +1 and pay every method at the public step boundary.
+        ordinary_victory = victory & ~summon_battle & ~self.target_rewards.mask[jnp.maximum(state.enemy, 0)]
+        reward = (ordinary_victory.astype(jnp.float32)
                   + self._objective_reward(won, victory & ~summon_battle) - lost.astype(jnp.float32))
         reward -= jnp.where(round_limit_reached, self.round_limit_penalty, 0.)
         if self.reference_rewards:
@@ -3293,6 +3301,10 @@ class NumberGrid(Summoning, NumericNumberGrid):
             next_state = self.script_events.outcome(next_state)
         timed_out = ~state.done & next_state.done & ~next_state.won & ~next_state.lost
         reward -= self.episode_timeout_penalty * timed_out
+        if self.target_rewards.enabled:
+            # Exactly once per policy transition, after automatic turns and terminal checks.
+            next_state, target_reward = self.target_rewards.finish(self, state, next_state)
+            reward += target_reward
         ts = self._timestep(next_state, jnp.where(state.done, 0., reward))
         ts = ts.replace(extras={**ts.extras, 'battle_transition': counts[0],
                                 'player_battle_transition': counts[1],

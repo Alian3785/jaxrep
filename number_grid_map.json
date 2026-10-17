@@ -1,5 +1,5 @@
 {
-  "name": "NumberGrid-48x48-v88-all-unit-types",
+  "name": "NumberGrid-48x48-v89-three-target-rewards",
   "size": 48,
   "agent_position": [
     2,
@@ -1544,7 +1544,12 @@
   "spell_research": true,
   "spell_casting": true,
   "unit_swaps": true,
-  "optional_enemies": [
-    50
-  ]
+  "optional_enemies": [],
+  "target_rewards": {
+    "enemies": [21, 36, 50],
+    "victory": 20.0,
+    "completion": 30.0,
+    "progress_scale": 5.0,
+    "gamma": 0.99
+  }
 }

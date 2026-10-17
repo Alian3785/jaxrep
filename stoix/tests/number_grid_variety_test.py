@@ -65,15 +65,16 @@ def test_48x48_map_with_51_squads_and_reference_profiles(env):
 
 
 @pytest.mark.core
-def test_optional_laclaan_army_does_not_block_victory(env):
-    """User request 2026-10-17 (docs/MAP_48X48.md): Dark Laclaan stays on the map, not as a goal."""
+def test_laclaan_army_is_required_for_victory(env):
+    """User request 2026-10-18: all 51 armies, including Dark Laclaan, are goals."""
     initial, _ = compiled_method(env,'reset')(jax.random.PRNGKey(42))
     goals = compiled_method(env,'_goals_left')
     nobody = jnp.zeros_like(initial.alive)
-    assert jnp.flatnonzero(~env.goal_enemies).tolist() == [50]
-    assert not bool(goals(nobody.at[50].set(True), initial.scenario_spawned))
+    assert MAP['optional_enemies'] == []
+    assert not bool(goals(nobody, initial.scenario_spawned))
+    assert bool(goals(nobody.at[50].set(True), initial.scenario_spawned))
     assert bool(goals(nobody.at[49].set(True), initial.scenario_spawned))
-    for changes in ({'optional_enemies': [51]}, {'objective_enemy': 0}):
+    for changes in ({'optional_enemies': [51]}, {'optional_enemies': [0], 'objective_enemy': 0}):
         with pytest.raises(ValueError, match='optional_enemies'):
             NumberGrid(map_config={**MAP, **changes})
 

@@ -2,8 +2,8 @@
 
 For every added army: a legal approach must start a real battle, and random legal
 actions must finish it with finite rewards and observations and HP within bounds.
-Enemy copies and summons are recorded. The optional Dark Laclaan army must not
-block victory. Planner and random actions are never exposed to the learner.
+Enemy copies and summons are recorded. Required/optional goals follow the map.
+Planner and random actions are never exposed to the learner.
 """
 import argparse
 import json
@@ -60,8 +60,9 @@ def validate(episodes):
     assert env.construction.lord['id'] == 'mage' and env.construction.faction == 'legions'
     optional = game_map['optional_enemies']
     nobody = jnp.zeros_like(initial.alive)
-    # Only the optional army left: the map counts as cleared; any required army blocks it.
-    assert not bool(env._goals_left(nobody.at[jnp.array(optional)].set(True), initial.scenario_spawned))
+    # An empty map is cleared; optional armies alone cannot block completion.
+    optional_alive = nobody.at[jnp.array(optional, jnp.int32)].set(True)
+    assert not bool(env._goals_left(optional_alive, initial.scenario_spawned))
     for enemy in [enemy for enemy in ADDED if enemy not in optional]:
         assert bool(env._goals_left(nobody.at[enemy].set(True), initial.scenario_spawned))
     armies = []

@@ -99,3 +99,34 @@ def test_chain_still_rejects_configuration_changes(tmp_path, continued_checkpoin
     changed[section][key] = value
     with pytest.raises(ValueError, match=error):
         prepare_warm_start(checkpoint, 3000, {'name': 'same map'}, changed, tmp_path)
+
+
+def test_reward_transfer_requires_exact_reviewed_sources_and_map(tmp_path, continued_checkpoint):
+    config, checkpoint, _ = continued_checkpoint
+    parent = checkpoint.parent.parent
+    name = 'stoix/envs/number_grid.py'
+    new_name = 'stoix/envs/number_grid_target_rewards.py'
+    source = tmp_path / name
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b'reviewed integration')
+    (tmp_path / new_name).write_bytes(b'reviewed target rewards')
+    old_hash = hashlib.sha256(b'old integration').hexdigest()
+    (parent / 'source_hashes.json').write_text(json.dumps({name: old_hash}))
+    new_map = {'name': 'new map', 'target_rewards': {'enemies': [0]}}
+    manifest = dict(kind='reward-objective-transfer',
+        checkpoint_sha256=hashlib.sha256(checkpoint.read_bytes()).hexdigest(),
+        map_changes={'name': dict(before='same map', after='new map'),
+                     'target_rewards': dict(before=None, after=new_map['target_rewards'])},
+        source_changes={name: dict(before=old_hash, after=hashlib.sha256(source.read_bytes()).hexdigest())},
+        target_reward_source_sha256=hashlib.sha256((tmp_path / new_name).read_bytes()).hexdigest())
+    path = tmp_path / 'transfer.json'
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match='map differs'):
+        prepare_warm_start(checkpoint, 3000, new_map, config, tmp_path)
+    _, metadata = prepare_warm_start(checkpoint, 3000, new_map, config, tmp_path, path)
+    assert metadata['reward_transfer']['kind'] == 'reward-objective-transfer'
+    with pytest.raises(ValueError, match='something other'):
+        prepare_warm_start(checkpoint, 3000, {**new_map, 'enemy_hp': [1]}, config, tmp_path, path)
+    source.write_bytes(b'unreviewed change')
+    with pytest.raises(ValueError, match='source hashes'):
+        prepare_warm_start(checkpoint, 3000, new_map, config, tmp_path, path)

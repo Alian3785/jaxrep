@@ -39,6 +39,8 @@ def services(monkeypatch):
     comet.get_config.return_value.get_string.return_value = 'saved-key'
     monkeypatch.setitem(sys.modules, 'wandb', wandb)
     monkeypatch.setitem(sys.modules, 'comet_ml', comet)
+    monkeypatch.setattr('numbergrid_tracking.configure_wandb_dashboard', Mock(
+        return_value={'status': 'created', 'url': 'https://wandb.test/view'}))
     return wandb, comet, experiment
 
 
@@ -48,11 +50,19 @@ def start(tmp_path, *argv):
     return tracking
 
 
-def test_auto_tracking_prefers_reachable_wandb_cloud(tmp_path, services):
+@pytest.mark.parametrize('view_error', [None, RuntimeError('403 Forbidden')])
+def test_auto_tracking_prefers_reachable_wandb_cloud(tmp_path, services, view_error):
+    import numbergrid_tracking
     wandb, comet, _ = services
+    numbergrid_tracking.configure_wandb_dashboard.side_effect = view_error
     tracking = start(tmp_path)
     assert tracking.metadata['service'] == 'wandb' and tracking.metadata['mode'] == 'online'
-    assert tracking.metadata['url'] == 'https://wandb.test/run'
+    if view_error is None:  # the link opens the saved "Disciples II" view
+        assert tracking.metadata['url'] == 'https://wandb.test/view'
+        assert tracking.metadata['run_url'] == 'https://wandb.test/run'
+    else:  # a view error keeps the run and its default charts
+        assert tracking.metadata['url'] == 'https://wandb.test/run'
+        assert tracking.metadata['dashboard'] == {'status': 'failed', 'reason': 'RuntimeError: 403 Forbidden'}
     assert wandb.login.call_args.kwargs['verify'] is True
     comet.start.assert_not_called()
 
@@ -84,6 +94,8 @@ def test_auto_tracking_records_offline_wandb_without_comet_key(tmp_path, service
     comet.start.assert_not_called()
     assert tracking.metadata['service'] == 'wandb' and tracking.metadata['mode'] == 'offline'
     assert tracking.metadata['url'] is None
+    assert tracking.metadata['dashboard']['status'] == 'not_created'
+    assert tracking.metadata['dashboard']['after_sync'].startswith('python numbergrid_wandb_dashboard.py --project ')
     assert tracking.metadata['skipped'] == ['W&B cloud: not logged in',
                                             'Comet: RuntimeError: API key is not configured; run login-comet.cmd']
 
@@ -346,7 +358,7 @@ def test_comet_view_shows_requested_progress_and_omits_sold_item_count():
     assert sections[-1] == old['panels']['sections'][-1]  # preserve technical charts
     campaign = next(s for s in sections if s['title'] == 'campaign')
     names = [p['metricName'] for p in campaign['panels']]
-    assert len(names) == len(set(names)) == 32
+    assert len(names) == len(set(names)) == len(CAMPAIGN_CHARTS) == 44
     assert set(names) == set(CAMPAIGN_CHARTS)
     assert not any('sold_items' in name for name in names)
     assert 'campaign/completed/merchant_sale_gold_mean' in names
@@ -356,6 +368,42 @@ def test_comet_view_shows_requested_progress_and_omits_sold_item_count():
                  'campaign/completed/trainer_uses_mean'):
         panel = next(p for p in campaign['panels'] if p['metricName'] == name)
         assert panel['selectedXAxis'] == 'step' and panel['chartName'] != name
+
+
+def test_wandb_view_repeats_comet_sections_titles_and_axis(monkeypatch):
+    """The saved W&B view shows the Comet sections, metrics and Russian titles over training_steps."""
+    ws = pytest.importorskip('wandb_workspaces.workspaces')
+    import numbergrid_wandb_dashboard as dashboard
+    from numbergrid_comet_dashboard import compact_comet_view
+    saved, views = [], {}
+    def from_url(url):
+        assert url.endswith('/lentix/numbergrid?nw=disciplesii')
+        if 'view' not in views:
+            raise ValueError('Workspace `nw-disciplesii-v` not found in project `numbergrid`')
+        return views['view']
+    monkeypatch.setattr(ws.Workspace, 'from_url', from_url)
+    monkeypatch.setattr(ws.Workspace, 'save', lambda self: saved.append(self) or self)
+    monkeypatch.setattr(ws.Workspace, 'url', property(lambda self: 'https://wandb.test/view'))
+    created = dashboard.configure_wandb_dashboard('lentix', 'numbergrid')
+    workspace = saved[-1]
+    assert created['status'] == 'created' and created['url'] == 'https://wandb.test/view'
+    assert workspace.name == 'Disciples II' and workspace._internal_name == 'nw-disciplesii-v'
+    assert workspace.settings.x_axis == 'training_steps' and workspace.settings.smoothing_weight == 0
+    comet = compact_comet_view()['panels']['sections']
+    assert [s.name for s in workspace.sections] == [s['title'] for s in comet]
+    for section, expected in zip(workspace.sections, comet):
+        assert section.is_open == expected['expanded']
+        assert [(p.title, p.y, p.x) for p in section.panels] == [
+            (p['chartName'], [p['metricName']], 'training_steps') for p in expected['panels']]
+        layout = section.layout_settings
+        assert layout.columns * layout.rows >= len(section.panels)  # one page, as in Comet
+    # A later run regenerates rollout and campaign and keeps the other sections.
+    workspace.sections = [ws.Section(name='campaign'), ws.Section(name='notes')]
+    views['view'] = workspace
+    updated = dashboard.configure_wandb_dashboard('lentix', 'numbergrid')
+    assert updated['status'] == 'updated'
+    assert [s.name for s in saved[-1].sections] == ['rollout', 'campaign', 'notes']
+    assert len(saved[-1].sections[1].panels) == updated['campaign_charts'] == 44
 
 
 @pytest.fixture

@@ -7,9 +7,12 @@ import time
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from numbergrid_campaign import CampaignMetrics
 from numbergrid_comet_dashboard import compact_comet_metrics, configure_comet_dashboard
+from numbergrid_wandb_dashboard import configure_wandb_dashboard
 
 SUMMARY_INTERVAL = 1_000_000
-CHART_GROUPS = ('episodes', 'battles', 'construction', 'turns', 'ppo', 'performance', 'eval_argmax', 'eval_sample', 'campaign', 'eval', 'rollout', 'train')
+# Every W&B series uses training_steps as its X axis, like Comet's step.
+CHART_GROUPS = ('episodes', 'battles', 'construction', 'turns', 'ppo', 'performance', 'eval_argmax', 'eval_sample',
+                'campaign', 'eval', 'rollout', 'train', 'selection', 'best')
 TAGS = ['numbergrid', 'ppo', 'jax']
 
 
@@ -155,6 +158,8 @@ class NumberGridTracking:
             print('Comet charts: ' + self.metadata['url'], flush=True)
         elif self.metadata['mode'] == 'online':
             print('W&B charts: ' + self.metadata['url'], flush=True)
+            if self.metadata.get('run_url'):
+                print('W&B run: ' + self.metadata['run_url'], flush=True)
         elif self.metadata['mode'] == 'offline':
             print('W&B: offline recording; sync later with python -m wandb sync ' + self.metadata['directory'],
                   flush=True)
@@ -177,6 +182,22 @@ class NumberGridTracking:
                              directory=str(Path(run.dir).parent),
                              url=run.url if mode == 'online' else None,
                              version=wandb.__version__)
+        if mode != 'online':
+            command = 'python numbergrid_wandb_dashboard.py --project ' + self.args.wandb_project
+            if self.args.wandb_entity:
+                command += ' --entity ' + self.args.wandb_entity
+            self.metadata['dashboard'] = {'status': 'not_created', 'reason': 'offline recording',
+                                          'after_sync': command}
+            return
+        self.metadata['run_url'] = run.url
+        try:
+            self.metadata['dashboard'] = configure_wandb_dashboard(run.entity, run.project)
+            self.metadata['url'] = self.metadata['dashboard']['url']
+        except Exception as exc:
+            # As with Comet, a view error must not discard the run or interrupt
+            # training; the run page and its default charts stay available.
+            self.metadata['dashboard'] = {'status': 'failed', 'reason': describe(exc)}
+            print('W&B dashboard: ' + describe(exc), flush=True)
 
     def _start_comet(self, name, settings):
         os.environ.setdefault('COMET_DISABLE_AUTO_LOGGING', '1')  # no framework hooks

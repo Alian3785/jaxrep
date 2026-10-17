@@ -1,4 +1,8 @@
-"""Compact Comet charts; raw campaign telemetry stays in charts.jsonl."""
+"""Compact Comet charts; raw campaign telemetry stays in charts.jsonl.
+
+The chart lists and Russian titles here also define the W&B view
+(numbergrid_wandb_dashboard.py), so both services show the same panels.
+"""
 from copy import deepcopy
 from uuid import uuid4
 
@@ -73,8 +77,22 @@ CHART_TITLES = {
     'campaign/window/capital_guardian_rounds_when_reached_mean': 'Новых раундов — в эпизодах с Мизраэлем (последние 100)',
     'campaign/completed/capital_entry_strength_mean': 'Сила армии при первом входе к Мизраэлю — на эпизод',
     'campaign/window/capital_entry_strength_when_reached_mean': 'Сила армии при первом входе — среди дошедших (последние 100)',
+    'rollout/ep_rew_mean': 'Средняя награда — последние 100 эпизодов',
+    'rollout/ep_len_mean': 'Средняя длина — последние 100 эпизодов',
 }
 ROLLOUT_CHARTS = ('rollout/ep_rew_mean', 'rollout/ep_len_mean')
+# Collapsed sections below rollout and campaign; the W&B view reuses them.
+TECHNICAL_SECTIONS = (
+    ('performance', tuple(f'performance/{name}' for name in (
+        'steps_per_second', 'mean_steps_per_second', 'training_seconds',
+        'loop_steps_per_second'))),
+    ('train', tuple(f'train/{name}' for name in (
+        'policy_gradient_loss', 'value_loss', 'entropy_loss', 'approx_kl',
+        'clip_fraction', 'explained_variance'))),
+    *((group, tuple(f'{group}/{name}' for name in (
+        'return_mean', 'win_rate', 'length_mean', 'wins', 'episodes')))
+      for group in ('eval_argmax', 'eval_sample')),
+)
 VIEW_NAME = 'Disciples II'
 
 
@@ -126,20 +144,8 @@ def compact_comet_view(base=None):
     previous = panels.get('sections', [])
     other_sections = [s for s in previous if s['title'] not in ('rollout', 'campaign')]
     if not previous:
-        other_sections = [
-            chart_section('performance', (f'performance/{name}' for name in (
-                'steps_per_second', 'mean_steps_per_second', 'training_seconds',
-                'loop_steps_per_second'))),
-            chart_section('train', (f'train/{name}' for name in (
-                'policy_gradient_loss', 'value_loss', 'entropy_loss', 'approx_kl',
-                'clip_fraction', 'explained_variance'))),
-            *(chart_section(group, (f'{group}/{name}' for name in (
-                'return_mean', 'win_rate', 'length_mean', 'wins', 'episodes')))
-              for group in ('eval_argmax', 'eval_sample')),
-        ]
+        other_sections = [chart_section(title, metrics) for title, metrics in TECHNICAL_SECTIONS]
     rollout = chart_section('rollout', ROLLOUT_CHARTS, expanded=True)
-    rollout['panels'][0]['chartName'] = 'Средняя награда — последние 100 эпизодов'
-    rollout['panels'][1]['chartName'] = 'Средняя длина — последние 100 эпизодов'
     rollout['layout'][0].update(x=0, y=0, w=4)
     rollout['layout'][1].update(x=4, y=0, w=2)
     panels.update(version=5, isAutoRefreshEnabled=True, compareXAxis='step',

@@ -23,7 +23,9 @@ def prepare_warm_start(checkpoint, total, game_map, config, root):
     hashes = json.loads((parent / 'source_hashes.json').read_text())
     # Only orchestration/logging changed to support this continuation. All
     # recorded environment, learner and configuration sources must still match.
-    orchestration = {'benchmark_number_grid.py', 'numbergrid_tracking.py', 'numbergrid_warm_start.py'}
+    # Chart layouts of Comet and W&B are logging only.
+    orchestration = {'benchmark_number_grid.py', 'numbergrid_tracking.py', 'numbergrid_warm_start.py',
+                     'numbergrid_comet_dashboard.py', 'numbergrid_wandb_dashboard.py'}
     changed = [name for name, digest in hashes.items()
                if hashlib.sha256((root / name).read_bytes()).hexdigest() != digest]
     if any(name not in orchestration for name in changed):

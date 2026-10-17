@@ -90,6 +90,7 @@ requests==2.34.2
 typing-inspection==0.4.4
 urllib3==2.8.0
 wandb==0.30.0
+wandb-workspaces==0.4.13
 xxhash==4.0.1
 comet-ml==3.58.8
 configobj==5.0.9

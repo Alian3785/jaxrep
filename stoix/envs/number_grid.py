@@ -725,6 +725,12 @@ class NumberGrid(Summoning, NumericNumberGrid):
         self.scripted_bot_objective = game_map.get('campaign_objective') == 'scripted_bot'
         if self.scripted_bot_objective and not self.bot.enabled:
             raise ValueError('The scripted_bot objective requires an enabled bot')
+        # The Bethrezen Capital objective was removed. Refuse saved maps that still
+        # use it instead of silently making their capital guardians optional.
+        if game_map.get('campaign_objective') == 'capital' or any(k in game_map for k in (
+                'objective_capital', 'capital_objective_reward', 'capital_survival_round_reward',
+                'capital_guardian_reached_reward', 'capital_guardian_damage_rewards', 'reference_timeout_penalty')):
+            raise ValueError('The removed capital campaign objective and its reward fields are no longer supported')
         # Capital guards stay on the map but are never required for victory. With
         # objective cities only their capture counts, so no stack has to fall.
         self.goal_enemies = None

@@ -143,6 +143,9 @@ class SiteRules:
         self.buy_keys = tuple(key for _, key, _, _ in offers)
         if self.has_merchant and not self.buy_keys:
             raise ValueError('A merchant must have stock')
+        spell_names = [name for name in self.names if name.startswith('buy_spell_')]
+        if len(set(spell_names)) != len(spell_names):
+            raise ValueError('Each spell may be offered by only one spell shop')
         if len(set(self.names)) != len(self.names):
             raise ValueError('Merchant offers need distinct action names')
         self.item_offers = any(item for *_, item in offers)

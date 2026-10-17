@@ -7,11 +7,18 @@ from pathlib import Path
 def prepare_warm_start(checkpoint, total, game_map, config, root):
     """Validate a checkpoint and continue its LR schedule without restoring optimizer state."""
     path = Path(checkpoint).resolve()
-    parent = path.parent.parent
-    records = json.loads((parent / 'checkpoints.json').read_text())
-    record = next((r for r in records if (parent / r['path']).resolve() == path), None)
-    if record is None:
-        raise ValueError('Warm-start checkpoint is absent from its saved manifest')
+    if path.name == 'params.msgpack' and (path.parent / 'results.json').exists():
+        # Final weights of a finished run (user request 2026-10-17); results.json
+        # records their steps and hash.
+        parent = path.parent
+        result = json.loads((parent / 'results.json').read_text())
+        record = dict(training_steps=result['training_steps'], sha256=result['checkpoint_sha256'])
+    else:
+        parent = path.parent.parent
+        records = json.loads((parent / 'checkpoints.json').read_text())
+        record = next((r for r in records if (parent / r['path']).resolve() == path), None)
+        if record is None:
+            raise ValueError('Warm-start checkpoint is absent from its saved manifest')
     data = path.read_bytes()
     if hashlib.sha256(data).hexdigest() != record['sha256']:
         raise ValueError('Warm-start checkpoint hash mismatch')
@@ -49,16 +56,21 @@ def prepare_warm_start(checkpoint, total, game_map, config, root):
         if config['arch'][name] != previous['arch'][name]:
             raise ValueError(f'Warm-start configuration differs: {name}')
     parent_initial = parent_warm_start.get('initial_training_steps', 0)
+    decay = previous['system']['decay_learning_rates']
     fraction = (initial - parent_initial) / previous['arch']['total_timesteps']
-    if not 0 <= fraction < 1:
-        raise ValueError('Weights-only continuation requires an unfinished parent schedule')
-    rates = {name: previous['system'][name] * (
-        1 - fraction if previous['system']['decay_learning_rates'] else 1)
-        for name in rate_names}
+    if fraction == 1:
+        # A finished schedule has decayed to zero. Continue at the rate of one linear
+        # schedule over the whole cumulative budget, decaying over the remainder.
+        rates = {name: base_rates[name] * (1 - initial / total if decay else 1) for name in rate_names}
+        schedule = 'Finished parent: cumulative linear-schedule rate, decay over remaining budget'
+    elif 0 <= fraction < 1:
+        rates = {name: previous['system'][name] * (1 - fraction if decay else 1) for name in rate_names}
+        schedule = 'Continue from parent next-update rate, decay over remaining budget'
+    else:
+        raise ValueError('Warm-start steps exceed the parent schedule')
     return data, dict(
         checkpoint=str(path), parent_results=str(parent), checkpoint_sha256=record['sha256'],
         initial_training_steps=initial, target_training_steps=total,
         session_training_steps=total-initial, optimizer_restored=False,
         environment_state_restored=False, source_changes=changed,
-        base_learning_rates=base_rates, learning_rates=rates,
-        learning_rate_schedule='Continue from parent next-update rate, decay over remaining budget')
+        base_learning_rates=base_rates, learning_rates=rates, learning_rate_schedule=schedule)

@@ -60,6 +60,32 @@ def test_repeated_continuation_preserves_base_rates_and_advances_schedule(tmp_pa
     assert config == original
 
 
+@pytest.mark.parametrize('decay', [True, False])
+def test_finished_run_continues_from_final_weights_at_cumulative_rate(tmp_path, decay):
+    """User request 2026-10-17: a finished run's params.msgpack, verified through results.json."""
+    config = dict(system=dict(actor_lr=.001, critic_lr=.002, decay_learning_rates=decay, epochs=4),
+                  network=dict(layers=[128, 128]),
+                  arch=dict(num_envs=250, update_batch_size=1, num_updates_per_eval=10, total_timesteps=1000))
+    run = tmp_path / 'finished'
+    run.mkdir()
+    params = run / 'params.msgpack'
+    params.write_bytes(b'final weights')
+    documents = {'results.json': dict(training_steps=1000,
+                                      checkpoint_sha256=hashlib.sha256(b'final weights').hexdigest()),
+                 'config.json': config, 'map.json': {'name': 'same map'}, 'source_hashes.json': {}}
+    for name, value in documents.items():
+        (run / name).write_text(json.dumps(value), encoding='utf-8')
+    data, metadata = prepare_warm_start(params, 3000, {'name': 'same map'}, config, tmp_path)
+    assert data == b'final weights' and metadata['initial_training_steps'] == 1000
+    assert metadata['session_training_steps'] == 2000
+    # One linear schedule over 3000 steps would be at 2/3 of the base rate after 1000.
+    assert metadata['learning_rates'] == pytest.approx(
+        {'actor_lr': .001*2/3, 'critic_lr': .002*2/3} if decay else {'actor_lr': .001, 'critic_lr': .002})
+    params.write_bytes(b'tampered weights')
+    with pytest.raises(ValueError, match='hash mismatch'):
+        prepare_warm_start(params, 3000, {'name': 'same map'}, config, tmp_path)
+
+
 @pytest.mark.parametrize('section,key,value,error', [
     ('system', 'actor_lr', .002, 'base learning rates'),
     ('system', 'critic_lr', .004, 'base learning rates'),

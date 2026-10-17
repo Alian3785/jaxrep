@@ -57,9 +57,9 @@ def test_auto_tracking_prefers_reachable_wandb_cloud(tmp_path, services, view_er
     numbergrid_tracking.configure_wandb_dashboard.side_effect = view_error
     tracking = start(tmp_path)
     assert tracking.metadata['service'] == 'wandb' and tracking.metadata['mode'] == 'online'
+    assert tracking.metadata['run_url'] == 'https://wandb.test/run'
     if view_error is None:  # the link opens the saved "Disciples II" view
         assert tracking.metadata['url'] == 'https://wandb.test/view'
-        assert tracking.metadata['run_url'] == 'https://wandb.test/run'
     else:  # a view error keeps the run and its default charts
         assert tracking.metadata['url'] == 'https://wandb.test/run'
         assert tracking.metadata['dashboard'] == {'status': 'failed', 'reason': 'RuntimeError: 403 Forbidden'}
@@ -399,9 +399,12 @@ def test_wandb_view_repeats_comet_sections_titles_and_axis(monkeypatch):
         assert layout.columns * layout.rows >= len(section.panels)  # one page, as in Comet
     # A later run regenerates rollout and campaign and keeps the other sections.
     workspace.sections = [ws.Section(name='campaign'), ws.Section(name='notes')]
+    workspace._auto_generate_panels = True  # flags a user may have enabled in the view
+    workspace.settings.sort_panels_alphabetically = True
     views['view'] = workspace
     updated = dashboard.configure_wandb_dashboard('lentix', 'numbergrid')
     assert updated['status'] == 'updated'
+    assert saved[-1].auto_generate_panels is False and not saved[-1].settings.sort_panels_alphabetically
     assert [s.name for s in saved[-1].sections] == ['rollout', 'campaign', 'notes']
     assert len(saved[-1].sections[1].panels) == updated['campaign_charts'] == 44
 

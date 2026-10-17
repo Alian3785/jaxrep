@@ -65,6 +65,10 @@ def configure_wandb_dashboard(entity, project):
         workspace.name = VIEW_NAME
         workspace.sections = sections + [section for section in workspace.sections
                                          if section.name not in OWN_SECTIONS]
+    # A loaded view keeps its old panel generation and sorting flags; keep it
+    # curated and in the Comet order like a newly created one.
+    workspace._auto_generate_panels = False
+    workspace.settings.sort_panels_alphabetically = False
     workspace.settings.x_axis = X_AXIS
     workspace.settings.smoothing_type = 'none'
     workspace.settings.smoothing_weight = 0

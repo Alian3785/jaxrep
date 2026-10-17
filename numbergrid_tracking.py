@@ -189,9 +189,9 @@ class NumberGridTracking:
             self.metadata['dashboard'] = {'status': 'not_created', 'reason': 'offline recording',
                                           'after_sync': command}
             return
+        self.metadata['run_url'] = run.url
         try:
             self.metadata['dashboard'] = configure_wandb_dashboard(run.entity, run.project)
-            self.metadata['run_url'] = run.url
             self.metadata['url'] = self.metadata['dashboard']['url']
         except Exception as exc:
             # As with Comet, a view error must not discard the run or interrupt

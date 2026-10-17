@@ -10,7 +10,6 @@ from stoix.envs.number_grid_items import (
     ARTIFACT, BANNER, BOOK, BOOTS, ITEM_BY_KEY, SCROLL, STAFF, USABLE, VALUABLE, item_counts, remove_items,
 )
 from stoix.envs.number_grid_spells import shop_spell_ids, spell_book
-from stoix.envs.number_grid_bitsets import PackedBits
 
 BOUGHT, TRAINED, SPELL_BOUGHT = 38, 40, 51
 SELL_PERCENT = 20  # Installed Globals/GVars.DBF: SELL_RATIO.
@@ -68,7 +67,6 @@ def site_layout(game_map):
         occupied.update(cells)
         sites.append(dict(kind=kind, name=value.get('name', names[kind]), position=list(anchor),
                           size=[3, 3], footprint=cells,
-                          unavailable_spells=value.get('unavailable_spells', []),
                           interaction_tiles=[(r+i, c+j) for i, j in APPROACH_OFFSETS]))
     blocked = ruin_cells | {p for site in sites for p in site['footprint']} | {tuple(p) for p in game_map.get('obstacles', [])}
     for site in sites:
@@ -120,9 +118,7 @@ def trade_action_names(game_map):
         names += [prefix+key for key in _merchant_offers(merchant)]
     if any(k == 'trainer' for k, _ in entries):
         names += ['train_'+str(slot) for slot in range(6)]
-    spells = [o['spell'] for shop in shops for o in shop.get('spells', [])]
-    names += [('buy_spell_' if spells.count(offer['spell']) == 1 else f'buy_spell_{i}_') + offer['spell']
-              for i, shop in enumerate(shops) for offer in shop.get('spells', [])]
+    names += ['buy_spell_'+offer['spell'] for shop in shops for offer in shop.get('spells', [])]
     return tuple(names)
 
 
@@ -147,6 +143,9 @@ class SiteRules:
         self.buy_keys = tuple(key for _, key, _, _ in offers)
         if self.has_merchant and not self.buy_keys:
             raise ValueError('A merchant must have stock')
+        spell_names = [name for name in self.names if name.startswith('buy_spell_')]
+        if len(set(spell_names)) != len(spell_names):
+            raise ValueError('Each spell may be offered by only one spell shop')
         if len(set(self.names)) != len(self.names):
             raise ValueError('Merchant offers need distinct action names')
         self.item_offers = any(item for *_, item in offers)
@@ -175,8 +174,7 @@ class SiteRules:
         own, extras = spell_book(game_map)
         book = [row['id'] for row in own+extras]
         self.spell_sites = jnp.array([i for i, _ in spell_offers], jnp.int32)
-        self.spell_bitset = PackedBits(len(book))
-        self.spell_bits = self.spell_bitset.masks([1 << book.index(o['spell']) for _, o in spell_offers])
+        self.spell_bits = jnp.array([1 << book.index(o['spell']) for _, o in spell_offers], jnp.uint32)
         self.spell_initial_stock = jnp.array([o['stock'] for _, o in spell_offers], jnp.int32)
         self.spell_prices = jnp.array([o['price'] for _, o in spell_offers], jnp.int32)
         self.spell_offers = [dict(spell=o['spell'], price=o['price'], stock=o['stock'], site=i,
@@ -255,7 +253,7 @@ class SiteRules:
     def spell_available(self, state):
         # Reference _step_buy_spell_shop_spell: one copy, never a spell already known.
         return ((self.at_sites(state) & self.ready(state))[self.spell_sites] & (state.spell_stock > 0)
-                & (state.gold >= self.spell_prices) & ~self.spell_bitset.contains(state.learned_spells, self.spell_bits))
+                & (state.gold >= self.spell_prices) & ((state.learned_spells & self.spell_bits) == 0))
 
     def available(self, state):
         parts = []

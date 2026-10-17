@@ -198,7 +198,6 @@ def test_unrelated_maps_keep_level_rewards_disabled():
         assert not load_map(name).get('recruitment_reward_faction_only', False)
     assert not load_map('default-blue-dragon').get('capital_entry_level_reward', 0.)
     assert not load_map('default-blue-dragon').get('recruitment_reward_faction_only', False)
-    assert not load_map('empire_alliance_war').get('recruitment_reward_faction_only', False)
     assert not load_map('trade_train').get('army_victory_level_objective_only', False)
 
 

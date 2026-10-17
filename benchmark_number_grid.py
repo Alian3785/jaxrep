@@ -247,8 +247,7 @@ def run_training(args, tracking):
                         'stoix/envs/number_grid_scenarios.py', 'stoix/envs/number_grid_reference_rewards.py',
                         'stoix/envs/number_grid_script_events.py',
                         'stoix/envs/number_grid_hero_skills.py',
-                        'stoix/envs/number_grid_capital_training.py', 'stoix/envs/number_grid_bitsets.py',
-                        'stoix/envs/number_grid_enemy_loot.py',
+                        'stoix/envs/number_grid_capital_training.py',
                         'numbergrid_campaign.py', 'numbergrid_comet_dashboard.py', 'stoix/envs/number_grid_metrics.py',
                         'stoix/envs/number_grid_buildings.py', 'stoix/envs/data/buildings.json',
                         'stoix/envs/number_grid_spells.py', 'stoix/envs/number_grid_casting.py', 'stoix/envs/number_grid_unit_swaps.py', 'stoix/envs/number_grid_lords.py', 'stoix/envs/data/spells.json',
@@ -503,7 +502,7 @@ if __name__ == '__main__':
                    help='Save checkpoints at summary boundaries without evaluation or best-model selection')
     p.add_argument('--select-best', action='store_true',
                    help='Opt in to evaluation and checkpoint selection: save at summary boundaries, select on 128 fixed episodes, evaluate final and best on 1024 other episodes')
-    p.add_argument('--map', help='current, default, default-green-dragon, default-blue-dragon, default-capital, small, small-green-dragon, small-blue-dragon, super_last_stand, siege_train, wotans_retribution, trade_train, mirror_match (mirrow_match), bethrezens_retreat, bethrezens_retreat_no_events, bethrezens_retreat_capital, empire_alliance_war, or a saved map JSON')
+    p.add_argument('--map', help='current, default, default-green-dragon, default-blue-dragon, default-capital, small, small-green-dragon, small-blue-dragon, super_last_stand, siege_train, wotans_retribution, trade_train, mirror_match (mirrow_match), bethrezens_retreat, or a saved map JSON')
     p.add_argument('--no-unit-swaps', action='store_true',
                    help='Remove the party swap actions and features from the map (unit_swaps: false)')
     p.add_argument('--no-episode-reports', action='store_true',

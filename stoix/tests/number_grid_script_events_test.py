@@ -100,9 +100,9 @@ def test_totem_exchange_requires_item_and_living_stack_and_is_once(campaign):
     assert jnp.array_equal(repeat.item_inventory, after.item_inventory)
 
 
-def test_no_events_variant_keeps_shapes_and_static_start(campaign):
+def test_disabled_events_keep_shapes_and_static_start(campaign):
     env, _, _ = campaign
-    baseline = NumberGrid(map_config=load_map('bethrezens_retreat_no_events'))
+    baseline = NumberGrid(map_config={**load_map('bethrezens_retreat'), 'scenario_events_enabled': False})
     state, _ = compiled_method(baseline, 'reset')(jax.random.PRNGKey(42))
     assert baseline.observation_size == env.observation_size
     assert baseline.num_actions == env.num_actions

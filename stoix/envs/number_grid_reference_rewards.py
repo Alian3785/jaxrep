@@ -69,7 +69,7 @@ def world(env, before, after, action, rest):
     if env.spell_casting_enabled:
         reward += .005*(after.last_cast_spell >= 0)
         reward += .05*engage*before.summon_marks[jnp.maximum(after.enemy, 0)]
-    reward += jnp.sum(jax.lax.population_count(after.learned_spells & ~before.learned_spells)).astype(jnp.float32)
+    reward += (jax.lax.population_count(after.learned_spells & ~before.learned_spells)).astype(jnp.float32)
     reward += 12.*(after.hire_rewarded_capacity > before.hire_rewarded_capacity)
     healing = jnp.maximum(0, jnp.sum(after.hp[:6]-before.hp[:6]))
     reward += jnp.where(after.last_event == CAPITAL_HEAL,
@@ -144,8 +144,7 @@ def battle(env, before, after, hp, victory, lost, withdrawal, item_using, base_r
 def finish(env, before, after):
     """Once per decision: city/episode completion and permanent HP milestones."""
     terminal = after.done & ~before.done
-    reward = (-6.*(after.lost & ~before.lost)
-              - env.reference_timeout_penalty*(terminal & ~after.won & ~after.lost))
+    reward = -6.*(after.lost & ~before.lost) - 8.*(terminal & ~after.won & ~after.lost)
     reward += terminal*5.*jnp.sum(after.reference_defeated)/max(1, env.reference_enemy_count)
     if env.territory.objective_cities:
         old = jnp.sum(before.city_owned & env.territory.goal_cities)
@@ -153,8 +152,6 @@ def finish(env, before, after):
         reward += 40.*(new-old)-32.*((old == 0) & (new > 0))
     elif env.position_objective:
         reward += env.objective_position_reward*(after.won & ~before.won)
-    elif env.capital_objective:
-        reward += env.capital_objective_reward*(after.won & ~before.won)
     elif not env.reference_preserve_target_reward:
         multiplier = env.siege_rewards['victory_multiplier'] if env.siege_rewards else 1.
         reward += 8.*multiplier*(after.won & ~before.won)

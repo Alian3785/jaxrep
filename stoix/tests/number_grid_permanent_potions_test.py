@@ -80,8 +80,8 @@ def test_lifetime_history_survives_rest_death_revival_and_swap(current_game):
 @pytest.mark.parametrize('supply', [1, 6, 100])
 def test_growth_rebuild_is_independent_of_map_bottle_supply(current_game,supply):
     env,state,_,_=current_game
-    # Enemy loot alone must expose an action, but never enable multiple doses.
-    rules=PotionRules(dict(initial_potions={},enemy_loot=[dict(potions={'highfather':supply})]))
+    # A chest alone must expose an action, but never enable multiple doses.
+    rules=PotionRules(dict(initial_potions={},chests=[dict(potions={'highfather':supply})]))
     assert rules.keys==('highfather',) and rules.initial_counts.tolist()==[0]
     intrinsic=env._potion_intrinsic(state.unit_ids,state.unit_levels)
     doses=state.potion_doses.at[0,0].set(1)

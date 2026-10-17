@@ -89,7 +89,7 @@ def campaign_events(env, before, world, after, action, valid, battle_counts):
             # One successful purchase for one fighter, regardless of XP bought.
             values['trainer_uses'] = world_action & (action >= start) & (action < start + 6)
     if env.spell_research_enabled:
-        values['spells_learned'] = jnp.sum(jax.lax.population_count(world.learned_spells & ~before.learned_spells))
+        values['spells_learned'] = jax.lax.population_count(world.learned_spells & ~before.learned_spells)
     if env.spell_casting_enabled:
         cast = world_action & (world.last_cast_spell >= 0)
         values['spell_casts'] = cast

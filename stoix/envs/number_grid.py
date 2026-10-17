@@ -364,6 +364,10 @@ class NumberGrid(Summoning, NumericNumberGrid):
         self.starting_gold = game_map.get('starting_gold', 0)
         if type(self.starting_gold) is not int or self.starting_gold < 0:
             raise ValueError('starting_gold must be a nonnegative integer')
+        # Removed with Empire-Alliance War; refuse instead of silently changing the start or loot.
+        for removed in ('starting_mana', 'enemy_loot'):
+            if removed in game_map:
+                raise ValueError(f'{removed} is no longer supported')
         self.combat_rules_version = game_map.get('combat_rules_version', 1)
         if type(self.combat_rules_version) is not int or self.combat_rules_version not in (1, 2):
             raise ValueError('Unsupported combat_rules_version')

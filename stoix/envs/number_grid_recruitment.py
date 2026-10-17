@@ -49,6 +49,8 @@ class RecruitmentRules:
             raise ValueError('Mercenary camp requires a roster and site rules')
         if any(type(r.get('stock')) is not int or r['stock'] < 1 for r in roster):
             raise ValueError('Mercenary stock must be a positive integer')
+        if any('unlimited' in r for r in roster):
+            raise ValueError('Unlimited mercenary offers are no longer supported')
         self.initial_stock = jnp.array([r['stock'] for r in roster], jnp.int32)
         self.camp_count = len(camps)
         # Site index of each offer's camp; camps follow merchants/trainers in site order.

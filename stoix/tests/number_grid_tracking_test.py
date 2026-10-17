@@ -57,7 +57,7 @@ def test_auto_tracking_prefers_reachable_wandb_cloud(tmp_path, services, view_er
     numbergrid_tracking.configure_wandb_dashboard.side_effect = view_error
     tracking = start(tmp_path)
     assert tracking.metadata['service'] == 'wandb' and tracking.metadata['mode'] == 'online'
-    assert tracking.metadata['run_url'] == 'https://wandb.test/run'
+    assert 'run_url' not in tracking.metadata  # only the shared view is reported
     if view_error is None:  # the link opens the saved "Disciples II" view
         assert tracking.metadata['url'] == 'https://wandb.test/view'
     else:  # a view error keeps the run and its default charts

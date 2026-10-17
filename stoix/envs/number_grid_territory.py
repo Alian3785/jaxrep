@@ -177,7 +177,7 @@ class TerritoryRules:
         self.objective_cities = any(c.get('objective',False) for c in self.cities)
         if self.objective_cities:
             self.goal_cities = jnp.array([c.get('objective',False) for c in self.cities])
-        if game_map.get('objective_enemy') is not None or game_map.get('campaign_objective') in ('waves', 'reach_position', 'capital'):
+        if game_map.get('objective_enemy') is not None or game_map.get('campaign_objective') in ('waves', 'reach_position'):
             # Army/location objectives leave cities usable without requiring capture.
             self.objective_cities = False
             self.goal_cities = jnp.zeros(self.count, bool)

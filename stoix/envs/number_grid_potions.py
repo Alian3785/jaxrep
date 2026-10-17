@@ -74,7 +74,7 @@ def scenario_potions(game_map):
     if not isinstance(ruins,list):
         raise ValueError('ruins must be a list')
     totals = dict(initial)
-    for chest in chests+ruins+game_map.get('enemy_loot', []):
+    for chest in chests+ruins:
         if not isinstance(chest, dict):
             raise ValueError('Each chest must contain position and potions')
         contents = potion_counts(chest.get('potions',{}), 'Chest potions')

@@ -24,7 +24,7 @@ def cuda_only():
 
 @pytest.fixture(scope='module')
 def retreat():
-    env = NumberGrid(map_config=load_map('bethrezens_retreat_no_events'))
+    env = NumberGrid(map_config={**load_map('bethrezens_retreat'), 'scenario_events_enabled': False})
     state, _ = compiled_method(env, 'reset')(jax.random.PRNGKey(101))
     return env, state
 

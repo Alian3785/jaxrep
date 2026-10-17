@@ -2,7 +2,6 @@
   'use strict';
   const data=JSON.parse(document.getElementById('run-data').textContent);
   const $=id=>document.getElementById(id), fmt=n=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:3}).format(n);
-  const hasSpell=(bits,index)=>((Array.isArray(bits)?bits[Math.floor(index/32)]:bits) >>> (index%32))&1;
   const canvas=$('board'), ctx=canvas.getContext('2d');
   const manaMarkers={
     infernal:{letter:'П',color:'#c65320'},life:{letter:'Ж',color:'#25833c'},
@@ -115,7 +114,7 @@
     }));
     // Spells of another faction bought in a spell shop: no research, one cast per day.
     $('spell-list').append(...(casting?.spells||[]).slice(info.spells.length).filter(c=>!c.item_only).map((cast,k)=>{
-      const i=info.spells.length+k,learned=hasSpell(snap.state.learned_spells,i);
+      const i=info.spells.length+k,learned=(snap.state.learned_spells>>>i)&1;
       const card=document.createElement('article');card.className='spell-card'+(learned?' is-learned':'');
       card.hidden=$('spell-level').value!=='all'&&Number($('spell-level').value)!==cast.level;
       const title=document.createElement('h3');title.textContent=cast.name+' · '+['','I','II','III','IV','V'][cast.level];
@@ -239,12 +238,12 @@
     for(const [id,kind] of [['merchant-site','merchant'],['trainer-site','trainer'],['spell-shop','spell_shop']])$(id).hidden=!info.sites.some(x=>x.kind===kind);
     const recruits=recruitmentInfo(),quotes=snap.recruitment_quotes;
     $('mercenary-camp').hidden=!recruits?.offers.some(o=>o.mercenary);
-    $('mercenary-status').textContent=ready('mercenary')+' Нужен живой герой. Доступное количество указано у каждого бойца.';
+    $('mercenary-status').textContent=ready('mercenary')+' Нужен живой герой; запас не пополняется.';
     $('mercenary-offers').replaceChildren(...(recruits?.offers||[]).flatMap((offer,i)=>{
       if(!offer.mercenary||!quotes)return [];
       const card=document.createElement('article');card.className='site-offer';
       const stock=s.mercenary_stock[offer.stock_index],price=quotes.prices[i];
-      const name=document.createElement('b');name.textContent=offer.name+(offer.unlimited?' · без ограничения количества':' · осталось '+stock)+siteName('mercenary',offer.camp);
+      const name=document.createElement('b');name.textContent=offer.name+' · осталось '+stock+siteName('mercenary',offer.camp);
       const detail=document.createElement('small');detail.textContent='Лидерство '+offer.size+' · '+(offer.row==='front'?'передний ряд':'задний ряд');
       const reason=document.createElement('small');reason.textContent=!stock?'Все бойцы наняты':quotes.leadership[2]<offer.size?'Недостаточно лидерства':quotes.targets[i]<0?'Нет места в нужном ряду':s.gold<price?'Недостаточно золота':'';
       card.append(name,detail,button('Нанять · '+fmt(price)+' золота',offer.action),reason);return [card];
@@ -272,19 +271,13 @@
     $('spell-shop-offers').replaceChildren(...(info.spells||[]).map((offer,i)=>{
       const card=document.createElement('article');card.className='site-offer';
       const stock=s.spell_stock?.[i]??0,index=book.findIndex(c=>c.id===offer.spell),cast=book[index];
-      const learned=index>=0&&hasSpell(s.learned_spells,index);
+      const learned=index>=0&&((s.learned_spells>>>index)&1);
       const name=document.createElement('b');name.textContent=offer.name+' · '+['','I','II','III','IV','V'][cast?.level||0]+' · осталось '+stock;
       const detail=document.createElement('small');detail.textContent=cast?castEffect(cast)+' Применение: '+cast.cast_mana.map((n,j)=>n?manaNames[j]+' '+fmt(n):null).filter(Boolean).join(' · ')+'.':'';
       const reason=document.createElement('small');reason.textContent=!stock?'Продано':learned?'Уже изучено':s.gold<offer.price?'Недостаточно золота':'';
       card.append(name,detail,button('Купить · '+fmt(offer.price)+' золота',info.spell_start+i),reason);return card;
     }));
     $('trainer-status').textContent=ready('trainer')+' Последний XP до повышения нужно заработать в бою.';
-    $('spell-shop-offers').append(...(info.sites||[]).flatMap(site=>(site.unavailable_spells||[]).map(offer=>{
-      const card=document.createElement('article');card.className='site-offer';
-      const name=document.createElement('b');name.textContent=offer.name+' · '+site.name;
-      const detail=document.createElement('small');detail.textContent=offer.reason+' · исходная цена '+fmt(offer.price)+' золота';
-      card.append(name,detail);return card;
-    })));
     $('trainer-units').replaceChildren(...Array.from({length:6},(_,slot)=>{
       const q=snap.site_quotes?.train?.[slot];if(!snap.max_hp[slot]||!q||info.train_start==null)return null;
       const card=document.createElement('div');card.className='site-offer';
@@ -528,16 +521,15 @@
       roundRect(c*cell+1,r*cell+1,cell-2,cell-2,cell*.14,'#899088');
       ctx.fillStyle='#626c63';ctx.beginPath();ctx.moveTo((c+.16)*cell,(r+.8)*cell);ctx.lineTo((c+.48)*cell,(r+.2)*cell);ctx.lineTo((c+.84)*cell,(r+.8)*cell);ctx.fill();
     }
-    for(const [capitalIndex,capital] of (territoryInfo()?.enemy_capitals||[]).entries()){
+    for(const capital of territoryInfo()?.enemy_capitals||[]){
       const cells=capital.footprint||[];if(!cells.length)continue;
       const rows=cells.map(p=>p[0]),cols=cells.map(p=>p[1]),top=Math.min(...rows),left=Math.min(...cols);
       const {x:c,y:r,width:w,height:h}=displayRect([top,left],Math.max(...rows)-top+1,Math.max(...cols)-left+1,map.size);
       roundRect(c*cell+1,r*cell+1,w*cell-2,h*cell-2,cell*.2,'#ead0cd');
-      const objective=map.campaign_objective==='capital'&&capitalIndex===map.objective_capital;
-      ctx.strokeStyle=objective?'#d79a14':'#a5524f';ctx.lineWidth=objective?3:1.5;ctx.strokeRect(c*cell+2,r*cell+2,w*cell-4,h*cell-4);
+      ctx.strokeStyle='#a5524f';ctx.lineWidth=1.5;ctx.strokeRect(c*cell+2,r*cell+2,w*cell-4,h*cell-4);
       ctx.fillStyle='#7d2f2c';ctx.textAlign='center';ctx.textBaseline='middle';
       ctx.font='650 '+Math.round(cell*.7)+'px system-ui';ctx.fillText('Столица',(c+w/2)*cell,(r+h/2-.9)*cell);
-      ctx.font=Math.round(cell*.5)+'px system-ui';ctx.fillText(objective?'цель карты':'врага',(c+w/2)*cell,(r+h/2-.2)*cell);
+      ctx.font=Math.round(cell*.5)+'px system-ui';ctx.fillText('врага',(c+w/2)*cell,(r+h/2-.2)*cell);
     }
     for(const [i,mine] of (territoryInfo()?.mines||[]).entries()){
       const {x:c,y:r}=displayTile(mine.position,map.size),marker=manaMarkers[mine.kind];
@@ -810,7 +802,7 @@
     renderSpells(snap);
     renderMapCommands(snap);
     $('phase-label').textContent=s.in_battle?'Бой · отряд № '+(s.enemy+1):'Карта '+map.size+' × '+map.size;
-    // Ordinary army goals exclude capitals; the capital challenge overrides this below.
+    // A capital guard is not a victory goal; count only the stacks that must fall.
     // With objective cities (reference "cities" goal) count those cities instead.
     const guards=new Set((territoryInfo()?.enemy_capitals||[]).flatMap(c=>c.guards||[c.guard]));
     const targetEnemy=Number.isInteger(map.objective_enemy)?map.objective_enemy:null;
@@ -828,16 +820,6 @@
         const responded=s.script_events_fired?.[event]&&s.script_objective_ready;
         const pending=(s.pending_encounters||[]).some((v,i)=>v&&s.alive[i]);
         $('remaining-label').textContent+=!responded?' · нужно пережить ответный ход засады':pending||s.in_battle?' · завершите начатые бои':' · ответный ход засады состоялся';
-      }
-    }else if(map.campaign_objective==='capital'){
-      const capital=territoryInfo().enemy_capitals[map.objective_capital];
-      $('remaining').textContent=(capital.guards||[capital.guard]).filter(remainingEnemy).length;
-      $('remaining-label').textContent='защитников столицы '+capital.name+' осталось · +'+map.capital_survival_round_reward+' за полный пережитый раунд со стражем';
-      if(map.capital_guardian_reached_reward){
-        $('remaining-label').textContent+=' · первое вступление: +'+map.capital_guardian_reached_reward+(s.capital_rewarded?.[0]?' (получено)':'');
-      }
-      for(const [i,amount] of (map.capital_guardian_damage_rewards||[]).entries()){
-        if(amount)$('remaining-label').textContent+=' · снято '+(i+1)+'/3 HP стража: +'+amount+(s.capital_rewarded?.[i+1]?' (получено)':'');
       }
     }
     $('chest-status').hidden=!(map.chests||[]).length;
@@ -873,7 +855,6 @@
     if(isCopier(s.actor))$('attack-hint').textContent='Копирование: выберите доступного бойца любой стороны. Большие юниты и стражи недоступны.';
     if(isSummoner(s.actor))$('attack-hint').textContent='Призыв: выберите свободную клетку своего отряда. Большое существо занимает переднюю и заднюю клетки линии.';
     const winText=map.campaign_objective==='reach_position'?'Победа! Герой достиг цели ⚑.'
-      :map.campaign_objective==='capital'?'Победа! Защитники столицы '+(territoryInfo()?.enemy_capitals?.[map.objective_capital]?.name||'противника')+' разгромлены.'
       :targetEnemy!==null?'Победа! Цель повержена: '+targetName+'.':goalCities.length?'Победа! Целевые города захвачены.':'Победа! Карта очищена.';
     const message=s.won?winText:s.lost?'Ваш отряд погиб. Начните новую игру.':s.done?'Достигнут лимит. Начните новую игру.':s.in_battle?'Выбирайте цели и берегите свой отряд.':!s.movement_points?'Очки перемещения закончились. Можно использовать зелья, строить или отдохнуть.':'Шаг на клетку врага — атака. Рядом с отрядом можно пройти без боя.';
     $('message').textContent=message;

@@ -50,11 +50,6 @@ class RecruitmentRules:
         if any(type(r.get('stock')) is not int or r['stock'] < 1 for r in roster):
             raise ValueError('Mercenary stock must be a positive integer')
         self.initial_stock = jnp.array([r['stock'] for r in roster], jnp.int32)
-        if any(type(r.get('unlimited', False)) is not bool for r in roster):
-            raise ValueError('Mercenary unlimited must be boolean')
-        # Native UNIT_UNIQ=false offers can be hired repeatedly; do not emulate
-        # infinity with a large inventory or decrement their one availability flag.
-        self.unlimited = jnp.array([r.get('unlimited', False) for r in roster], bool)
         self.camp_count = len(camps)
         # Site index of each offer's camp; camps follow merchants/trainers in site order.
         self.offer_sites = (sites.kind_sites['mercenary'][jnp.array([i for i, _, _ in offers], jnp.int32)]
@@ -75,8 +70,8 @@ class RecruitmentRules:
         self.costs = jnp.array(costs, jnp.int32)
         self.sizes = progression.sizes[self.ids]
         self.front = jnp.array([r['role'] == 'melee' for r in rows])
-        if any(r.get('hero') for r in rows[5:]):
-            raise ValueError('Mercenary camps cannot hire another party leader')
+        if any(r.get('hero') or r.get('size', 1) != 1 for r in rows[5:]):
+            raise ValueError('Reference mercenary camps only hire small non-hero units')
         buildings = {r['original_id'].lower(): i for i, r in enumerate(construction.rows)}
         required = [buildings.get(r['game_data']['ENROLL_B'].lower(), -1) if i < 5 else -1 for i, r in enumerate(rows)]
         self.required = jnp.array(required, jnp.int32)
@@ -101,7 +96,6 @@ class RecruitmentRules:
                 key=k, name=r['name'], unit_id=progression.ids[k], cost=int(self.costs[i]),
                 size=r.get('size', 1), action=start+i, mercenary=i >= 5,
                 stock_index=i-5 if i >= 5 else None, camp=int(self.offer_sites[i-5]) if i >= 5 else None,
-                unlimited=bool(roster[i-5].get('unlimited', False)) if i >= 5 else False,
                 row='front' if r['role'] == 'melee' else 'back',
                 building=construction.rows[required[i]]['name'] if required[i] >= 0 else None,
                 building_action=18+required[i] if required[i] >= 0 else None)
@@ -184,8 +178,7 @@ class RecruitmentRules:
             cost = jnp.where(hiring, self.prices(s)[offer], 0)
             if self.initial_stock.size:
                 index = jnp.clip(offer-5, 0, self.initial_stock.size-1)
-                consumed = hiring & (offer >= 5) & ~self.unlimited[index]
-                s = s.replace(mercenary_stock=s.mercenary_stock.at[index].add(-consumed.astype(jnp.int32)))
+                s = s.replace(mercenary_stock=s.mercenary_stock.at[index].add(-((hiring & (offer >= 5)).astype(jnp.int32))))
             s = s.replace(unit_ids=s.unit_ids.at[target].set(uid), unit_levels=s.unit_levels.at[target].set(level),
                 native_ids=s.native_ids.at[target].set(uid), native_levels=s.native_levels.at[target].set(level),
                 hp=s.hp.at[target].set(hp), gold=s.gold-cost,

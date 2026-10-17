@@ -6,7 +6,6 @@ See docs/BETHREZENS_RETREAT.md for source coordinates and adaptations.
 import argparse
 import ast
 from collections import deque
-from copy import deepcopy
 import json
 import sys
 from pathlib import Path
@@ -206,8 +205,8 @@ def validate_geometry(game_map):
     if reserved & blocked:
         raise ValueError(f'Obstacle overlaps an object: {sorted(reserved & blocked)}')
     approaches = []
-    for kind in ('ruins', 'merchants', 'spell_shops', 'mercenaries', 'trainers'):
-        for obj in game_map.get(kind, []):
+    for kind in ('ruins', 'merchants', 'spell_shops'):
+        for obj in game_map[kind]:
             r, c = obj['position']
             cells = {(r+i, c+j) for i in range(3) for j in range(3)}
             allowed = {tuple(obj['entrance'])} if kind == 'ruins' else set()
@@ -215,7 +214,7 @@ def validate_geometry(game_map):
                 raise ValueError('Building footprint overlaps another object: '+obj['name'])
             blocked.update(cells)
             reserved -= allowed
-            if kind == 'ruins' and obj['entrance'] != [r+2, c+2]:
+            if kind == 'ruins':
                 candidates = [(r+3, obj['entrance'][1]+dc) for dc in (-1, 0, 1)]
             else:
                 candidates = [(r+i, c+j) for i, j in ((1, 3), (2, 3), (3, 1), (3, 2), (3, 3))]
@@ -236,39 +235,15 @@ def validate_geometry(game_map):
             raise ValueError('No accessible building approach: '+name)
 
 
-def capital_variant(game_map):
-    """Keep the Capital challenge's limits independent of the ordinary retreat."""
-    result = deepcopy(game_map)
-    if len(result['enemy_capitals']) != 1:
-        raise ValueError('S101 capital mode expects the single Undead capital')
-    for key in ('objective_position', 'objective_radius', 'objective_position_reward', 'objective_hero',
-                'objective_after_event', 'max_spell_level', 'max_hero_level'):
-        result.pop(key)
-    result.update(name='NumberGrid-74x74-bethrezens_retreat_capital',
-                  display_name='Бегство Бетрезена — Capital', campaign_objective='capital',
-                  max_building_level=5, hero_leadership_capacity=5,
-                  objective_capital=0, capital_objective_reward=102., capital_survival_round_reward=3.,
-                  capital_guardian_reached_reward=10., capital_guardian_damage_rewards=[10., 10.],
-                  reference_timeout_penalty=100.)
-    # The original exit event is no longer a win marker in this challenge.
-    result['scenario_events'] = [e for e in result['scenario_events'] if e['id'] != 'S101EV0012']
-    return result
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--snapshot', type=Path, default=SNAPSHOT)
     parser.add_argument('--output', type=Path, default=ROOT/'maps/bethrezens_retreat.json')
-    parser.add_argument('--capital-output', type=Path, default=ROOT/'maps/bethrezens_retreat_capital.json')
-    parser.add_argument('--only-retreat', action='store_true', help='Leave the separate capital challenge unchanged')
     args = parser.parse_args()
     snapshot = json.loads(args.snapshot.read_text(encoding='utf-8'))
     game_map = build(snapshot)
     args.output.write_text(dump(game_map), encoding='utf-8')
     print('Wrote', args.output)
-    if not args.only_retreat:
-        args.capital_output.write_text(dump(capital_variant(game_map)), encoding='utf-8')
-        print('Wrote', args.capital_output)
 
 
 if __name__ == '__main__':

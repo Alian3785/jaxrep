@@ -7,6 +7,8 @@ MAP = json.loads((Path(__file__).parent / 'fixtures/basic_combat_map.json').read
 # Mechanics suites keep the party they were written for: the cultist stands back left.
 # A new game takes the ruler's reference party (number_grid_starting_party_test.py).
 SCENARIO_PARTY = ['possessed', 'duke', 'possessed', 'cultist', None, None]
+# They also keep the warrior ruler of that party; the current map itself starts with a mage.
+SCENARIO_LORD = 'warrior'
 
 
 def replace_base_state(state, **changes):
@@ -19,7 +21,7 @@ def replace_base_state(state, **changes):
 @lru_cache(maxsize=1)
 def current_environment():
     from stoix.envs.number_grid import MAP as CURRENT, NumberGrid
-    return NumberGrid(map_config={**CURRENT, 'hero_roster': SCENARIO_PARTY})
+    return NumberGrid(map_config={**CURRENT, 'hero_roster': SCENARIO_PARTY, 'lord_type': SCENARIO_LORD})
 
 
 @lru_cache(maxsize=None)

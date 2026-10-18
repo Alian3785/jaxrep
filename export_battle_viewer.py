@@ -21,10 +21,36 @@ def state_dict(state):
             for f in dataclasses.fields(state) if f.name != 'battle_key'}
 
 
+def pack(payload):
+    """Store each distinct frame value once; web/battle_app.js expands shared-replay-values-v1.
+
+    Most state fields repeat between consecutive decisions, so long replays stay loadable.
+    """
+    pool, index = [], {}
+
+    def ref(value):
+        key = json.dumps(value, ensure_ascii=False, separators=(',', ':'))
+        if key not in index:
+            index[key] = len(pool)
+            pool.append(value)
+        return index[key]
+
+    records = []
+    for record in payload['records']:
+        frame_keys = sorted({key for frame in record['frames'] for key in frame if key != 'state'})
+        state_keys = list(record['frames'][0]['state'])
+        records.append(dict(label=record['label'], seed=record['seed'], policy=record['policy'],
+            frame_keys=frame_keys, state_keys=state_keys,
+            fields=[[ref(frame[key]) if key in frame else -1 for key in frame_keys] for frame in record['frames']],
+            states=[[ref(frame['state'][key]) for key in state_keys] for frame in record['frames']]))
+    metadata = {key: value for key, value in payload.items() if key != 'records'}
+    return dict(format='shared-replay-values-v1', metadata=metadata, pool=pool, records=records)
+
+
 def write_viewer(payload):
     # Keep the standalone page compact; all replays remain in trajectories.json.
     if payload.get("records"):
-        payload = {**payload, "records": [min(payload["records"], key=lambda r: len(r["frames"]))]}
+        payload = pack({**payload, "records": [min(payload["records"], key=lambda r: len(r["frames"]))]})
     encoded = json.dumps(payload,ensure_ascii=False,separators=(',',':')).replace('<','\\u003c')
     template = (ROOT/'web/battle.template.html').read_text(encoding='utf-8')
     html = template.replace('__DATA__',encoded)
@@ -33,7 +59,8 @@ def write_viewer(payload):
     (ROOT/'viewer.html').write_text(html,encoding='utf-8')
 
 
-def build(output=None, episodes=3):
+def build(output=None, episodes=3, seeds=None):
+    """Argmax with seed 42, then sampled seeds 43...; explicit seeds are all sampled."""
     if episodes < 1:
         raise ValueError('episodes must be positive')
     if output is None:
@@ -83,9 +110,9 @@ def build(output=None, episodes=3):
             env.cast_quotes(state)))(states)
 
     records=[]
-    for index in range(episodes):
-        seed=42+index
-        device_rollout = rollout(jnp.int32(seed),index==0)
+    plan = [(seed, False) for seed in seeds] if seeds else [(42+index, index == 0) for index in range(episodes)]
+    for seed, greedy in plan:
+        device_rollout = rollout(jnp.int32(seed),greedy)
         (initial,mask,max_hp),final,(states,actions,rewards,masks,max_hps)=jax.device_get(device_rollout)
         statuses,penalties,experiences,stats,quotes,potion_quotes,commands,movement_caps,site_quotes,recruitment_quotes,territory_quotes,travel_costs,spell_statuses,cast_quotes=jax.device_get(snapshot_fields(device_rollout[2][0]))
         frames=[{'state':state_dict(initial),'action':None,'reward':0.,'total_reward':0.,
@@ -129,8 +156,10 @@ def build(output=None, episodes=3):
                            'unit_stats':stats[t].tolist() if env.basic_combat else None})
         assert bool(final.done)
         outcome='победа' if bool(final.won) else 'поражение' if bool(final.lost) else 'лимит'
-        records.append({'label':f'{"Argmax" if index==0 else "Выборка"} · {outcome} · {int(final.step_count)} шагов',
-                        'seed':seed,'policy':'argmax' if index==0 else 'sample','frames':frames})
+        defeated=int(np.sum(~np.asarray(final.alive) & np.asarray(final.scenario_spawned)))
+        records.append({'label':f'{"Argmax" if greedy else "Выборка"} · {outcome} · {int(final.step_count)} шагов'
+                                 f' · {defeated} армий · награда {total:.1f}',
+                        'seed':seed,'policy':'argmax' if greedy else 'sample','frames':frames})
     payload={'map':game_map,'records':records,'result':result,'source':'Restored PPO checkpoint; JAX rollouts',
              'construction':env.construction.metadata(), 'turn_rules':env.turn_metadata(), 'combat':env.combat_info, 'capital':env.capital.metadata(), 'potions':env.potion_rules.metadata(), 'equipment':env.item_rules.metadata if env.items_enabled else None, 'sites':env.site_rules.metadata if env.sites_enabled else None, 'recruitment':env.recruitment.metadata if env.recruitment_enabled else None, 'territory':env.territory.metadata if env.territory_enabled else None, 'ruins':env.ruins.metadata if env.ruins_enabled else None, 'spell_research':env.spell_research.metadata if env.spell_research_enabled else None, 'spell_casting':env.casting.metadata if env.spell_casting_enabled else None, 'battle_items':env.battle_item_rules.metadata if env.battle_items_enabled else None, 'unit_swaps':env.unit_swaps.metadata if env.unit_swaps_enabled else None}
     (output/'trajectories.json').write_text(json.dumps(payload,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
@@ -143,5 +172,7 @@ if __name__=='__main__':
     parser.add_argument('--results',type=Path)
     parser.add_argument('--episodes', type=int, default=3,
                         help='Replay count: first is argmax, subsequent episodes sample actions')
+    parser.add_argument('--seeds', type=int, nargs='+',
+                        help='Record sampled episodes with these seeds instead of the default replays')
     args = parser.parse_args()
-    build(args.results, episodes=args.episodes)
+    build(args.results, episodes=args.episodes, seeds=args.seeds)

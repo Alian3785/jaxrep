@@ -12,7 +12,7 @@ import pytest
 
 from stoix.envs.number_grid import MAP, REST
 from stoix.envs.number_grid_buildings import BuildingRules
-from stoix.envs.number_grid_casting import CAST_REWARD, SPELL_CAST, SpellCastRules, cast_action_names
+from stoix.envs.number_grid_casting import SPELL_CAST, SpellCastRules, cast_action_names
 from stoix.envs.number_grid_items import ITEM_BY_KEY, SCROLL, STAFF, ItemRules
 from stoix.envs.number_grid_spell_items import SCROLL_MAGE_COST, SCROLL_MAGE_HIRED, SPELL_ITEMS
 from stoix.envs.number_grid_spells import SPELL_BY_ID, SpellResearchRules
@@ -99,7 +99,7 @@ def test_hire_scroll_consumption_and_staff_access(current_game):
 
     # A scroll: no mana, no daily limit, the first copy burns; it hits like the book spell.
     once, reward, _ = cast(hired, action['ignis_mare_scroll'])
-    assert reward == pytest.approx(CAST_REWARD) and once.last_event == SPELL_CAST
+    assert reward == pytest.approx(rules.reward) and once.last_event == SPELL_CAST
     assert once.last_cast_spell == ids.index('g000ss0043') and once.last_cast_item == keys.index('ignis_mare_scroll')
     assert once.enemy_wounds[0, 0] == 15 and (once.mana == MANA).all() and not once.spell_casts.any()
     assert jnp.sum(once.item_inventory == items.keys.index('ignis_mare_scroll')) == 1
@@ -148,7 +148,7 @@ def test_default_map_hires_reader_and_reads_scroll(default_game):
     ward, ts = step(hired, jnp.int32(rules.item_start))
     assert ward.item_inventory[0] == -1 and ward.spell_effects == 1 << row and ward.last_event == SPELL_CAST
     assert ward.last_cast_item == 0 and (ward.mana == hired.mana).all()
-    assert float(ts.reward) == pytest.approx(CAST_REWARD-env.step_cost)
+    assert float(ts.reward) == pytest.approx(rules.reward-env.step_cost)
     # The same ward from the book does not stack until the next rest.
     learned = ward.replace(learned_spells=jnp.uint32(1 << row), mana=MANA)
     assert not mask(learned)[rules.start+row] and mask(step(learned, jnp.int32(REST))[0])[rules.start+row]

@@ -1,5 +1,5 @@
 {
-  "name": "NumberGrid-48x48-v87-original-effects",
+  "name": "NumberGrid-48x48-v89-three-target-rewards",
   "size": 48,
   "agent_position": [
     2,
@@ -190,6 +190,26 @@
     [
       9,
       25
+    ],
+    [
+      17,
+      1
+    ],
+    [
+      30,
+      1
+    ],
+    [
+      1,
+      46
+    ],
+    [
+      37,
+      46
+    ],
+    [
+      43,
+      46
     ]
   ],
   "opponent_numbers": [
@@ -238,6 +258,11 @@
     1,
     1,
     1,
+    1,
+    1,
+    1,
+    1,
+    1,
     1
   ],
   "max_steps": 5000,
@@ -246,7 +271,7 @@
   "mask_walls": true,
   "map_seed": 42,
   "number_generation": "Historical labels retained and copied with added squads. Numbers do not affect battles.",
-  "reconstruction_note": "48x48: 41 field armies plus two cities, each with a guard and garrison on its entrance tile. Static obstacles leave accessible approaches. Five mana types and one gold mine use territorial ownership. One 3x3 ruin at [7,23] holds Troll and Goblin Archer and grants one Potion of Strength; cleared ruins remain blocked. Terrain: 26 road cells, 32 forest cells, and one connected empty 50-cell lake at rows 13-18 / columns 2-11. Living flight costs 2 everywhere; dead leaders double terrain costs.",
+  "reconstruction_note": "48x48: 41 field armies plus two cities, each with a guard and garrison on its entrance tile. Static obstacles leave accessible approaches. Five mana types and one gold mine use territorial ownership. One 3x3 ruin at [7,23] holds Troll and Goblin Archer and grants one Potion of Strength; cleared ruins remain blocked. Terrain: 26 road cells, 32 forest cells, and one connected empty 50-cell lake at rows 13-18 / columns 2-11. Living flight costs 2 everywhere; dead leaders double terrain costs. v88: armies 47-51 add Doppelganger, Summoner, Occultmaster, Lyf and Dark Laclaan; Laclaan is optional for victory; the default ruler is a Legions mage. See scripts/add_current_map_unit_types.py.",
   "battle_mode": true,
   "hero_hp": 120,
   "battle_max_rounds": 75,
@@ -297,7 +322,12 @@
     1,
     3,
     3,
-    2
+    2,
+    1,
+    1,
+    1,
+    1,
+    1
   ],
   "enemy_hp": [
     100,
@@ -345,7 +375,12 @@
     100,
     100,
     100,
-    100
+    100,
+    75,
+    120,
+    250,
+    310,
+    2000
   ],
   "battle_recovery": "Living units regenerate by native unit + lord + either fort or own-land bonus, rounded up once. City/capital recovery and recruitment require ownership; paid healing/revival still require the capital temple. Victory preserves wounds. Entry with a living hero captures cities only after both defenders are defeated.",
   "battle_observation_version": 44,
@@ -723,6 +758,46 @@
       "goblin_archer",
       null,
       null
+    ],
+    [
+      null,
+      null,
+      null,
+      null,
+      "occultist",
+      null
+    ],
+    [
+      null,
+      null,
+      null,
+      null,
+      "doppelganger",
+      null
+    ],
+    [
+      null,
+      null,
+      null,
+      null,
+      "lyf",
+      null
+    ],
+    [
+      null,
+      null,
+      null,
+      null,
+      "occultmaster",
+      null
+    ],
+    [
+      null,
+      null,
+      null,
+      null,
+      "laclaan",
+      null
     ]
   ],
   "unit_progression": true,
@@ -849,7 +924,7 @@
   },
   "faction_recruitment": true,
   "territory": true,
-  "lord_type": "warrior",
+  "lord_type": "mage",
   "cities": [
     {
       "name": "Пепельный дозор",
@@ -1468,5 +1543,13 @@
   },
   "spell_research": true,
   "spell_casting": true,
-  "unit_swaps": true
+  "unit_swaps": true,
+  "optional_enemies": [],
+  "target_rewards": {
+    "enemies": [21, 36, 50],
+    "victory": 20.0,
+    "completion": 30.0,
+    "progress_scale": 5.0,
+    "gamma": 0.99
+  }
 }

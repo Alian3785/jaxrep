@@ -53,11 +53,12 @@ def validate(name):
         assert bool(arrived.in_battle) or bool(arrived.done)
         assert int(arrived.enemy) == event['enemy']
         assert bool(jnp.isfinite(ts.reward))
-    if env.objective_enemy is not None and not env.scenario.enabled:
+    targets = ([env.objective_enemy] if env.objective_enemy is not None
+               else game_map.get('target_rewards', {}).get('enemies', []))
+    for target in targets if not env.scenario.enabled else []:
         # Static dragon objectives: verify a legal approach and real engagement.
         # This structural preflight does not claim a winning battle trajectory.
         original, _ = reset(jax.random.PRNGKey(42))
-        target = env.objective_enemy
         position = game_map['opponent_positions'][target]
         blocked = env.territory.blocked_grid.reshape(env.size, env.size)
         direction, offset = next((i, d) for i, d in enumerate(env.directions.tolist())
@@ -69,11 +70,17 @@ def validate(name):
         assert bool(arrived.in_battle) or bool(arrived.done)
         assert int(arrived.enemy) == target and bool(jnp.isfinite(ts.reward))
         assert bool(env._goals_left(original.alive, original.scenario_spawned))
-        assert not bool(env._goals_left(original.alive.at[target].set(False), original.scenario_spawned))
+        if env.objective_enemy is not None:
+            assert not bool(env._goals_left(original.alive.at[target].set(False), original.scenario_spawned))
+        else:
+            alone = jnp.zeros_like(original.alive).at[target].set(True)
+            assert bool(env._goals_left(alone, original.scenario_spawned))
+            assert not bool(env._goals_left(jnp.zeros_like(alone), original.scenario_spawned))
     result = dict(map=name, gpu=str(jax.devices()[0]), armies=env.num_opponents,
                   scheduled_armies=len(env.scenario.events), actions=env.num_actions,
                   observation_size=env.observation_size, structural_passability=True,
-                  preflight='passed', training_transitions=0)
+                  preflight='passed', training_transitions=0,
+                  target_rewards=game_map.get('target_rewards'), optional_enemies=game_map.get('optional_enemies', []))
     print(json.dumps(result), flush=True)
     jax.clear_caches()
     return result

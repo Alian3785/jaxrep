@@ -65,6 +65,9 @@ class SpellCastRules:
     def __init__(self, game_map, research, construction, progression, territory, ruins, start, items=None):
         """Prepare spell actions, target eligibility, and costs from the campaign catalogue."""
         own, extras = spell_book(game_map)
+        # Target shaping pays for consequences, not for casting/engaging itself.
+        self.reward = 0. if game_map.get('target_rewards') is not None else CAST_REWARD
+        self.summon_engage_reward = 0. if game_map.get('target_rewards') is not None else SUMMON_ENGAGE_REWARD
         self.rows = _rows(game_map)
         # Book rows have research/shop state, daily limits and actions; every row
         # (item-only spells included) has one effect bit, so the same spell never stacks.
@@ -193,8 +196,8 @@ class SpellCastRules:
             raise ValueError('Level V staves need the ruler level check')
         self.observation_size = (self.book_count + self.count + 2 * self.enemy_count + 5
                                  + (2 + self.item_count if self.item_count else 0))
-        self.metadata = dict(start=start, daily_limit=self.limit, reward=CAST_REWARD,
-            summon_engage_reward=SUMMON_ENGAGE_REWARD,
+        self.metadata = dict(start=start, daily_limit=self.limit, reward=self.reward,
+            summon_engage_reward=self.summon_engage_reward,
             spells=[dict(id=row['id'], name=row['name'], **row['cast'],
                          action=start + i if i < self.book_count else None,
                          level=row['level'], description=row['description'],
@@ -408,7 +411,7 @@ class SpellCastRules:
                 last_cast_item=jnp.where(by_item, item, -1).astype(jnp.int32),
                 last_event=jnp.where(hiring, SCROLL_MAGE_HIRED, state.last_event))
         state = self._summon(state, summon, index, t)
-        return state, CAST_REWARD * valid.astype(jnp.float32), summon
+        return state, self.reward * valid.astype(jnp.float32), summon
 
     def _summon(self, state, summon, index, target):
         """Stash the hero roster; the summoned unit fights alone at its native level."""
@@ -428,7 +431,7 @@ class SpellCastRules:
         """Hero attack on a stack a summon already fought this day."""
         marked = engage & state.summon_marks[jnp.maximum(state.enemy, 0)]
         return state.replace(summon_marks=state.summon_marks.at[jnp.maximum(state.enemy, 0)].set(
-            state.summon_marks[jnp.maximum(state.enemy, 0)] & ~engage)), SUMMON_ENGAGE_REWARD * marked.astype(jnp.float32)
+            state.summon_marks[jnp.maximum(state.enemy, 0)] & ~engage)), self.summon_engage_reward * marked.astype(jnp.float32)
 
     def rest(self, state, resting):
         """New day: limits/effects expire; living wounded enemies regenerate."""

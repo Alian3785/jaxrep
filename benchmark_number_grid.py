@@ -213,9 +213,12 @@ def run_training(args, tracking):
         game_map = {**game_map, 'unit_swaps': False}
     config = make_config(total, seed, map_config=game_map)
     initial_steps, warm_start, warm_bytes = 0, None, None
+    if getattr(args, 'reward_transfer', None) and not getattr(args, 'warm_start', None):
+        raise ValueError('--reward-transfer requires --warm-start')
     if getattr(args, 'warm_start', None):
         warm_bytes, warm_start = prepare_warm_start(
-            args.warm_start, total, game_map, OmegaConf.to_container(config, resolve=True), ROOT)
+            args.warm_start, total, game_map, OmegaConf.to_container(config, resolve=True), ROOT,
+            reward_transfer=getattr(args, 'reward_transfer', None))
         initial_steps = warm_start['initial_training_steps']
         config = make_config(total-initial_steps, seed, map_config=game_map)
         for name, rate in warm_start['learning_rates'].items():
@@ -248,6 +251,7 @@ def run_training(args, tracking):
                         'stoix/envs/number_grid_script_events.py',
                         'stoix/envs/number_grid_hero_skills.py',
                         'stoix/envs/number_grid_capital_training.py',
+                        'stoix/envs/number_grid_target_rewards.py',
                         'numbergrid_campaign.py', 'numbergrid_comet_dashboard.py', 'numbergrid_wandb_dashboard.py',
                         'stoix/envs/number_grid_metrics.py',
                         'stoix/envs/number_grid_buildings.py', 'stoix/envs/data/buildings.json',
@@ -497,6 +501,7 @@ if __name__ == '__main__':
     p.add_argument('--seed', type=int, help='Training seed; omitted: generate a fresh random seed for each run')
     p.add_argument('--output')
     p.add_argument('--warm-start', help='Intermediate checkpoint to continue from; total-timesteps is cumulative. Restores actor/critic weights, resets optimizer and episodes.')
+    p.add_argument('--reward-transfer', help='Reviewed JSON manifest for a rewards/goals-only warm-start migration; all mechanics and network checks remain enforced')
     p.add_argument('--evaluate', action='store_true',
                    help='Opt in to final argmax and sampled evaluation after training; disabled by default')
     p.add_argument('--save-checkpoints', action='store_true',

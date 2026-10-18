@@ -10,7 +10,7 @@ from stoix.envs.number_grid import (
 )
 from stoix.envs.number_grid_buildings import BuildingRules, FACTIONS
 from stoix.envs.number_grid_casting import (
-    CAST_REWARD, KINDS, NEUTRAL, SPELL_CAST, SPELL_KILL, SUMMON_CAST, SUMMON_ENGAGE_REWARD,
+    KINDS, NEUTRAL, SPELL_CAST, SPELL_KILL, SUMMON_CAST,
     SpellCastRules, cast_action_names,
 )
 from stoix.envs.number_grid_combat import ATTACK_TYPES, HP, DAMAGE, ACCURACY, ARMOR, INITIATIVE
@@ -113,7 +113,7 @@ def test_damage_hits_nearest_field_stack_spends_mana_and_daily_limit(current_gam
     state = ready(env, initial, 1, 2)
     assert mask(state)[rules.start+1] and mask(state)[rules.start+2] and not mask(state)[rules.start]
     burned, ts = step(state, jnp.int32(rules.start+1))
-    assert float(ts.reward) == pytest.approx(CAST_REWARD-env.step_cost)
+    assert float(ts.reward) == pytest.approx(rules.reward-env.step_cost)
     assert burned.last_event == SPELL_CAST and burned.last_spell_target == 0 and burned.last_spell_amount == 15
     chex.assert_trees_all_equal(burned.enemy_wounds[0], jnp.array([15, 0, 0, 0, 0, 0], jnp.int32))
     assert not jnp.any(burned.enemy_wounds[1:])
@@ -155,7 +155,7 @@ def test_kill_by_spell_removes_stack_without_victory_reward(current_game):
     killed, ts = step(state, jnp.int32(rules.start+1))
     assert killed.last_event == SPELL_KILL and killed.last_spell_amount == 10
     assert not killed.alive[0] and killed.number == state.number+1 and not killed.won
-    assert float(ts.reward) == pytest.approx(CAST_REWARD-env.step_cost)
+    assert float(ts.reward) == pytest.approx(rules.reward-env.step_cost)
     retarget, _ = step(killed.replace(spell_casts=jnp.zeros_like(killed.spell_casts)), jnp.int32(rules.start+1))
     assert retarget.last_spell_target != 0
 
@@ -240,7 +240,7 @@ def test_support_spells_heal_moves_buffs_wards_health_and_terrain(current_game):
             assert available(base, max_hp, 20)[i] == False and available(wounded, max_hp, 20)[i]
             out, reward, summon = apply(wounded, jnp.int32(195+i), max_hp, 20)
             np.testing.assert_array_equal(out.hp[:4], [120, 0, 120, 45])
-            assert out.last_spell_amount == 30 and reward == pytest.approx(CAST_REWARD) and not summon
+            assert out.last_spell_amount == 30 and reward == pytest.approx(rules.reward) and not summon
         if 'moves' in checks:
             i = index['moves']  # Acceleration: 50% of the full allowance, 20 here
             assert rules.metadata['spells'][i]['percent'] == 50
@@ -291,7 +291,7 @@ def test_summon_battle_victory_returns_party_and_pays_no_defeat_reward(current_g
     summoned, ts = step(state, jnp.int32(rules.start))
     hound = int(rules.summon_ids[0])
     assert summoned.in_battle and summoned.summon_battle and summoned.enemy == 0
-    assert summoned.last_event == SUMMON_CAST and float(ts.reward) == pytest.approx(CAST_REWARD-env.step_cost)
+    assert summoned.last_event == SUMMON_CAST and float(ts.reward) == pytest.approx(rules.reward-env.step_cost)
     np.testing.assert_array_equal(summoned.unit_ids[:6], [hound, 0, 0, 0, 0, 0])
     np.testing.assert_array_equal(summoned.hp, [125, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0])
     chex.assert_trees_all_equal(summoned.spell_party, jnp.stack((state.unit_ids[:6], state.unit_levels[:6],
@@ -335,10 +335,10 @@ def test_summon_defeat_keeps_wounds_hero_bonus_and_never_ends_the_game(current_g
         chex.assert_trees_all_equal(getattr(final, field)[:6], getattr(state, field)[:6])
     chex.assert_trees_all_equal(final.position, state.position)
     assert final.summon_marks[0] and not final.summon_battle
-    # The hero's own attack on that stack the same day earns the engage bonus once.
+    # Hero engagement consumes the mark; its configured action bonus is zero on v89.
     battle, ts = step(final, jnp.int32(EAST))
     assert battle.in_battle and not battle.summon_battle and not battle.summon_marks[0]
-    assert float(ts.reward) == pytest.approx(SUMMON_ENGAGE_REWARD-env.step_cost)
+    assert float(ts.reward) == pytest.approx(rules.summon_engage_reward-env.step_cost)
     squire = int(rules.enemy_max_hp(final)[0, 0])
     assert battle.hp[6] == squire-final.enemy_wounds[0, 0] and battle.enemy_initial_hp[0] == battle.hp[6]
 

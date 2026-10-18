@@ -1,6 +1,15 @@
 (() => {
   'use strict';
-  const data=JSON.parse(document.getElementById('run-data').textContent);
+  // Exported replays share repeated frame values (export_battle_viewer.py, shared-replay-values-v1).
+  const raw=JSON.parse(document.getElementById('run-data').textContent);
+  const data=raw.format==='shared-replay-values-v1'?{...raw.metadata,records:raw.records.map(r=>({label:r.label,seed:r.seed,policy:r.policy,
+    frames:r.states.map((row,i)=>{
+      const frame={};
+      r.frame_keys.forEach((key,j)=>{const index=r.fields[i][j];if(index>=0)frame[key]=raw.pool[index];});
+      frame.state=Object.fromEntries(r.state_keys.map((key,j)=>[key,raw.pool[row[j]]]));
+      return frame;
+    })}))}:raw;
+  if(raw.format)document.getElementById('run-data').textContent='';
   const $=id=>document.getElementById(id), fmt=n=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:3}).format(n);
   const canvas=$('board'), ctx=canvas.getContext('2d');
   const manaMarkers={
@@ -802,16 +811,16 @@
     renderSpells(snap);
     renderMapCommands(snap);
     $('phase-label').textContent=s.in_battle?'Бой · отряд № '+(s.enemy+1):'Карта '+map.size+' × '+map.size;
-    // A capital guard is not a victory goal; count only the stacks that must fall.
+    // Capital guards and optional_enemies are not victory goals; count only the stacks that must fall.
     // With objective cities (reference "cities" goal) count those cities instead.
-    const guards=new Set((territoryInfo()?.enemy_capitals||[]).flatMap(c=>c.guards||[c.guard]));
+    const guards=new Set([...(territoryInfo()?.enemy_capitals||[]).flatMap(c=>c.guards||[c.guard]),...(map.optional_enemies||[])]);
     const targetEnemy=Number.isInteger(map.objective_enemy)?map.objective_enemy:null;
     const targetName=targetEnemy===null?'':partyText(combatInfo()?.enemies[targetEnemy]);
     const goalCities=targetEnemy===null?(territoryInfo()?.cities||[]).map((c,i)=>c.objective?i:-1).filter(i=>i>=0):[];
     const remainingEnemy=i=>s.alive[i]||s.scenario_spawned?.[i]===false;
     const waves=map.campaign_objective==='waves';
     $('remaining').textContent=targetEnemy!==null?Number(remainingEnemy(targetEnemy)):waves?(map.scheduled_enemies||[]).filter(e=>remainingEnemy(e.enemy)).length:goalCities.length?goalCities.filter(i=>!s.city_owned?.[i]).length:s.alive.filter((a,i)=>a&&!guards.has(i)).length;
-    $('remaining-label').textContent=targetEnemy!==null?'цель: '+targetName+' · отряд № '+(targetEnemy+1):waves?'армий волн осталось, включая ещё не появившиеся':goalCities.length?'целевых городов осталось ('+goalCities.map(i=>territoryInfo().cities[i].name).join(', ')+')':'отрядов осталось';
+    $('remaining-label').textContent=targetEnemy!==null?'цель: '+targetName+' · отряд № '+(targetEnemy+1):waves?'армий волн осталось, включая ещё не появившиеся':goalCities.length?'целевых городов осталось ('+goalCities.map(i=>territoryInfo().cities[i].name).join(', ')+')':'отрядов осталось'+((map.optional_enemies||[]).length?' (без необязательных)':'');
     if(map.campaign_objective==='reach_position'){
       $('remaining').textContent=Number(!s.won);
       $('remaining-label').textContent='цель: привести живого героя '+(map.objective_radius?'в зону ⚑ радиуса '+map.objective_radius:'к ⚑')+' · строка '+map.objective_position[0]+', столбец '+map.objective_position[1];

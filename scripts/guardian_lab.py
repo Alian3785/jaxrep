@@ -44,7 +44,7 @@ from stoix.envs.number_grid_effects import (
 from stoix.envs.number_grid_hero_skills import enabled as hero_skills_enabled, lore_levels, might_bonus
 from stoix.envs.number_grid_items import ARTIFACT, BANNER, BOOK, BOOTS, ITEM_BY_KEY, VALUABLE
 from stoix.envs.number_grid_lords import DEFAULT_FACTION, lord_settings, with_starting_party
-from stoix.envs.number_grid_potions import POTIONS, POTION_BY_KEY, merchants
+from stoix.envs.number_grid_potions import POTIONS, POTION_BY_KEY, SECONDARY_COLUMNS, merchants
 from stoix.envs.number_grid_recruitment import OFFERS, mercenary_offers
 from stoix.envs.number_grid_territory import CAPITAL_ARMOR, CAPITAL_REGENERATION, CITY_BONUS
 
@@ -142,9 +142,12 @@ RULES = {
         'Повторный DoT обновляет урон и возраст без суммирования', 'DBF/EXE', 'docs/ORIGINAL_EFFECTS.md',
         'original'),
     'dot_potions': _rule(
-        'Зелья урона увеличивают и силу вторичной атаки (тик DoT)', 'Python-референс',
-        'number_grid_potions.py:temporary_bonus (столбец 5)', 'reference',
-        'Эликсир энергии на Владыку: растёт ли сила ожога.'),
+        'Зелья и заклинания, как знамёна и артефакты, не меняют вторичную атаку: силу тика DoT и точность '
+        'вторичных эффектов (окаменение, паралич, страх, ослабление); Python-референс усиливал обе атаки',
+        'запрос пользователя 19.10.2026; DBF (один класс L_ATTACK) + D2ModdingToolset',
+        'number_grid_potions.py:SECONDARY_COLUMNS; number_grid.py:_secondary_stats; docs/MAP_POTIONS.md', 'open',
+        'Тик ожога Владыки 5-го уровня (30) без бонусов, с Эликсиром энергии и со Знаменем мощи; доля '
+        'окаменений Дьявола Бездны с Зельем точности и без.'),
     'weakening': _rule(
         'Ослабление: −33% урона цели до конца боя (BATLOWERD2=33)', 'DBF/EXE',
         'docs/ORIGINAL_EFFECTS.md (EXE 0x65E591); number_grid.py:_weakening_factor', 'original'),
@@ -491,9 +494,9 @@ def _drink(base, bonus, key):
     else:
         grown = [float(round(c * (1.15 if stat == HP else 1.1))) for c in current]
     grown[HP] = max(current[HP] + 1, grown[HP])
-    grown[ACCURACY], grown[6] = min(grown[ACCURACY], 100.), min(grown[6], 100.)
-    affected = {stat} | ({5} if stat == DAMAGE else set()) | ({6} if stat == ACCURACY else set())
-    return [x + (g - c if i in affected else 0.) for i, (x, g, c) in enumerate(zip(bonus, grown, current))]
+    grown[ACCURACY] = min(grown[ACCURACY], 100.)
+    # Primary attack only: SECONDARY_COLUMNS never change (rule dot_potions).
+    return [x + (g - c if i == stat else 0.) for i, (x, g, c) in enumerate(zip(bonus, grown, current))]
 
 
 def _temporary(values, active):
@@ -505,12 +508,10 @@ def _temporary(values, active):
             if stat == ARMOR:
                 factors[stat] += potion['amount']
             else:
-                factors[stat] *= 1 + potion['amount'] / 100.
-                if stat in (DAMAGE, ACCURACY):
-                    factors[stat + 4] *= 1 + potion['amount'] / 100.
+                factors[stat] *= 1 + potion['amount'] / 100.  # SECONDARY_COLUMNS stay x1
     grown = [float(round(v * f)) for v, f in zip(values, factors)]
     grown[ARMOR] = values[ARMOR] + factors[ARMOR]
-    grown[ACCURACY], grown[6] = min(grown[ACCURACY], 100.), min(grown[6], 100.)
+    grown[ACCURACY] = min(grown[ACCURACY], 100.)
     return [g - v for g, v in zip(grown, values)]
 
 
@@ -547,7 +548,9 @@ def unit_profile(key, level, permanent=(), temporary=(), worn=(None,) * 5, hero=
     stats = list(enhanced[:5])
     stats[ACCURACY] = min(stats[ACCURACY], 100.)
     stats[DAMAGE] = min(enhanced[DAMAGE], cap)
-    secondary = (current[5] + temp[5], min(current[6] + temp[6], 100.))
+    # _secondary_stats: form and level only; potions, spells, banners and artifacts
+    # change the primary attack alone (rule dot_potions, docs/MAP_POTIONS.md).
+    secondary = tuple(base[c] for c in SECONDARY_COLUMNS)
     copy = tuple(base[:5][i] + bonus[i] for i in range(5))  # _copy_form_stats: permanent values only
     return dict(stats=tuple(stats), secondary=secondary, enhanced_damage=enhanced[DAMAGE], cap=cap, copy=copy)
 
@@ -1236,9 +1239,12 @@ def tactic_rules(model, cand):
             ids.append('fear_fort')
     if any(m['dot'] for m in members):
         ids += ['dot_tick', 'dot_armor', 'dot_refresh', 'effect_breaks', 'secondary_after_primary']
-        if any(POTION_BY_KEY[k]['stat'] == DAMAGE for k, s in cand.get('potions', [])
-               if any(m['slot'] == int(s) and m['dot'] for m in members)):
-            ids.append('dot_potions')
+    # A damage/accuracy potion on a unit whose DOT, secondary disable or weakening matters:
+    # the estimate assumes the potion leaves that secondary attack unchanged.
+    secondary = {m['slot'] for m in members if m['dot'] or m['weaken'] > 0
+                 or (m['control'] and m['control']['how'] == 'вторичная атака')}
+    if any(POTION_BY_KEY[k]['stat'] in (DAMAGE, ACCURACY) and int(s) in secondary for k, s in cand.get('potions', [])):
+        ids.append('dot_potions')
     if any(m['weaken'] > 0 for m in members) or model['opening']['weaken']:
         ids += ['weakening', 'secondary_after_primary']
     potions = [POTION_BY_KEY[k] for k, _ in cand.get('potions', [])]
@@ -1937,7 +1943,7 @@ def cmd_capabilities(args):
     say('')
     say('Исключения JAX для стража и особые правила:')
     for rule in ('transform_guard', 'transform_orb_guard', 'shatter_guard', 'spell_guard', 'copy_guard', 'fear_fort',
-                 'wounds_persist', 'guard_no_xp', 'disable_round40', 'damage_vs_disabled', 'dot_armor'):
+                 'wounds_persist', 'guard_no_xp', 'disable_round40', 'damage_vs_disabled', 'dot_armor', 'dot_potions'):
         r = RULES[rule]
         say(f"  [{r['status']}] {r['text']} — {r['source']}; {r['where']}")
     say('  Понижение уровня (Сущий, Wight Blade): у стража нет пониженной формы — эффекта нет.')

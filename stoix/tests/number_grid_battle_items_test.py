@@ -608,3 +608,47 @@ def test_magic_item_paralysis_misses_after_round_40_and_keeps_wards(effects, key
     assert not used[target] and not info['ward'] and info['applied'] == 0
     assert jnp.array_equal(hp, late.hp)
     assert after.battle_item_charges[0] < before.battle_item_charges[0]
+
+
+@pytest.mark.parametrize('key', ['orb_of_witches', 'talisman_of_witches'])
+def test_witches_items_exclude_all_capital_guards_before_wards(effects, key):
+    """User request 2026-10-19: items must share the native witch's guardian exclusion."""
+    env, base, *_ = effects
+    rules = env.battle_item_rules
+    roster = ['g000uu3001', 'g000uu3002', 'g000uu3003', 'g000uu3004', 'g000uu8040', 'goblin_archer']
+    before = slots(env, owned(env, enemy_roster_state(env, base, roster), key), key, None)
+    kind = rules.keys.index(key)
+    source = jnp.left_shift(jnp.uint32(1), rules.source[kind].astype(jnp.uint32)-1)
+    actions = rules.use_start + 12 + jnp.tile(jnp.arange(6), 2)
+    warded = jnp.repeat(jnp.array([False, True]), 6)
+
+    @jax.jit
+    @jax.vmap
+    def apply(action, ward):
+        # Isolate the guardian restriction from native source immunities/wards.
+        traits = env._combat_traits(before)
+        traits = traits.at[:, 2].set(traits[:, 2] & ~source)
+        traits = traits.at[:, 3].set(jnp.where(ward, source, jnp.uint32(0)))
+        valid = rules.use_available(env, before)[action-rules.use_start]
+        after, hp, used, info = rules.use(env, before, before.hp, before.wards_used, action,
+            jnp.zeros(env.random_size), env._combat_stats(before), traits)
+        return valid, after, hp, used, info
+
+    valid, after, hp, used, info = apply(actions, warded)
+    guarded = jnp.array([0, 1, 2, 3, 4, 6, 7, 8, 9, 10])
+    assert jnp.all(valid)  # As with a native witch, an ineffective attempt is allowed.
+    assert not jnp.any(after.imp[guarded] | after.transform_long[guarded])
+    assert jnp.all(hp == before.hp)
+    assert jnp.all(after.unit_ids == before.unit_ids)
+    assert jnp.all(after.priority[guarded] == before.priority)
+    assert jnp.all(used[guarded] == before.wards_used)
+    assert not jnp.any(info['ward'][guarded] | info['immune'][guarded] | info['applied'][guarded])
+    # Ordinary units still transform; their mind ward still absorbs the effect.
+    assert after.imp[5, 11] and info['applied'][5] == 1
+    assert not jnp.any(after.imp[11]) and info['applied'][11] == 0
+    assert info['ward'][11] == 1 << 11 and used[11, 11] & source
+    # Both successful and ineffective uses consume the orb or one talisman charge.
+    talisman = key == 'talisman_of_witches'
+    assert jnp.all(after.battle_item_charges[:, 0] == (4 if talisman else 0))
+    assert jnp.all(after.battle_items[:, 0] == (kind if talisman else -1))
+    assert jnp.all(after.battle_item_used[:, 0] == talisman)

@@ -529,7 +529,9 @@ class BattleItemRules:
                 feared=state.feared.at[target_slots].set(state.feared[target_slots] | (affected & ~protected)))
         if TRANSFORM in self.kinds:
             from stoix.envs.number_grid_item_combat import transform_imp
-            affected, used, blocked, ward = protect(TRANSFORM, alive, used)
+            # Like witches and Hag's Ring, reject guardians before spending wards.
+            guards = env.progression.capital_guards[state.unit_ids]
+            affected, used, blocked, ward = protect(TRANSFORM, alive & ~guards, used)
             immune |= blocked
             warded |= ward
             selected = affected & ~state.imp[target_slots] & (state.decay_form[target_slots] == 0)

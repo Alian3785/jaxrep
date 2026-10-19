@@ -51,6 +51,8 @@ def build(layout, source_hash):
         scripted_bot=dict(enemy=len(stacks), home=home, movement=20,
                           respawn_turns=2, battle_decisions=300, faction='empire'),
         campaign_objective='scripted_bot', reward_profile='python_reference',
+        # User request 2026-10-14: twice the reference +8 for beating the bot.
+        campaign_victory_reward=16.,
         reference_enemy_ids=[e['id'] for e in stacks]+[-75],
         reference_source='Big_map/maps/mirror_match.py; Big_map/maps/mirror_match/layout.json',
         reference_commit='2df84cbed7fc1e2a1848aa5d00cde9db271b520b',

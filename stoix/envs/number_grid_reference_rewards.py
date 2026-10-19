@@ -154,7 +154,9 @@ def finish(env, before, after):
         reward += env.objective_position_reward*(after.won & ~before.won)
     elif not env.reference_preserve_target_reward:
         multiplier = env.siege_rewards['victory_multiplier'] if env.siege_rewards else 1.
-        reward += 8.*multiplier*(after.won & ~before.won)
+        # Reference +8 unless the map overrides it (Mirror match: +16 for beating the bot).
+        victory = float(env.map_config.get('campaign_victory_reward', 8.))
+        reward += victory*multiplier*(after.won & ~before.won)
     milestones = jnp.max(env.max_hp(after)[:6]) > jnp.array([200, 250])
     # Temporary effects cannot permanently unlock milestone rewards.
     milestones &= ~after.in_battle

@@ -159,7 +159,7 @@ class Summoning:
         hp = jnp.minimum(stats[HP], jnp.maximum(1, hp)).astype(jnp.int32)
         updates = dict(unit_ids=form, unit_levels=level, hp=hp,
                        copied=jnp.bool_(True), copy_stats=stats, copy_traits=traits,
-                       copy_secondary=self._secondary_stats(state,target,temporary=False),
+                       copy_secondary=self._secondary_stats(state,target),
                        armor_shreds=jnp.int32(0), weakened=jnp.bool_(False), item_weakened=jnp.bool_(False),
                        primary_override=jnp.int32(-1), preweak_damage=jnp.int32(-1),
                        powerup=jnp.bool_(False), powerup_long=jnp.bool_(False), powerup_layered=jnp.bool_(False),

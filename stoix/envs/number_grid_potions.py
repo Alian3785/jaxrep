@@ -7,6 +7,12 @@ from stoix.envs.number_grid_combat import can_revive
 POTION_START, POTION_TARGETS = 63, 6
 POTION_HEAL, POTION_REVIVE, POTION_BUFF = 19, 20, 37
 HP, DAMAGE, ACCURACY, ARMOR, INITIATIVE = range(5)
+# Secondary damage/accuracy columns of the 7-column potion layers. User request
+# 2026-10-19: potions act only on the primary attack, like banners and artifacts.
+# Installed Gmodif/GmodifL give all of them the same L_ATTACK class (QTY_DAMAGE,
+# POWER percentages); D2ModdingToolset notes DOT damage ignores attack modifiers.
+# These columns stay zero; the Python reference also boosted them.
+SECONDARY_COLUMNS = (5, 6)
 
 
 def _p(key, name, gid, effect, amount, duration='temporary', price=800):
@@ -117,6 +123,7 @@ class PotionRules:
         self.wards = jnp.array([source_bits.get(p['effect'],0) for p in self.items],jnp.uint32)
         # Python reference multiplies all distinct temporary doses before rounding.
         # Precompute those tiny combinations in double precision, preserving ties.
+        # Columns 5-6 (secondary damage/accuracy) stay x1: see SECONDARY_COLUMNS.
         modifiers=[]
         for bits in range(2048):
             factors=[1.,1.,1.,0.,1.,1.,1.]
@@ -127,8 +134,6 @@ class PotionRules:
                         factors[stat]+=p['amount']
                     else:
                         factors[stat]*=1+p['amount']/100.
-                        if stat in (DAMAGE,ACCURACY):
-                            factors[stat+4]*=1+p['amount']/100.
             modifiers.append(factors)
         with jax.enable_x64(True):
             self.modifiers=jnp.array(modifiers,jnp.float64)
@@ -173,8 +178,7 @@ class PotionRules:
         hp = jnp.where((using & (revive | heal)) | health,hp,state.hp[slot])
         # One dose per permanent kind; rebuild from new intrinsic stats after growth.
         current = intrinsic+state.potion_bonus[slot]
-        columns = jnp.arange(7)
-        affected = (columns == stat) | ((stat == DAMAGE) & (columns == 5)) | ((stat == ACCURACY) & (columns == 6))
+        affected = jnp.arange(7) == stat  # primary attack only, never SECONDARY_COLUMNS
         with jax.enable_x64(True):
             factor=jnp.where(stat==HP,jnp.float64(1.15),jnp.float64(1.1))
             grown=jnp.rint(current.astype(jnp.float64)*factor).astype(jnp.float32)
@@ -205,7 +209,7 @@ class PotionRules:
 
     def rebuild(self, intrinsic, doses):
         """Reapply each used permanent kind once after evolution/level growth."""
-        used = jnp.concatenate((doses,doses[:,1:3]),axis=1) > 0
+        used = jnp.concatenate((doses,jnp.zeros_like(doses[:,:len(SECONDARY_COLUMNS)])),axis=1) > 0
         with jax.enable_x64(True):
             factors=jnp.array([1.15,1.1,1.1,1.,1.1,1.1,1.1],jnp.float64)
             grown=jnp.rint(intrinsic.astype(jnp.float64)*factors).astype(jnp.float32)

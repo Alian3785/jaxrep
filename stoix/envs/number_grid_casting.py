@@ -512,17 +512,16 @@ class SpellCastRules:
             spell_wards=jnp.where(back, jnp.uint32(0), after.spell_wards))
 
     def stats(self, state, values, slot=None):
-        """Reference layer order: potions, then map spells, then equipment."""
+        """Reference layer order: potions, then map spells, then equipment.
+
+        Primary attack only: like potions, banners and artifacts, spell modifiers
+        never change secondary damage/accuracy (user request 2026-10-19).
+        """
         mods = state.spell_mods if slot is None else state.spell_mods[slot]
         return jnp.stack((values[..., 0] + mods[..., 0], jnp.rint(values[..., 1] * mods[..., 1]),
                           jnp.minimum(100., jnp.rint(values[..., 2] * mods[..., 2])),
                           jnp.maximum(0., values[..., 3] + mods[..., 3]),
                           jnp.rint(values[..., 4] * mods[..., 4])), axis=-1)
-
-    def secondary(self, state, values, slot):
-        mods = state.spell_mods[slot]
-        return jnp.stack((jnp.rint(values[..., 0] * mods[..., 1]),
-                          jnp.minimum(100., jnp.rint(values[..., 1] * mods[..., 2]))), axis=-1)
 
     # Terrain/observation -------------------------------------------------
     def terrain(self, state):

@@ -176,19 +176,26 @@ def test_permanent_doses_survive_promotion_and_hero_growth(current_game):
 
 
 def test_secondary_attacks_copy_and_transformed_stat_layers(current_game):
+    # User request 2026-10-19: potions and spells, like banners and artifacts, act only
+    # on the primary attack; the assassin's poison and its accuracy keep their growth values.
     env,state,_,_=current_game
     state=hero_roster_state(env,state,['doppelganger','duke','possessed','imperial_assassin','cultist',None])
     state=stocked(env,state)
     base=env.progression.secondary_stats(state.unit_ids[3],state.unit_levels[3])
+    natural=compiled_method(env,'unit_stats')(state)[3]
     state=use(env,use(env,state,'titan',3),'fortune',3)
-    permanent=[round(float(base[0])*1.1),min(100,round(float(base[1])*1.1))]
     state=use(env,state,'might',3)
-    chex.assert_trees_all_equal(env._secondary_stats(state,jnp.int32(3)),jnp.array([round(permanent[0]*1.5),permanent[1]]))
+    boosted=compiled_method(env,'unit_stats')(state)[3]
+    assert boosted[1]>natural[1] and boosted[2]>natural[2]
+    assert not jnp.any(state.potion_bonus[:,5:]) and not jnp.any(state.potion_temporary[:,5:])
+    chex.assert_trees_all_equal(env._secondary_stats(state,jnp.int32(3)),base)
     battle=compiled_method(env,'_begin_battle')(state.replace(enemy=jnp.int32(0))).replace(actor=jnp.int32(0))
+    spelled=battle.replace(spell_mods=battle.spell_mods.at[3].set(jnp.array([0.,1.5,1.3,0.,1.])))
+    chex.assert_trees_all_equal(env._secondary_stats(spelled,jnp.int32(3)),base)
     copied=compiled_method(env,'_copy_unit')(battle,jnp.int32(3),jnp.bool_(True))
     chex.assert_trees_all_equal(copied.potion_doses,battle.potion_doses)
-    chex.assert_trees_all_equal(copied.copy_secondary[0],jnp.array(permanent))
-    chex.assert_trees_all_equal(env._secondary_stats(copied,jnp.int32(0)),jnp.array(permanent))
+    chex.assert_trees_all_equal(copied.copy_secondary[0],base)
+    chex.assert_trees_all_equal(env._secondary_stats(copied,jnp.int32(0)),base)
     # Witch form hides the potion's combat stats; cleansing restores them exactly.
     native=compiled_method(env,'unit_stats')(battle)
     imp=battle.replace(imp=battle.imp.at[3].set(True))

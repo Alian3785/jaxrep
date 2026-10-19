@@ -256,8 +256,8 @@ class BattleState(NumberGridState):
     activation_done: jax.Array  # once-per-round effects, unaffected by WAIT
     potions: jax.Array  # dense inventory of the scenario's obtainable potion types
     potion_doses: jax.Array  # [12,5] 0/1: each permanent kind used once, retained across growth
-    potion_bonus: jax.Array  # [12,7] cached permanent deltas, incl. secondary damage/accuracy
-    potion_temporary: jax.Array  # [12,7] cached temporary stat deltas, incl. secondary
+    potion_bonus: jax.Array  # [12,7] cached permanent deltas; secondary columns 5-6 stay zero
+    potion_temporary: jax.Array  # [12,7] cached temporary stat deltas; secondary columns 5-6 stay zero
     potion_active: jax.Array  # one bit per temporary catalogue item, until rest
     potion_wards: jax.Array
     last_potion: jax.Array
@@ -1302,19 +1302,14 @@ class NumberGrid(Summoning, NumericNumberGrid):
     def _natural_stats(self,state):
         return self._potion_stats(state,self.progression.stats(state.unit_ids,state.unit_levels))
 
-    def _secondary_stats(self,state,slot,temporary=True):
+    def _secondary_stats(self,state,slot):
+        """Secondary damage/accuracy of the current form, with growth but no buffs.
+
+        Potions and spells, like banners and artifacts, modify only the primary
+        attack (user request 2026-10-19, docs/MAP_POTIONS.md).
+        """
         ids,levels=self._effective_ids(state)[slot],self._effective_levels(state)[slot]
         values=self.progression.secondary_stats(ids,levels)
-        if self.has_potion_buffs:
-            bonus=state.potion_bonus[slot,5:]
-            if temporary:
-                bonus=bonus+state.potion_temporary[slot,5:]
-            natural=~state.copied[slot] & (state.decay_form[slot]==0) & (state.summon_owner[slot]<0)
-            if self.spell_casting_enabled:
-                natural &= ~state.summon_battle
-            values=values+jnp.where(natural,bonus,0)
-        if self.has_spell_mods and temporary:
-            values=self.casting.secondary(state,values,slot)
         if self.has_copies:
             values=jnp.where(state.copied[slot] & (state.decay_form[slot]==0),state.copy_secondary[slot],values)
         values = jnp.where(state.imp[slot] | state.fenrir[slot],0.,values).at[1].min(100.)

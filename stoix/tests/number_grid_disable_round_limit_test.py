@@ -72,8 +72,8 @@ def test_primary_paralyze_and_petrify_for_both_sides(current_game, caster, red):
 @pytest.mark.parametrize('caster', ['ghoul', 'mermaid', 'abyss_devil'])
 @pytest.mark.parametrize('red', [False, True])
 def test_secondary_disable_stops_but_primary_damage_remains(current_game, caster, red):
+    # Zero random draws hit any positive accuracy; potions no longer raise secondary accuracy.
     env, before, actor, target = duel(current_game, caster, red)
-    before = before.replace(potion_temporary=before.potion_temporary.at[actor, 6].set(200.))
     early = strike(env, before, target)
     assert early.paralyzed[target] | early.long_paralyzed[target]
     late = before.replace(round=jnp.int32(41))

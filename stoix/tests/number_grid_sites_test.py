@@ -16,7 +16,7 @@ from stoix.tests.number_grid_fixtures import compiled_method, hero_roster_state
 
 def at_site(env, state, kind):
     site = next(s for s in env.site_rules.sites if s['kind'] == kind)
-    return state.replace(position=jnp.array(site['interaction_tiles'][0]), gold=jnp.int32(10000))
+    return state.replace(position=jnp.array(site['interaction_tiles'][0]), gold=jnp.int32(9000))
 
 
 def inventory(env, state, keys):

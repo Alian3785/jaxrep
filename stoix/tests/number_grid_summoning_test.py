@@ -54,7 +54,7 @@ def test_default_hired_apprentice_promotes_and_summons():
     rules = env.progression
     assert env.has_summons
     state, _ = compiled_method(env, 'reset')(jax.random.PRNGKey(42))
-    state = state.replace(gold=jnp.int32(10000))
+    state = state.replace(gold=jnp.int32(9999))
     # The starting army already fills leadership: dismiss one Squire first.
     dismiss = jnp.int32(env.recruitment.dismiss_start + 2)
     assert compiled_method(env, 'action_mask')(state)[dismiss]

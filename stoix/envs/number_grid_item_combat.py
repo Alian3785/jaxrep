@@ -1,5 +1,6 @@
 """Equipment on-hit effects, sharing temporary forms with native unit attacks."""
 import jax.numpy as jnp
+from stoix.envs.number_grid_limits import MAX_HP
 from stoix.envs.number_grid_combat import HP, INITIATIVE
 from stoix.envs.number_grid_effects import source_protection, disable_attack_accuracy
 
@@ -43,7 +44,7 @@ def transform_form(env,state,hp,used,slots,selected,forms):
     state=env._capture_damage_forms(state,mask,first_mask)
     native=env.progression.base_stats[forms]
     scaled=jnp.rint(hp[slots]/jnp.maximum(old_max,1)*native[:,HP]).astype(jnp.int32)
-    scaled=jnp.where(hp[slots]>0,jnp.maximum(scaled,1),0)
+    scaled=jnp.where(hp[slots]>0,jnp.clip(scaled,1,MAX_HP),0)
     hp=hp.at[slots].set(jnp.where(selected,scaled,hp[slots]))
     saved=jnp.where(first,used[slots],state.imp_wards[slots])
     state=_suspend_weakening(state,slots,selected,first)

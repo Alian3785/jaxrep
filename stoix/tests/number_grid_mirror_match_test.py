@@ -306,7 +306,7 @@ def test_magic_kill_respawns_without_victory_and_field_target_is_dynamic(mirror)
     spell = next(i for i in range(c.book_count) if int(c.kinds[i]) == DAMAGE and bool(c.allowed[i]))
     maximum = c.enemy_max_hp(state)[b]
     state = state.replace(enemy_wounds=state.enemy_wounds.at[b].set(jnp.maximum(0, maximum-1)),
-        learned_spells=c.book_bits[spell], mana=jnp.full(5, 10000, jnp.int32))
+        learned_spells=c.book_bits[spell], mana=jnp.full(5, 9999, jnp.int32))
     field = jax.jit(c.targets)(state)[1]
     assert field == b
     tied = state.replace(alive=state.alive.at[0].set(True),

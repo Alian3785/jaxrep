@@ -152,7 +152,7 @@ def test_scenario_limits_and_source_modifiers(retreat):
     for i, row in enumerate(env.construction.rows):
         if row['level'] > 3:
             assert int(state.blocked_buildings) & (1 << i)
-    rich = state.replace(gold=jnp.int32(100000), mana=jnp.full_like(state.mana, 100000),
+    rich = state.replace(gold=jnp.int32(9999), mana=jnp.full_like(state.mana, 9999),
                          buildings=state.buildings | env.spell_research.tower_bit)
     mask = compiled_method(env, 'action_mask')(rich)
     for i, row in enumerate(env.spell_research.rows):

@@ -198,7 +198,7 @@ def test_entry_level_coefficient_must_be_finite_nonnegative(capital, value):
 def at_camp(env, state, offer):
     site = int(env.recruitment.offer_sites[offer - 5])
     return state.replace(position=jnp.array(env.site_rules.sites[site]['interaction_tiles'][0], jnp.int32),
-                         gold=jnp.int32(10000))
+                         gold=jnp.int32(9999))
 
 
 def test_capital_camp_hires_pay_zero_and_keep_vacancy_penalty(capital):
@@ -290,7 +290,7 @@ def test_hire_origin_not_unit_type_controls_reward_and_other_maps_keep_rule(capi
     rules.territory = env.territory
     apply = jax.jit(lambda s, a: rules.apply(s, a, env._clear_roster_slots))
     empty = hero_roster_state(env, initial, [None, 'duke', None, None, None, None]).replace(
-        hire_rewarded_capacity=jnp.int32(0), gold=jnp.int32(10000))
+        hire_rewarded_capacity=jnp.int32(0), gold=jnp.int32(9999))
     mercenary, reward = apply(at_camp(env, empty, 5), jnp.int32(rules.start + 5))
     regular, regular_reward = apply(empty, jnp.int32(rules.start))
     assert mercenary.unit_ids[0] == regular.unit_ids[0]  # identical unit, different hiring source

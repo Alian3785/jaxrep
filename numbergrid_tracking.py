@@ -115,6 +115,7 @@ class NumberGridTracking:
             'potions_used': 'successful doses on the map and in hero battle slots; completed-episode mean',
             'mercenaries_hired': 'successful hires from mercenary camps only; completed-episode mean',
             'trainer_uses': 'successful XP purchases for individual fighters; completed-episode mean',
+            'merchant_purchases': 'successful merchant purchases of potions or items (one stock unit each); completed-episode mean',
             'dragon_reached': 'hero army entered the objective dragon battle at least once in an episode',
             'capital_defense': ('new defensive bottles acquired; peak simultaneous living recipients per potion kind '
                 'during the guardian battle, including permanent HP; peaks and new rounds are counted once per episode'),

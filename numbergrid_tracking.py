@@ -158,8 +158,6 @@ class NumberGridTracking:
             print('Comet charts: ' + self.metadata['url'], flush=True)
         elif self.metadata['mode'] == 'online':
             print('W&B charts: ' + self.metadata['url'], flush=True)
-            if self.metadata.get('run_url'):
-                print('W&B run: ' + self.metadata['run_url'], flush=True)
         elif self.metadata['mode'] == 'offline':
             print('W&B: offline recording; sync later with python -m wandb sync ' + self.metadata['directory'],
                   flush=True)
@@ -189,7 +187,8 @@ class NumberGridTracking:
             self.metadata['dashboard'] = {'status': 'not_created', 'reason': 'offline recording',
                                           'after_sync': command}
             return
-        self.metadata['run_url'] = run.url
+        # The user reads charts only in the shared view (2026-10-17); the run page
+        # link is not recorded or printed and remains in `url` only as a fallback.
         try:
             self.metadata['dashboard'] = configure_wandb_dashboard(run.entity, run.project)
             self.metadata['url'] = self.metadata['dashboard']['url']

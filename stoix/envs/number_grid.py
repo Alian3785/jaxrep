@@ -17,6 +17,7 @@ from stoix.envs.number_grid_combat import (
 from stoix.envs.number_grid_capital import CapitalRules, HEAL_START, REVIVE_START, CAPITAL_ACTIONS
 from stoix.envs.number_grid_potions import PotionRules, POTION_START, merchants, scenario_potions
 from stoix.envs.number_grid_progression import ProgressionRules, BLOCKED_XP_FEATURES
+from stoix.envs.number_grid_limits import MAX_HP, MAX_RESOURCE, cap_stats, add_resource
 from stoix.envs.number_grid_summoning import Summoning, COPY_ALLY, COPY_ACTIONS, advance_linked_queue
 from stoix.envs.number_grid_chests import ChestRules
 from stoix.envs.number_grid_capital_training import CapitalTrainingRules
@@ -367,6 +368,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         self.starting_gold = game_map.get('starting_gold', 0)
         if type(self.starting_gold) is not int or self.starting_gold < 0:
             raise ValueError('starting_gold must be a nonnegative integer')
+        self.starting_gold = min(self.starting_gold, MAX_RESOURCE)
         # Removed with Empire-Alliance War; refuse instead of silently changing the start or loot.
         for removed in ('starting_mana', 'enemy_loot'):
             if removed in game_map:
@@ -1300,7 +1302,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         return values.at[...,ACCURACY].min(100.)
 
     def _natural_stats(self,state):
-        return self._potion_stats(state,self.progression.stats(state.unit_ids,state.unit_levels))
+        return cap_stats(self._potion_stats(state,self.progression.stats(state.unit_ids,state.unit_levels)))
 
     def _secondary_stats(self,state,slot):
         """Secondary damage/accuracy of the current form, with growth but no buffs.
@@ -1369,7 +1371,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
             disabling = (state.in_battle & (self._effect_value(state, 'ghost_modes') > 0)
                          & ~state.imp & ~state.fenrir)
             values = values.at[:,ACCURACY].set(disable_attack_accuracy(values[:,ACCURACY], disabling, state.round))
-        return values
+        return cap_stats(values)
 
     def _original_primary(self,state,saved=False):
         if self.progression_enabled:
@@ -1630,7 +1632,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         if self.has_wights:
             current_max = self.progression.base_stats[state.decay_form[actor], HP]
             restored = jnp.rint(hp[actor] / jnp.maximum(current_max, 1) * maximum).astype(jnp.int32)
-            restored = jnp.where(hp[actor] > 0, jnp.maximum(restored, 1), 0)
+            restored = jnp.where(hp[actor] > 0, jnp.clip(restored, 1, MAX_HP), 0)
             hp = hp.at[actor].set(jnp.where(recover & lowered, restored, hp[actor]))
         state = self._restore_initiative_form(state,(self.slots == actor) & recover)
         initiative = jnp.where(state.initiative_override[actor] >= 0,state.initiative_override[actor],initiative)
@@ -2143,7 +2145,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         position = jnp.where(moved, destination, state.position)
         map_steps = state.map_steps + moved.astype(jnp.int32)
         resting = (action == REST) if self.basic_combat else jnp.bool_(False)
-        gold = state.gold + jnp.where(resting & ~jnp.bool_(self.territory_enabled), DAILY_GOLD, 0)
+        gold = add_resource(state.gold, jnp.where(resting & ~jnp.bool_(self.territory_enabled), DAILY_GOLD, 0))
         next_state = state.replace(position=position, origin=state.position,
                                    gold=gold, map_steps=map_steps, last_service_cost=jnp.int32(0),
                                    last_captured_cities=jnp.zeros_like(state.city_owned),last_upgraded_city=jnp.int32(-1),
@@ -2408,7 +2410,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
         maximum = jnp.where(state.fenrir,275.,natural[:,HP])
         if self.has_wights:
             current_max = self.progression.base_stats[state.decay_form,HP]
-            restored = jnp.maximum(1,jnp.rint(hp/jnp.maximum(current_max,1)*maximum).astype(jnp.int32))
+            restored = jnp.clip(jnp.rint(hp/jnp.maximum(current_max,1)*maximum).astype(jnp.int32),1,MAX_HP)
             hp = jnp.where(transformed & (state.decay_form > 0),restored,hp)
         wards_used = jnp.where(transformed,state.imp_wards,wards_used)
         state = self._restore_damage_forms(state,transformed)
@@ -3049,7 +3051,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
                 state = state.replace(potion_bonus=jnp.where(changed[:,None],rebuilt,state.potion_bonus))
                 temporary=self.potion_rules.temporary_bonus(intrinsic+state.potion_bonus,state.potion_active)
                 state=state.replace(potion_temporary=jnp.where(changed[:,None],temporary,state.potion_temporary))
-                hp = jnp.where(changed,(intrinsic[:,HP]+state.potion_bonus[:,HP]).astype(jnp.int32),hp)
+                hp = jnp.where(changed,jnp.minimum(intrinsic[:,HP]+state.potion_bonus[:,HP],MAX_HP).astype(jnp.int32),hp)
             movement_gain = jnp.maximum(0, self._hero_level_movement_bonus(ids, levels)
                 - self._hero_level_movement_bonus(state.unit_ids, state.unit_levels))
             progress = dict(unit_ids=ids, unit_levels=levels, unit_xp=xp,
@@ -3072,7 +3074,7 @@ class NumberGrid(Summoning, NumericNumberGrid):
                               if self.progression_enabled else self.restored_hp > 0)
             recovered_hp = jnp.where(occupied_party, hp, 0)
         next_state = state.replace(
-            battle_key=key, hp=jnp.where(back, recovered_hp, hp), **progress,
+            battle_key=key, hp=jnp.minimum(jnp.where(back, recovered_hp, hp), MAX_HP), **progress,
             battle_fort_armor=jnp.where(back,0,state.battle_fort_armor),
             battle_hero_fort_armor=jnp.where(back,0,state.battle_hero_fort_armor),
             post_victory=post_team,pending_healers=pending,

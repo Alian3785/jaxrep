@@ -1,6 +1,7 @@
 """All original potions; scenario-sized actions. Sources: docs/MAP_POTIONS.md."""
 import jax
 import jax.numpy as jnp
+from stoix.envs.number_grid_limits import MAX_HP
 
 from stoix.envs.number_grid_combat import can_revive
 
@@ -174,7 +175,7 @@ class PotionRules:
         health = permanent & (stat == HP)
         with jax.enable_x64(True):
             health_hp=jnp.rint(state.hp[slot].astype(jnp.float64)*1.15).astype(jnp.int32)
-        hp = jnp.where(health,health_hp,hp)
+        hp = jnp.minimum(jnp.where(health,health_hp,hp), MAX_HP)
         hp = jnp.where((using & (revive | heal)) | health,hp,state.hp[slot])
         # One dose per permanent kind; rebuild from new intrinsic stats after growth.
         current = intrinsic+state.potion_bonus[slot]

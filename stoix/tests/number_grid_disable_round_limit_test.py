@@ -25,7 +25,7 @@ def duel(game, caster, red=False):
     actor, target = (6, 0) if red else (0, 6)
     return env, state.replace(actor=jnp.int32(actor), round=jnp.int32(40),
         native_ids=state.unit_ids, native_levels=state.unit_levels,
-        hp=jnp.where(state.unit_ids != 0, 10000, 0),
+        hp=jnp.where(state.unit_ids != 0, 9999, 0),
         priority=jnp.zeros(12).at[actor+1].set(10000.),
         turn_phase=jnp.zeros(12, jnp.int32), activation_done=jnp.zeros(12, bool)), actor, target
 

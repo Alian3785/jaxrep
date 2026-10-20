@@ -7,6 +7,7 @@ from collections import deque
 from functools import lru_cache
 import jax
 import jax.numpy as jnp
+from stoix.envs.number_grid_limits import add_resource
 
 from stoix.envs.number_grid_lords import lord_settings
 
@@ -298,7 +299,7 @@ class TerritoryRules:
                 state.opponent_claims+self.opponent_growth, self.opponent_counts))
             state = self.repaint(state)
         income = self.income(state)
-        return state.replace(gold=state.gold+income[0],mana=state.mana+income[1:])
+        return state.replace(gold=add_resource(state.gold,income[0]),mana=add_resource(state.mana,income[1:]))
 
     def capture(self,state,entered):
         """Capture an entered, cleared city only when a living original hero is present."""

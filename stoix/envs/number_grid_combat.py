@@ -5,6 +5,7 @@ from pathlib import Path
 
 import jax.numpy as jnp
 from stoix.envs.number_grid_effects import CAPITAL_GUARDS
+from stoix.envs.number_grid_limits import MAX_HP, MAX_INITIATIVE, MAX_ARMOR
 
 HP, DAMAGE, ACCURACY, ARMOR, INITIATIVE = range(5)
 STAT_NAMES = ('max_hp', 'damage', 'accuracy', 'armor', 'initiative')
@@ -45,7 +46,9 @@ def _validated_stats(values):
             or type(stats['initiative']) is not int or not 0 <= stats['initiative'] <= 1000):
         raise ValueError('Combat stats outside supported ranges')
     stats['damage'] = min(stats['damage'], 400 if values.get('hero') else 300)
-    stats['armor'] = min(stats['armor'], 90)
+    stats['armor'] = min(stats['armor'], MAX_ARMOR)
+    stats['max_hp'] = min(stats['max_hp'], MAX_HP)
+    stats['initiative'] = min(stats['initiative'], MAX_INITIATIVE)
     return [stats[name] for name in STAT_NAMES]
 
 

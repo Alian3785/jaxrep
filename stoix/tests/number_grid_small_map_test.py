@@ -95,7 +95,7 @@ def test_small_trainer_mask_and_step(small_game):
     mask, step = compiled_method(env, 'action_mask'), compiled_method(env, 'step')
     trainer = next(site for site in env.site_rules.sites if site['kind'] == 'trainer')
     action = env.site_rules.train_start  # the first living Squire
-    rich = initial.replace(gold=jnp.int32(10000))
+    rich = initial.replace(gold=jnp.int32(9999))
     assert not mask(rich)[action]
     unchanged, _ = step(rich, jnp.int32(action))
     assert unchanged.gold == rich.gold and jnp.array_equal(unchanged.unit_xp, rich.unit_xp)

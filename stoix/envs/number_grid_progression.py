@@ -7,6 +7,7 @@ import json
 
 import jax
 import jax.numpy as jnp
+from stoix.envs.number_grid_limits import MAX_LEVEL, MAX_HP, MAX_INITIATIVE, MAX_ACCURACY, MAX_ARMOR
 
 from stoix.envs.number_grid_combat import (
     UNITS, ROLES, HP, DAMAGE, ARMOR, STAT_NAMES,
@@ -97,10 +98,13 @@ class ProgressionRules:
         enemies = [roster_ids(roster, overrides) for roster, overrides in
                    zip(game_map['enemy_rosters'], enemy_overrides)]
         levels = [r['level'] for r in rows]
+        if any(type(level) is not int or not 1 <= level <= MAX_LEVEL for level in levels[1:]):
+            raise ValueError('Unit and hero base levels must be between 1 and 99')
         self.rows = rows
         self.max_hero_level = game_map.get('max_hero_level')
         if self.max_hero_level is not None and (type(self.max_hero_level) is not int or self.max_hero_level < 1):
             raise ValueError('max_hero_level must be a positive integer')
+        self.max_hero_level = min(self.max_hero_level or MAX_LEVEL, MAX_LEVEL)
         self.heroes = jnp.array([bool(r.get('hero')) for r in rows])
         self.doppelgangers = jnp.array([r.get('unit_type') == 'Doppelganger' for r in rows])
         self.copy_forbidden = jnp.array([r.get('game_data', {}).get('UNIT_CAT') == '8'
@@ -227,7 +231,7 @@ class ProgressionRules:
         if 'enemy_initial_levels' in game_map:
             starting_levels = game_map['enemy_initial_levels']
             if (len(starting_levels) != len(enemies) or any(len(row) != 6 for row in starting_levels)
-                    or any(type(level) is not int or level < levels[unit] or level > 99
+                    or any(type(level) is not int or level < levels[unit] or level > MAX_LEVEL
                            or (unit == 0 and level != 0)
                            for squad, row in zip(enemies, starting_levels) for unit, level in zip(squad, row))):
                 raise ValueError('Enemy starting levels must match the roster and be at least the base level')
@@ -292,7 +296,7 @@ class ProgressionRules:
                                      for level in range(self.kill_anchor+1)], jnp.int32)
         heavy_strike_ids = {'g000uu0019','g000uu0020','g000uu0044','g000uu0045','g000uu0047','g000uu0070','g000uu0071','g000uu0096','g000uu8009','g000uu8011'}
         support_types = {'Cliric','Profit','Patriach','Deva roshi','Sundancer','Sylfid','Ghost','Witch','Shadow','Incub','Succub','Baroness','Travnitsa','Novice','Alchemist','Dwarfdruid','Arhidruid'}
-        self.stat_caps = jnp.array([[jnp.inf, jnp.inf if r.get('unit_type') in support_types else 400 if r.get('game_id') in heavy_strike_ids else 300, 100, 90, jnp.inf]
+        self.stat_caps = jnp.array([[MAX_HP, jnp.inf if r.get('unit_type') in support_types else 400 if r.get('game_id') in heavy_strike_ids else 300, MAX_ACCURACY, MAX_ARMOR, MAX_INITIATIVE]
                                     for r in rows], jnp.float32)
         self.required = jnp.array([r['exp_required'] for r in rows], jnp.int32)
         self.required_increment = jnp.array([r.get('exp_increment', 0) for r in rows], jnp.int32)
@@ -353,7 +357,7 @@ class ProgressionRules:
             self.metadata.append(None if i == 0 else dict(
                 name=row['name'], key=row['key'], faction=row['faction'], level=row['level'],
                 hero=row.get('hero', False), level_bonuses=row.get('level_bonuses', []),
-                max_level=self.max_hero_level if row.get('hero') else None,
+                max_level=self.max_hero_level if row.get('hero') else MAX_LEVEL,
                 scenario_dynamic=bool(self.scenario_dynamic[i]),
                 hero_skills=row.get('hero_skills', []),
                 unit_type=row.get('unit_type', ''),
@@ -364,6 +368,7 @@ class ProgressionRules:
                 exp_required=row['exp_required'], exp_kill=row['exp_kill']))
 
     def raw_stats(self, ids, levels):
+        levels = jnp.minimum(levels, MAX_LEVEL)
         anchor = jnp.minimum(levels, self.level_anchor)
         return self.stat_levels[anchor, ids] + jnp.maximum(levels-self.level_anchor, 0)[..., None]*self.late[ids]
 
@@ -371,12 +376,14 @@ class ProgressionRules:
         return jnp.minimum(self.raw_stats(ids,levels), self.stat_caps[ids])
 
     def secondary_stats(self, ids, levels):
+        levels = jnp.minimum(levels, MAX_LEVEL)
         extra = jnp.maximum(levels-self.base_levels[ids], 0)
         early = jnp.minimum(extra, jnp.maximum(self.thresholds[ids]-self.base_levels[ids], 0))
         values = self.secondary_base[ids] + early[..., None]*self.secondary_early[ids] + (extra-early)[..., None]*self.secondary_late[ids]
         return jnp.minimum(values, jnp.array([300., 100.]))
 
     def required_xp(self, ids, levels):
+        levels = jnp.minimum(levels, MAX_LEVEL)
         return self.required[ids] + jnp.maximum(levels-self.base_levels[ids], 0)*self.required_increment[ids]
 
     def missing_upgrade_building(self, state, ids, levels):
@@ -414,12 +421,11 @@ class ProgressionRules:
         return jnp.where(victory & ~state.summon_battle & ~state.bot_autobattle, reward, 0.)
 
     def level_up_allowed(self, ids, levels):
-        """Imported leaders above the scenario ceiling keep their level, but cannot grow."""
-        if self.max_hero_level is None:
-            return jnp.ones_like(ids, bool)
-        return ~self.heroes[ids] | (levels < self.max_hero_level)
+        """All units stop at 99; a scenario may impose an earlier hero ceiling."""
+        return (levels < MAX_LEVEL) & (~self.heroes[ids] | (levels < self.max_hero_level))
 
     def experience(self, ids, levels, current):
+        levels = jnp.minimum(levels, MAX_LEVEL)
         killed = (self.kill_levels[jnp.minimum(levels, self.kill_anchor), ids]
                   + jnp.maximum(levels-self.kill_anchor, 0)*self.kill_late[ids])
         return jnp.stack((levels, killed, self.required_xp(ids, levels), current), axis=-1)
@@ -427,7 +433,7 @@ class ProgressionRules:
     def damage(self, state, actor, targets, guarded, bonuses, damage_value=None, armor_shreds=None, imps=None, armor_values=None):
         if damage_value is None:
             damage_value = self.stats(state.unit_ids, state.unit_levels)[actor, DAMAGE]
-        levels, ids = jnp.minimum(state.unit_levels[targets], self.armor_max_level), state.unit_ids[targets]
+        levels, ids = jnp.minimum(state.unit_levels[targets], min(MAX_LEVEL, self.armor_max_level)), state.unit_ids[targets]
         armor_ids = (self.armor_ids[levels, ids] if armor_shreds is None
                      else self.shatter_armor_ids[levels, ids, jnp.minimum(armor_shreds[targets], 6)])
         if imps is not None:

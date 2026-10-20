@@ -4,6 +4,7 @@ from pathlib import Path
 
 import jax
 import jax.numpy as jnp
+from stoix.envs.number_grid_limits import add_resource
 
 from stoix.envs.number_grid_battle_items import MAGIC_BY_KEY
 from stoix.envs.number_grid_items import (
@@ -273,8 +274,9 @@ class SiteRules:
                   & (self.items.tables['price'][ids+1] > 0)
                   & self.at(state, 'merchant') & ~state.in_battle & ~state.done)
         gold = jnp.sum(jnp.where(remove, self.items.tables['price'][ids+1]*SELL_PERCENT//100, 0))
-        return remove_items(state, remove).replace(gold=state.gold+gold,
-                             last_sale_gold=state.last_sale_gold+gold,
+        credited = add_resource(state.gold, gold)
+        return remove_items(state, remove).replace(gold=credited,
+                             last_sale_gold=state.last_sale_gold+credited-state.gold,
                              last_sold_count=state.last_sold_count+jnp.sum(remove))
 
     def apply(self, state, action):

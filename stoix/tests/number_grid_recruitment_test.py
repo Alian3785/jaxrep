@@ -33,7 +33,7 @@ def test_initial_roster_leadership_and_observation(current_game):
 def test_all_faction_offers_prices_buildings_and_placement(current_game, faction):
     env, state, _, _ = current_game
     rules = RecruitmentRules(MAP, env.progression, BuildingRules({**MAP,'faction':faction}), 180, env.site_rules)
-    base = hero_roster_state(env,state,[None,'duke',None,None,None,None]).replace(gold=jnp.int32(10000), hire_rewarded_capacity=jnp.int32(0))
+    base = hero_roster_state(env,state,[None,'duke',None,None,None,None]).replace(gold=jnp.int32(9999), hire_rewarded_capacity=jnp.int32(0))
     apply = jax.jit(lambda s,a:rules.apply(s,a,env._clear_roster_slots))
     available = jax.jit(rules.available)
     prices = {'empire':[50,60,40,50,300], 'mountain_clans':[50,60,40,400,100],
@@ -58,7 +58,7 @@ def test_all_faction_offers_prices_buildings_and_placement(current_game, faction
         out,reward = apply(s,jnp.int32(180+i))
         slot = int(rules.targets(s)[i])
         assert slot == (0 if bool(rules.front[i]) or rules.sizes[i] == 2 else 3)
-        assert out.last_event == HIRED and out.gold == 10000-prices[faction][i]
+        assert out.last_event == HIRED and out.gold == 9999-prices[faction][i]
         assert out.unit_ids[slot] == env.progression.ids[key] and out.unit_xp[slot] == 0
         assert out.hp[slot] == env.progression.stats(out.unit_ids[slot],out.unit_levels[slot])[0]
         assert out.movement_points == s.movement_points and out.day == s.day

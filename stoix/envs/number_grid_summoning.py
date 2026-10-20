@@ -1,6 +1,7 @@
 """Copy preparation and fixed-slot summons. Sources: docs/UNIT_CATALOG.md."""
 import jax
 import jax.numpy as jnp
+from stoix.envs.number_grid_limits import MAX_HP, cap_stats
 
 from stoix.envs.number_grid_effects import effect_breaks, SHORT
 from stoix.envs.number_grid_combat import HP, DAMAGE, ACCURACY, ARMOR, INITIATIVE, MELEE
@@ -190,7 +191,7 @@ class Summoning:
         values = values.at[DAMAGE].set(jnp.where(state.imp[slot],jnp.where(big,30.,20.),values[DAMAGE]))
         values = values.at[ACCURACY].set(jnp.where(state.imp[slot],jnp.where(big,70.,80.),values[ACCURACY]))
         values = values.at[ARMOR].set(jnp.where(state.imp[slot],0.,values[ARMOR]))
-        return values.at[INITIATIVE].set(jnp.where(state.imp[slot],jnp.where(big,50.,30.),values[INITIATIVE]))
+        return cap_stats(values.at[INITIATIVE].set(jnp.where(state.imp[slot],jnp.where(big,50.,30.),values[INITIATIVE])))
 
     def _spawn_units(self, state, target, enabled, rolls):
         rules, actor = self.progression, state.actor
@@ -257,10 +258,11 @@ class Summoning:
                 hp = jnp.where(state.fenrir, restored, hp)
         if self.has_copies:
             own_stats = self.progression.stats(state.native_ids,state.native_levels)
-            own_hp = self._potion_stats(state,own_stats,temporary=False)[:,HP]
+            own_hp = jnp.minimum(self._potion_stats(state,own_stats,temporary=False)[:,HP], MAX_HP)
             restored = jnp.rint(hp*own_hp/jnp.maximum(state.copy_stats[:,HP],1)).astype(jnp.int32)
             restored = jnp.where(hp > 0, jnp.maximum(1, restored), 0)
             hp = jnp.where(state.copied, restored, hp)
+        hp = jnp.minimum(hp, MAX_HP)
         updates['summon_saved_hp'] = jnp.where(first, jnp.where(state.escaped, hp, 0), state.summon_saved_hp)
         return updates
 
@@ -321,7 +323,7 @@ class Summoning:
 
     def _restore_roster(self, state, hp, ended):
         own_stats = self.progression.stats(state.native_ids,state.native_levels)
-        own_hp = self._potion_stats(state,own_stats,temporary=False)[:,HP]
+        own_hp = jnp.minimum(self._potion_stats(state,own_stats,temporary=False)[:,HP], MAX_HP)
         restored = jnp.rint(hp*own_hp/jnp.maximum(state.copy_stats[:,HP],1)).astype(jnp.int32)
         restored = jnp.where(hp > 0,jnp.maximum(1,restored),0)
         hp = jnp.where(ended & state.copied,restored,hp)
@@ -335,4 +337,4 @@ class Summoning:
             summon_saved_hp=jnp.where(ended,0,state.summon_saved_hp),
             copied=state.copied & ~ended,
             summon_owner=jnp.where(ended,-1,state.summon_owner))
-        return state,hp
+        return state,jnp.minimum(hp, MAX_HP)

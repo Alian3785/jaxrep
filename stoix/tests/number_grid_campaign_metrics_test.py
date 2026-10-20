@@ -21,7 +21,7 @@ def counters(timestep):
 
 def test_executed_build_invalid_repeat_and_timeout(current_game):
     env, initial, step, _ = current_game
-    state = initial.replace(gold=jnp.int32(10000))
+    state = initial.replace(gold=jnp.int32(9999))
     mask = compiled_method(env, 'action_mask')(state)
     slot = int(jnp.flatnonzero(mask[BUILD_START:REST])[0])
     built, ts = step(state, jnp.int32(BUILD_START + slot))
